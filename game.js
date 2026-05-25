@@ -182,7 +182,7 @@ const KEYWORDS_DICT = {
     { word: '展露',  cls: 'reveal',  title: '展露',  desc: '卡面朝上时持续生效（边缘卡 / 主卡）。不消耗法力。' },
     { word: '连击',  cls: 'combo',   title: '连击',  desc: '连续在同一侧使用卡牌累计连击数。换侧 / 弃牌 / 战斗起止清零。' },
     { word: '连携',  cls: 'combo',   title: '连携',  desc: '按 F 同时使用左 + 右 + 主卡（三张卡的法力消耗叠加）。' },
-    { word: '洗入',  cls: 'shuffle', title: '洗入',  desc: '把额外卡牌随机插入手牌；如果落在边缘可立即展露。' },
+    { word: '洗入',  cls: 'shuffle', title: '洗入',  desc: '向手牌的随机位置洗入一张卡牌（落在边缘则立即展露）。' },
     { word: '弃置',  cls: 'discard', title: '弃置',  desc: '把卡弃到弃牌堆触发效果。手牌空时弃牌堆全部洗回。' },
     { word: '实体化', cls: 'entity', title: '实体化', desc: '子弹拥有实体化层数。子弹本该销毁时（撞墙 / 穿透耗尽 / 寿命结束）转入实体态，停在原地。实体态下：与敌人碰撞 = 造成子弹伤害 + 击退 + 层数-1；敌方回合开始前 = 触发实体效果 + 层数-1。层数 0 → 销毁。子弹半径翻倍。' },
     { word: '弹射',  cls: 'bounce',  title: '弹射',  desc: '子弹撞墙时反弹（消耗 1 次弹射）。0 时撞墙销毁。' },
@@ -192,7 +192,7 @@ const KEYWORDS_DICT = {
     { word: '追踪',  cls: 'other',   title: '追踪',  desc: '子弹自动转向追踪最近的敌人。' },
     { word: '水晶',  cls: 'other',   title: '水晶',  desc: '即法力。回合制下每个玩家回合开始时回满，不自动回复。' },
     { word: '法力',  cls: 'other',   title: '法力',  desc: '使用 / 弃置卡牌的消耗资源。每个玩家回合开始回满。' },
-    { word: '奥弹',  cls: 'arcane',  title: '奥弹',  desc: '追踪敌人的奥术飞弹。可被「奥术强化」加成。' },
+    { word: '奥弹',  cls: 'arcane',  title: '奥弹',  desc: '追踪敌人的奥术飞弹。在手牌正面时立即自动触发，不消耗法力；可被「奥术强化」加成。' },
     { word: '火焰',  cls: 'fire',    title: '火焰',  desc: '可叠加层数的 debuff。敌方回合开始前每个有火焰的敌人受 (火焰层数) 伤害，然后层数 -1。' },
     { word: '引爆',  cls: 'fire',    title: '引爆',  desc: '立刻让所有有火焰的敌人受 (火焰层数 × N) 伤害并清空。' },
   ],
@@ -200,7 +200,7 @@ const KEYWORDS_DICT = {
     { word: 'Reveal',    cls: 'reveal',  title: 'Reveal',    desc: 'Active while face-up (edge cards / main card). Costs no mana.' },
     { word: 'Combo',     cls: 'combo',   title: 'Combo',     desc: 'Use cards on the same side in a row to build Combo. Switching side / discarding / battle start-end resets it.' },
     { word: 'Chain',     cls: 'combo',   title: 'Chain',     desc: 'Press F to fire Left + Right + Main together (mana costs of all three add up).' },
-    { word: 'Shuffle in', cls: 'shuffle', title: 'Shuffle in', desc: 'Insert extra cards into your hand at random positions. If they land at an edge, they reveal immediately.' },
+    { word: 'Shuffle in', cls: 'shuffle', title: 'Shuffle in', desc: 'Insert a card into your hand at a random position (reveals immediately if it lands at an edge).' },
     { word: 'Discard',   cls: 'discard', title: 'Discard',   desc: 'Send a card to the discard pile and trigger its discard effect. Discard pile reshuffles when hand is empty.' },
     { word: 'Entity',    cls: 'entity',  title: 'Entity',    desc: 'The bullet has Entity stacks. When it would be destroyed (hit a wall / out of pierce / lifetime ended) it stays in place instead. While in Entity state: enemy contact = deal bullet damage + knockback + stack-1; start of each enemy turn = trigger Entity effect + stack-1. At 0 → destroyed. Entity bullet radius is increased.' },
     { word: 'Bounce',    cls: 'bounce',  title: 'Bounce',    desc: 'Bullet bounces off walls (uses 1 Bounce). At 0, bullet is destroyed on wall hit.' },
@@ -210,7 +210,7 @@ const KEYWORDS_DICT = {
     { word: 'Track',     cls: 'other',   title: 'Track',     desc: 'Bullet auto-turns toward the nearest enemy.' },
     { word: 'Crystal',   cls: 'other',   title: 'Crystal',   desc: 'Same as mana. In turn-based mode it refills at the start of each player turn; it does not regen otherwise.' },
     { word: 'Mana',      cls: 'other',   title: 'Mana',      desc: 'Resource for using / discarding cards. Refills at the start of each player turn.' },
-    { word: 'Arcane Missile', cls: 'arcane', title: 'Arcane Missile', desc: 'A tracking arcane projectile. Can be amplified by Arcane Boost.' },
+    { word: 'Arcane Missile', cls: 'arcane', title: 'Arcane Missile', desc: 'A tracking arcane projectile. Auto-triggers the moment it is face-up in hand at no mana cost. Boosted by Arcane Boost.' },
     { word: 'Fire',      cls: 'fire',    title: 'Fire',      desc: 'Stackable debuff. At the start of each enemy turn, each enemy with Fire takes (stack) damage and then loses 1 stack.' },
     { word: 'Detonate',  cls: 'fire',    title: 'Detonate',  desc: 'Immediately deal (stack × N) damage to all enemies with Fire and clear their stacks.' },
   ],
@@ -494,46 +494,11 @@ class Bullet {
   }
 
   // 实体化每帧：
-  //   - 玩家回合：完全静止（与敌人冻结对称）
-  //   - 敌方回合：沿进入实体态时保存的 angle/speed 运动；
-  //       撞墙：bound > 0 反弹并扣 1 次；bound = 0 永久停墙上（speed=0），下回合仍不动
+  //   - 进入实体态后完全静止（玩家回合 / 敌方回合都不动），不再撞墙、不再消耗 bound
   //   - 与敌人碰撞 → 触发 HitEnemy 钩子 + 造成伤害 + 击退 + 扣 1 层（不消耗 penetrate）
+  //   - 每个敌方回合开始前由 BattleManager._tickEntityBullets 触发 EntityTurn 钩子（挥剑、射蝙蝠等）
   _updateEntity(dt, now, world) {
     if (world.battle.turn !== 'enemy') return;
-    // 移动 + 撞墙：仅当 speed > 0（bound=0 撞墙后 speed=0，永久停在墙上）
-    if (this.speed > 0) {
-      this.x += Math.cos(this.angle) * this.speed * dt;
-      this.y += Math.sin(this.angle) * this.speed * dt;
-      // 墙（梯形）
-      const tb = trapBounds(world, this.y);
-      let nrm = null;
-      if (this.y < 0)            { nrm = { x: 0, y: 1 };  this.y = 0.1; }
-      else if (this.y > world.h) { nrm = { x: 0, y: -1 }; this.y = world.h - 0.1; }
-      else if (this.x < tb.leftX){ nrm = trapNormals(world).left;  this.x = tb.leftX + 0.1; }
-      else if (this.x > tb.rightX){nrm = trapNormals(world).right; this.x = tb.rightX - 0.1; }
-      if (nrm) {
-        if (this.bound > 0) {
-          // 弹射剩余 → 正常反弹 + 扣 1 次（与普通子弹一致）
-          this.bound--;
-          const vx = Math.cos(this.angle), vy = Math.sin(this.angle);
-          const dot = vx * nrm.x + vy * nrm.y;
-          const rx = vx - 2 * dot * nrm.x;
-          const ry = vy - 2 * dot * nrm.y;
-          this.angle = Math.atan2(ry, rx);
-          this.recentHits.clear();
-        } else {
-          // 弹射 0 → 永久停墙上（不真销毁，等敌人撞 / 下回合 EntityTurn 效果继续触发）
-          this.speed = 0;
-          this.trail.length = 0;
-        }
-        if (world) FX.wall(world, this.x, this.y);
-      }
-      // 拖尾：敌方回合中实体在动，让拖尾恢复（视觉一致）；停止后不再 push（避免 6 点叠一处）
-      if (this.speed > 0) {
-        this.trail.push({ x: this.x, y: this.y });
-        if (this.trail.length > 6) this.trail.shift();
-      }
-    }
     // 敌人碰撞：实体造成 attack 伤害 + 击退 + 扣 1 层（不消耗 penetrate）
     for (const e of world.enemies) {
       if (!e.alive) continue;
@@ -1437,8 +1402,8 @@ class PlayerCannon {
     this.targetAngle = this.angle;
     this.maxHp = 20;
     this.hp = 20;
-    this.maxMana = 10;
-    this.mana = 10;
+    this.maxMana = 12;
+    this.mana = 12;
     this.shield = 0;               // 护盾：可吸收 N 次伤害（按"次数"算，不看伤害量）
     this.armor = 3;                // 护甲：按"数值"抵挡伤害，玩家回合开始重置为 armorPerTurn
     this.armorPerTurn = 3;
@@ -1993,8 +1958,6 @@ const CARD_TR = {
                    en: { name: 'Shades',     desc: 'Bounce+3, Pierce+3. Bounce and Pierce counts convert into each other.' } },
   gaze:          { zh: { name: '凝视',     desc: '数量+2。展露：数量+2。' },
                    en: { name: 'Gaze',       desc: 'Bullets+2. Reveal: Bullets+2.' } },
-  meteor:        { zh: { name: '流星雨',   desc: '子弹不再从炮台发射，改为降落在随机位置。各项属性会增幅大小和伤害。' },
-                   en: { name: 'Meteor Shower', desc: 'Bullets no longer fire from the cannon — they rain down at random positions. All stats are amplified in size and damage.' } },
   streamlined:   { zh: { name: '流线型',   desc: '穿透+4，可追踪敌人。' },
                    en: { name: 'Streamlined', desc: 'Pierce+4. Bullets Track enemies.' } },
   redherring:    { zh: { name: '鱼目混珠', desc: '数量*4，但有50%概率伤害值变为0。' },
@@ -2017,8 +1980,8 @@ const CARD_TR = {
                    en: { name: 'Shockwave',  desc: 'On collision, deals AOE damage.' } },
   arcaneboost:   { zh: { name: '奥术强化', desc: '洗入1张奥弹。你手牌中的奥弹伤害+1。' },
                    en: { name: 'Arcane Boost', desc: 'Shuffle in 1 Arcane Missile. Arcane Missile cards in your hand gain +1 damage.' } },
-  arcane_missile:{ zh: { name: '奥弹',     desc: '追踪敌人的奥术飞弹。' },
-                   en: { name: 'Arcane Missile', desc: 'A tracking arcane projectile.' } },
+  arcane_missile:{ zh: { name: '奥弹',     desc: '发射一枚追踪弹。正面时立即自动触发，不消耗法力值。' },
+                   en: { name: 'Arcane Missile', desc: 'Fires a tracking projectile. When face-up, triggers automatically and costs no mana.' } },
   leaded:        { zh: { name: '注铅',     desc: '伤害+8，穿透-5，弹射-5。' },
                    en: { name: 'Lead Slug',  desc: 'Damage+8, Pierce-5, Bounce-5.' } },
   ignite:        { zh: { name: '引燃',     desc: '伤害时施加2层燃烧。' },
@@ -2623,40 +2586,6 @@ class Card_注铅 extends Card {
   }
 }
 
-// ─── 传说 ──────────────────────────────────────────────────────────
-class Card_流星雨 extends Card {
-  constructor() {
-    super({
-      id: 'meteor', name: '流星雨',
-      desc: '子弹不再从炮台发射，改为降落在随机位置。各项属性会增幅大小和伤害。',
-      cost: 3, rarity: 'legendary', fxType: 'bullet+',
-      art: { emoji: '☄' },
-    });
-  }
-  initializeEffects() {
-    return [
-      new Effect(Phase.PreActive, 0, ctx => {
-        const b = ctx.bullet;
-        b.attack += 3;          // 伤害增幅
-        b.radius *= 2;          // 大小增幅
-        b.lifetime = Math.max(b.lifetime, 3.0);   // 给点时间从天上落下来
-        b._meteor = true;
-      }),
-      // 每颗克隆独立改写起点位置：上方随机 → 朝下
-      new Effect(Phase.Spawned, 50, ctx => {
-        const b = ctx.bullet;
-        const w = ctx.world || window.__game;
-        if (!w) return;
-        const tb = trapBounds(w, 0);
-        const left = tb.leftX + 30, right = tb.rightX - 30;
-        b.x = left + Math.random() * Math.max(1, right - left);
-        b.y = -20;
-        b.angle = Math.PI / 2 + (Math.random() - 0.5) * 0.35;   // 朝下 ± 0.17 rad
-      }),
-    ];
-  }
-}
-
 // ─── 史诗 ──────────────────────────────────────────────────────────
 class Card_双重施法 extends Card {
   constructor() {
@@ -2785,19 +2714,60 @@ class Card_奥弹 extends Card {
   constructor() {
     super({
       id: 'arcane_missile', name: '奥弹',
-      desc: '追踪敌人的奥术飞弹。',
-      cost: 1, rarity: 'epic', fxType: 'arcane',
+      desc: '发射一枚追踪弹。正面时立即自动触发，不消耗法力值。',
+      cost: 0, discardCost: 0,    // 完全免费：使用 / 弃置都不扣法力
+      rarity: 'epic', fxType: 'arcane',
       art: { emoji: '✷' },
     });
   }
-  initializeEffects() {
-    const self = this;
-    return [new Effect(Phase.PreActive, 0, ctx => {
-      ctx.bullet.attack += (self._arcBonus || 0);
-      ctx.bullet.isArcane = true;
-      ctx.bullet.tracking = true;
-      ctx.bullet.trackRate = 5;
-    })];
+  // 进入正面（边缘卡 / 主卡）→ 自动发射，自动销毁。不走 fireFromCards / 主卡 / 法力 / 连击。
+  // 用 queueMicrotask 推迟一帧执行：避免在 _updateFaceUp 的 for 循环中修改 hand 数组。
+  onReveal() {
+    if (this._firing) return;
+    this._firing = true;
+    queueMicrotask(() => {
+      const w = window.__game;
+      if (!w || !w.deck.hand.includes(this) || !this.faceUp) {
+        this._firing = false;
+        return;
+      }
+      this._autoFire(w);
+      this._lastAction = 'buff';   // 离场动画走"魔法效果"分支（紫色火花）
+      w.deck.destroyCard(this);
+    });
+  }
+  onConceal() {
+    // 还没自动触发就被换走（如换主卡）→ 解除标记，让下次再次正面时仍能触发
+    this._firing = false;
+  }
+  _autoFire(world) {
+    const player = world.player;
+    const target = nearestEnemy(world, player);
+    const angle = target
+      ? angleBetween(player.x, player.y, target.x, target.y)
+      : (player.angle ?? -Math.PI / 2);
+    const bullet = new Bullet({
+      x: player.x, y: player.y,
+      angle, speed: 380, lifetime: 3.5,
+      attack: 1 + (this._arcBonus || 0),
+      bound: 0, penetrate: 0, radius: 6,
+    });
+    bullet.isArcane = true;
+    bullet.tracking = true;
+    bullet.trackRate = 5;
+    bullet.activate(performance.now() / 1000);
+    world.bullets.push(bullet);
+    // 紫色发射火花 + 炮台反冲
+    if (player.notifyFired) player.notifyFired(world);
+    for (let i = 0; i < 8; i++) {
+      const a = Math.PI * 2 * Math.random();
+      const sp = 50 + Math.random() * 80;
+      world.particles.push(new Particle({
+        x: player.x, y: player.y - 8,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        life: 0.32, color: '#c97aff', size: 3,
+      }));
+    }
   }
 }
 
@@ -3063,13 +3033,14 @@ class Card_强化 extends Card {
   }
 }
 
-// 抽卡池（27 张，按策划表）。不含：
+// 抽卡池（26 张）。不含：
 //   - Card_强化（起手卡，不入池）
 //   - Card_奥弹（衍生卡，由 奥术强化 / 奥术礼花 洗入）
 //   - 策划表中标注「不启用」的：帽子戏法 / 节拍器 / 预知
+//   - 流星雨（已下线）
 const ALL_CARD_CTORS = [
-  // 传说 (3)
-  Card_墨镜, Card_凝视, Card_流星雨,
+  // 传说 (2)
+  Card_墨镜, Card_凝视,
   // 史诗 (4)
   Card_流线型, Card_鱼目混珠, Card_吸血蝙蝠, Card_双重施法,
   // 稀有 (7)
@@ -3082,15 +3053,17 @@ const ALL_CARD_CTORS = [
 // ─── 抽卡 / 稀有度 ──────────────────────────────────────────────────
 // 参考自走棋：等级越高越容易刷到高稀有度。普通:蓝:紫:橙 整体设计比例 7:4:2:1
 // 概率表 sum = 1.0 / 行
+// 每行 sum = 1.00。Lv 8（满级）目标：普通 40% / 稀有 30% / 史诗 20% / 传说 10%。
+// 从 Lv 1（全普通）平滑过渡：Lv 2 引入稀有，Lv 3 引入史诗，Lv 4 引入传说。
 const RARITY_PROB = {
   1: { common: 1.00, rare: 0.00, epic: 0.00, legendary: 0.00 },
-  2: { common: 0.70, rare: 0.30, epic: 0.00, legendary: 0.00 },
-  3: { common: 0.55, rare: 0.35, epic: 0.10, legendary: 0.00 },
-  4: { common: 0.45, rare: 0.33, epic: 0.20, legendary: 0.02 },
-  5: { common: 0.35, rare: 0.35, epic: 0.25, legendary: 0.05 },
-  6: { common: 0.25, rare: 0.35, epic: 0.30, legendary: 0.10 },
-  7: { common: 0.20, rare: 0.30, epic: 0.35, legendary: 0.15 },
-  8: { common: 0.10, rare: 0.30, epic: 0.40, legendary: 0.20 },
+  2: { common: 0.90, rare: 0.10, epic: 0.00, legendary: 0.00 },
+  3: { common: 0.80, rare: 0.15, epic: 0.05, legendary: 0.00 },
+  4: { common: 0.70, rare: 0.20, epic: 0.08, legendary: 0.02 },
+  5: { common: 0.62, rare: 0.24, epic: 0.11, legendary: 0.03 },
+  6: { common: 0.55, rare: 0.26, epic: 0.14, legendary: 0.05 },
+  7: { common: 0.48, rare: 0.28, epic: 0.17, legendary: 0.07 },
+  8: { common: 0.40, rare: 0.30, epic: 0.20, legendary: 0.10 },
 };
 
 // 卡牌稀有度索引（构造一次成本低）
