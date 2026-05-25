@@ -2169,7 +2169,8 @@ const _arcaneExplodeHook = new Effect(Phase.HitEnemy, -1, ctx => {
   const b = ctx.bullet;
   if (b._explodedThisHit) return;
   b._explodedThisHit = true;
-  applyAoe(ctx.world, b, { damage: b.attack, mult: AOE_MULT.arcaneExplode, exclude: ctx.enemy });
+  // 不排除直接命中目标：AOE 是独立伤害事件，直接命中也会吃到 AOE 伤害
+  applyAoe(ctx.world, b, { damage: b.attack, mult: AOE_MULT.arcaneExplode });
 });
 const _arcaneKnockbackHook = new Effect(Phase.HitEnemy, -1, ctx => {
   ctx.enemy.applyKnockback(ctx.bullet.x, ctx.bullet.y, 32);
@@ -2785,9 +2786,11 @@ class Card_冲击波 extends Card {
   initializeEffects() {
     return [
       new Effect(Phase.HitEnemy, 5, ctx => {
+        // 不排除直接命中目标：AOE 是独立伤害事件，直接命中既吃碰撞伤害也吃 AOE 伤害。
+        // 2 个冲击波叠加 = 1 直接 + 2 AOE = 3 次伤害。
         applyAoe(ctx.world, ctx.bullet, {
           damage: ctx.bullet.attack, mult: AOE_MULT.arcaneExplode,
-          target: 'enemies', exclude: ctx.enemy,
+          target: 'enemies',
         });
       }),
       new Effect(Phase.HitWall, 5, ctx => {
