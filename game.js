@@ -2149,12 +2149,12 @@ function applyAoe(world, source, opts = {}) {
     ? [world.player, ...world.summons.filter(s => s && s.alive)]
     : world.enemies.filter(e => e && e.alive);
   const damage = opts.damage ?? 0;
-  // 命中钩子传播：AOE 视为 source.bullet 对每个敌方受害者的一次"命中"。
+  // 命中钩子传播：AOE 视为 source.bullet 对每个范围内敌方受害者的一次"命中"。
   // 让"命中触发"类钩子（引燃 _fireApplyHook 等）在 AOE 时也生效。仅当 source 是子弹（有 triggerHooks）且目标是敌人时触发。
   const propagateOnHit = !isAllyTarget && source && typeof source.triggerHooks === 'function';
   let hits = 0;
   for (const v of victims) {
-    if (!v || v === opts.exclude) continue;
+    if (!v) continue;
     if (v.hp != null && v.hp <= 0) continue;
     const dx = v.x - cx, dy = v.y - cy;
     const d = Math.hypot(dx, dy);
@@ -2166,10 +2166,13 @@ function applyAoe(world, source, opts = {}) {
       while (diff < -Math.PI) diff += Math.PI * 2;
       if (Math.abs(diff) > opts.halfAngle) continue;
     }
-    // OnHit 钩子先于伤害结算 — 即使 damage=0、即使敌人挡住，也都视作"命中"
+    // OnHit 钩子先于伤害结算 — 即使 damage=0、即使敌人挡住，都视作"命中"。
+    // 含被 exclude 的敌人：AOE 是对每个范围内目标的一次独立"命中"事件，
+    // exclude 仅免该敌人的 AOE 伤害 / onHit 回调 / 击退（避免直接命中目标双倍伤害）。
     if (propagateOnHit) {
       source.triggerHooks(Phase.OnHit, { enemy: v, world });
     }
+    if (v === opts.exclude) continue;
     if (damage > 0) {
       const dealt = v.takeDamage(damage);
       // 敌人 takeDamage 不自弹伤害数字 → 这里补；ally (player / summon) 内部已弹
