@@ -189,7 +189,7 @@ function applyI18nDom() {
 // 长词在前避免短词被先匹配（如「连携」在「连击」前）。
 const KEYWORDS_DICT = {
   zh: [
-    { word: '展露',  cls: 'reveal',  title: '展露',  desc: '卡面朝上时持续生效（边缘卡 / 主卡）。不消耗法力。' },
+    { word: '展露',  cls: 'reveal',  title: '展露',  desc: '当卡牌为正面时（边缘卡 / 主卡），发射子弹会触发展露效果。卡牌自身被使用时也会触发。' },
     { word: '连击',  cls: 'combo',   title: '连击',  desc: '连续在同一侧使用卡牌累计连击数。换侧 / 弃牌 / 战斗起止清零。' },
     { word: '连携',  cls: 'combo',   title: '连携',  desc: '按 F 同时使用左 + 右 + 主卡（三张卡的法力消耗叠加）。' },
     { word: '洗入',  cls: 'shuffle', title: '洗入',  desc: '向手牌的随机位置洗入一张卡牌（落在边缘则立即展露）。' },
@@ -209,7 +209,7 @@ const KEYWORDS_DICT = {
     { word: '引爆',  cls: 'fire',    title: '引爆',  desc: '立刻让所有有火焰的敌人受 (火焰层数 × N) 伤害并清空。' },
   ],
   en: [
-    { word: 'Reveal',    cls: 'reveal',  title: 'Reveal',    desc: 'Active while face-up (edge cards / main card). Costs no mana.' },
+    { word: 'Reveal',    cls: 'reveal',  title: 'Reveal',    desc: 'While a card is face-up (edge card / main), firing any bullet triggers its Reveal effect. Using the card itself also triggers its Reveal effect.' },
     { word: 'Combo',     cls: 'combo',   title: 'Combo',     desc: 'Use cards on the same side in a row to build Combo. Switching side / discarding / battle start-end resets it.' },
     { word: 'Chain',     cls: 'combo',   title: 'Chain',     desc: 'Press F to fire Left + Right + Main together (mana costs of all three add up).' },
     { word: 'Shuffle in', cls: 'shuffle', title: 'Shuffle in', desc: 'Insert a card into your hand at a random position (reveals immediately if it lands at an edge).' },
