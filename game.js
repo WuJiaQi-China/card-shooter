@@ -419,12 +419,10 @@ class Bullet {
       this._updateEntity(dt, now, world);
       return;
     }
-    // 追踪 = "导弹型"：保留枪口初速度向量，每帧朝目标方向施加固定加速度（steering force）。
-    // 参考 Phaser / Godot homing missile 教程：
-    //   newVelocity = velocity + accel * unitToTarget * dt
-    //   速度上限 = initialSpeed × 1.5（防止持续加速 → 失去导弹手感）
-    // 效果：发射后保持原方向飞一小段 → 平滑弧线弯向目标 → 可能擦过 → 回旋再追，
-    // 而不是"瞄准敌人秒贴上"的吸附式追踪。
+    // 追踪 = "导弹型"：用角速度模型转向（与子弹速度脱耦），同时保留"加速冲刺"手感。
+    // 旧版基于线性加速度的方式（newV = v + accel·ux·dt）问题：转向速率 = accel / |v|，
+    // 子弹一旦获得 buff 提速，转弯能力反而变差 → 哪怕瞄准也会被甩飞打圈错过。
+    // 新模型：每帧把朝向直接朝目标转 ≤ trackTurnRate × dt 弧度；速度模长另由 trackAccel 控制。
     if (this.tracking) {
       let nearest = null, minD = Infinity;
       if (this.team === 'enemy') {
@@ -442,29 +440,21 @@ class Bullet {
         }
       }
       if (nearest) {
-        // 当前速度向量
-        const vx = Math.cos(this.angle) * this.speed;
-        const vy = Math.sin(this.angle) * this.speed;
-        // 目标方向单位向量
         const dx = nearest.x - this.x, dy = nearest.y - this.y;
         const dist = Math.hypot(dx, dy);
         if (dist > 0.5) {
-          const ux = dx / dist, uy = dy / dist;
-          // 转向加速度（px / s²）：trackAccel 可由卡牌覆盖；默认 900 给"懒散导弹"曲线
-          const accel = this.trackAccel || 900;
-          let newVx = vx + ux * accel * dt;
-          let newVy = vy + uy * accel * dt;
-          // 速度上限：初始速度 × 1.5。激活时记录 _initialSpeed 以参考。
+          // 角速度转向：默认 7 rad/s ≈ 401°/s（半圈 ~0.45s）。卡牌可通过 trackTurnRate 覆盖。
+          const targetAngle = Math.atan2(dy, dx);
+          let diff = targetAngle - this.angle;
+          while (diff > Math.PI)  diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const maxTurn = (this.trackTurnRate || 7) * dt;
+          this.angle += clamp(diff, -maxTurn, maxTurn);
+          // 速度模长：朝 initialSpeed × 1.5 逐渐加速；trackAccel 控制速率（默认 600 px/s²）。
           const initSpeed = this._initialSpeed || this.speed;
           const maxSpeed = initSpeed * 1.5;
-          const newMag = Math.hypot(newVx, newVy);
-          if (newMag > maxSpeed) {
-            const k = maxSpeed / newMag;
-            newVx *= k;
-            newVy *= k;
-          }
-          this.angle = Math.atan2(newVy, newVx);
-          this.speed = Math.hypot(newVx, newVy);
+          const accel = this.trackAccel || 600;
+          this.speed = Math.min(maxSpeed, this.speed + accel * dt);
         }
       }
     }
