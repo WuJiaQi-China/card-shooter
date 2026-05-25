@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <div id="page-root">
@@ -29,6 +29,7 @@
     <div class="hud-block"><span class="label" data-i18n="hud_state">状态</span><span id="state">Idle</span></div>
     <div class="hud-block"><span class="label" data-i18n="hud_turn_num">回合数</span><span id="turn-num">0</span></div>
     <div class="hud-block hud-toggle"><label><input type="checkbox" id="auto-end-toggle"><span data-i18n="hud_auto_end">法力不足时<br>自动结束回合</span></label></div>
+    <div class="hud-block hud-toggle"><label><input type="checkbox" id="auto-end-no-enemy-toggle"><span data-i18n="hud_auto_end_no_enemy">无敌人时<br>自动结束回合<br>(每点法力+1金币)</span></label></div>
     <div class="hud-block hud-gold"><span class="label" data-i18n="hud_gold">金币</span><span id="gold" class="gold-badge">5</span></div>
     <div class="hud-block hud-lang"><button id="lang-btn" class="lang-btn">EN</button></div>
   </div>
@@ -123,6 +124,6 @@
 
 </div><!-- /#page-root -->
 
-<script src="game.js?v=21"></script>
+<script src="game.js?v=22"></script>
 </body>
 </html>

@@ -41,7 +41,9 @@ const I18N = {
     rail_tip_entity: '实体(N) 子弹：撞墙/穿透耗尽后会留在原地，每回合触发实体效果（如挥剑），承受 N 次敌人碰撞后销毁',
     rail_tip_enemy: '敌人右下角图标 + 数字 = N 回合后的下一动作',
     hud_turn: '回合', hud_state: '状态', hud_turn_num: '回合数',
-    hud_auto_end: '法力不足时\n自动结束回合', hud_gold: '金币',
+    hud_auto_end: '法力不足时\n自动结束回合',
+    hud_auto_end_no_enemy: '无敌人时\n自动结束回合\n(每点法力+1金币)',
+    hud_gold: '金币',
     ms_hp: '血量', ms_armor: '护甲', ms_mana: '水晶', ms_chain: '连携', ms_combo: '连击',
     open_bag: '🎒 背包 ({n} 法力)',
     inv_title: '🎒 背包整理',
@@ -97,7 +99,9 @@ const I18N = {
     rail_tip_entity: 'Entity(N) bullets stay in place after hitting a wall / piercing out, triggering their effect each turn. Destroyed after N enemy hits.',
     rail_tip_enemy: 'Bottom-right icon + number on enemies = action coming in N turns.',
     hud_turn: 'Turn', hud_state: 'State', hud_turn_num: 'Turn #',
-    hud_auto_end: 'Auto end turn\nwhen low on mana', hud_gold: 'Gold',
+    hud_auto_end: 'Auto end turn\nwhen low on mana',
+    hud_auto_end_no_enemy: 'Auto end turn\nwhen no enemies\n(+1 gold per mana)',
+    hud_gold: 'Gold',
     ms_hp: 'HP', ms_armor: 'Armor', ms_mana: 'Mana', ms_chain: 'Chain', ms_combo: 'Combo',
     open_bag: '🎒 Bag ({n} Mana)',
     inv_title: '🎒 Inventory',
@@ -488,10 +492,13 @@ class Bullet {
   _defaultHitEnemy(enemy, world) {
     const dealt = enemy.takeDamage(this.attack);
     if (!dealt) return;
-    // 击退：沿子弹位置 → 敌人方向推一小段（juice 打击感）；距离与子弹大小绑定（radius/5 = 倍率）
-    const baseForce = clamp(3 + this.attack * 1.0, 3, 16);
-    const force = baseForce * (this.radius / 5);
-    enemy.applyKnockback(this.x, this.y, force);
+    // 击退：仅在本次命中后子弹会销毁时（不再穿透）触发。
+    // 穿透中保留敌人位置 → 避免子弹前进时不断把敌人推到自己前面、产生连续多次命中。
+    if (this.penetrate <= 0) {
+      const baseForce = clamp(3 + this.attack * 1.0, 3, 16);
+      const force = baseForce * (this.radius / 5);
+      enemy.applyKnockback(this.x, this.y, force);
+    }
     if (world) {
       FX.hit(world, this.x, this.y);
       FX.damage(world, enemy.x, enemy.y - enemy.radius, this.attack);
@@ -3363,6 +3370,7 @@ class BattleManager {
     this.enemyTurnTimer = 0;
     this.enemyTurnDuration = 0.5;    // 怪物回合持续时间（玩家也可同步射击）
     this.autoEndOnZeroMana = false;  // 设置：水晶用尽自动结束回合
+    this.autoEndOnNoEnemy = false;   // 设置：场上无敌人时自动结束回合，并把剩余法力转为金币（1:1）
     this.resumeAfterLoot = false;    // Loot 面板「继续」按钮：true=恢复战斗、false=开新战斗
     // 奥弹 buff：本回合所有奥弹叠加。turn 切换时清空
     this.arcaneBuffs = {};           // { doubleDamage, explode, knockback, refundMana, overload, echo }
@@ -3652,6 +3660,30 @@ class BattleManager {
           this.setTurn('player');
         }
       }
+    }
+
+    // 设置：场上无敌人时自动结束回合（金球 / 奖励目标不算敌人，不阻塞）
+    // 触发时把剩余法力 1:1 转为金币（鼓励无敌人时直接跳过）
+    if (this.autoEndOnNoEnemy && this.turn === 'player'
+        && !this.world.enemies.some(e => e.alive && !e._isReward)) {
+      if (this._fieldClearForAutoEnd()) {
+        this._autoEndNoEnemySettleTime = (this._autoEndNoEnemySettleTime || 0) + dt;
+        if (this._autoEndNoEnemySettleTime > 0.5) {
+          this._autoEndNoEnemySettleTime = 0;
+          const bonus = Math.floor(this.world.player.mana);
+          if (bonus > 0) {
+            this.world.gold += bonus;
+            Events.emit('goldChanged', this.world.gold);
+            toast(`+${bonus} 💰`, 0.8);
+          }
+          this.endPlayerTurn();
+          return;
+        }
+      } else {
+        this._autoEndNoEnemySettleTime = 0;
+      }
+    } else {
+      this._autoEndNoEnemySettleTime = 0;
     }
 
     // 设置：法力无法使用任何卡牌时自动结束回合
@@ -5227,6 +5259,14 @@ function setupUI(world) {
   $autoEnd.addEventListener('change', () => {
     world.battle.autoEndOnZeroMana = $autoEnd.checked;
   });
+  // 设置：场上无敌人时自动结束回合（每点法力 +1 金币）
+  const $autoEndNoEnemy = document.getElementById('auto-end-no-enemy-toggle');
+  if ($autoEndNoEnemy) {
+    $autoEndNoEnemy.checked = world.battle.autoEndOnNoEnemy;
+    $autoEndNoEnemy.addEventListener('change', () => {
+      world.battle.autoEndOnNoEnemy = $autoEndNoEnemy.checked;
+    });
+  }
 
   // 语言切换按钮：切换 → 重渲所有可见 UI
   const $langBtn = document.getElementById('lang-btn');
