@@ -4835,16 +4835,38 @@ function setupInput(world, canvas) {
   });
 }
 
+// 预计算连携模式下的总法力消耗（左 + 右 + 主，含 _comboCostFree 例外）
+function _comboTotalCost(world) {
+  const hand = world.deck.hand;
+  if (hand.length < 2) return Infinity;
+  const main = world.deck.mainCard;
+  const left = hand[0];
+  const right = hand[hand.length - 1];
+  const eff = (c) => Math.max(0, (c?.cost ?? 0) - (c?._costMod || 0));
+  const lc = left?._comboCostFree ? 0 : eff(left);
+  const rc = right?._comboCostFree ? 0 : eff(right);
+  const mc = main?._comboCostFree ? 0 : eff(main);
+  return lc + rc + mc;
+}
+
+// 连携是否会触发：有层数 + 左右都有牌 + 法力足够付三卡
+function _comboWillFire(world) {
+  return world.comboStacks > 0
+      && world.deck.hand.length >= 2
+      && world.player.mana >= _comboTotalCost(world);
+}
+
 function doFire(world, side) {
-  // 连携优先：stacks > 0 且左右都有牌 → 自动消耗 1 层 + 左+右+主一起发射
-  if (world.comboStacks > 0 && world.deck.hand.length >= 2) {
+  // 连携优先 — 但只在"实际能付得起三卡"时才触发。
+  // 法力不够时回落到单卡发射（不消耗 stack），避免有连携反而打不出卡的尴尬。
+  if (_comboWillFire(world)) {
     const left = world.deck.takeSide('left');
     const right = world.deck.takeSide('right');
     const ok = fireFromCards(world, [left, right], 'any', { isCombo: true });
     if (ok) {
       world.addComboStacks(-1);
     } else {
-      // 还回去
+      // 不该到这（已预检过法力）— 兜底回退
       world.deck.hand.unshift(left);
       world.deck.hand.push(right);
       world.deck._updateFaceUp();
@@ -4852,6 +4874,7 @@ function doFire(world, side) {
     }
     return;
   }
+  // 单卡发射（含主卡 cost）
   const c = world.deck.takeSide(side);
   if (!c) { toast(t('empty_hand'), 0.5); return; }
   const ok = fireFromCards(world, [c], side);
@@ -5023,27 +5046,14 @@ function setupUI(world) {
     const artEl = cardEl.querySelector('.card-art');
     artEl.className = 'card-art rarity-' + (card.rarity || 'common');
     artEl.textContent = art.emoji || '⚙';
-    // 总消耗
+    // 总消耗框：仅对边缘卡显示（show 类）。具体文字 / combo-active 状态由 updateUsableState 每帧根据当前法力刷新。
     const totalEl = slot.querySelector('.card-total');
     if (opts.edge && !opts.main) {
-      const mainCost = world.deck.mainCard?.cost ?? 0;
-      const isCombo = world.comboStacks > 0 && world.deck.hand.length >= 2;
-      if (isCombo) {
-        // 连携：本次发射 = 左 + 右 + 主（完美协调被连携时 cost 视为 0）
-        const left = world.deck.hand[0];
-        const right = world.deck.hand[world.deck.hand.length - 1];
-        const lcost = left?._comboCostFree ? 0 : (left?.cost ?? 0);
-        const rcost = right?._comboCostFree ? 0 : (right?.cost ?? 0);
-        totalEl.textContent = String(lcost + rcost + mainCost);
-        totalEl.classList.add('combo-active');
-      } else {
-        totalEl.textContent = String(card.cost + mainCost);
-        totalEl.classList.remove('combo-active');
-      }
       totalEl.classList.add('show');
     } else {
       totalEl.classList.remove('show');
       totalEl.classList.remove('combo-active');
+      totalEl.textContent = '';
     }
   }
 
@@ -5109,21 +5119,44 @@ function setupUI(world) {
     updateUsableState();
   }
 
-  // 每帧根据当前法力刷新「可用/不可用」标记（只标 faceUp 的卡，背面看不到差异）。
-  // 普通卡：cost + 主卡 cost ≤ mana → 可用
+  // 每帧根据当前法力刷新「可用/不可用」标记 + 边缘卡的总消耗文字 / 连携激活态。
+  // - 普通使用：cost + 主卡 cost ≤ mana → 可用
+  // - 连携自动触发：stacks>0 + 左右都有牌 + mana ≥ 左+右+主 → 边缘卡显示连携总价（紫色）；否则按单卡价显示
   function updateUsableState() {
     const mana = world.player.mana;
     const mainCard = world.deck.mainCard;
     const mainCost = mainCard ? mainCard.cost : 0;
+    const hand = world.deck.hand;
+    const left = hand[0];
+    const right = hand[hand.length - 1];
+    const comboCost = _comboTotalCost(world);
+    const comboFires = _comboWillFire(world);
     for (const slot of $handRow.children) {
       if (!slot.__cardRef) continue;
+      const card = slot.__cardRef;
       const cardE = slot.querySelector('.card');
-      if (!slot.__cardRef.faceUp) {
+      const totalEl = slot.querySelector('.card-total');
+      if (!card.faceUp) {
         cardE.classList.remove('unusable');
+        if (totalEl) { totalEl.textContent = ''; totalEl.classList.remove('combo-active'); }
         continue;
       }
-      const total = slot.__cardRef.cost + mainCost;
-      cardE.classList.toggle('unusable', mana < total);
+      const isEdge = (card === left || card === right);
+      // 单卡发射所需法力
+      const singleCost = card.cost + mainCost;
+      // 边缘卡：根据连携是否会触发，显示连携总价或单卡总价
+      if (isEdge && totalEl) {
+        if (comboFires) {
+          totalEl.textContent = String(comboCost);
+          totalEl.classList.add('combo-active');
+        } else {
+          totalEl.textContent = String(singleCost);
+          totalEl.classList.remove('combo-active');
+        }
+      }
+      // 可用性：边缘卡按"实际会发射的成本"判定（连携则按 comboCost，否则按 singleCost）
+      const usabilityCost = (isEdge && comboFires) ? comboCost : singleCost;
+      cardE.classList.toggle('unusable', mana < usabilityCost);
     }
     const mainSlot = $main.firstChild;
     if (mainSlot) mainSlot.querySelector('.card').classList.toggle('unusable', mana < mainCost);
