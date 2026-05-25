@@ -28,8 +28,10 @@
     <div class="hud-block"><span class="label" data-i18n="hud_turn">回合</span><span id="turn" class="turn-player">玩家</span></div>
     <div class="hud-block"><span class="label" data-i18n="hud_state">状态</span><span id="state">Idle</span></div>
     <div class="hud-block"><span class="label" data-i18n="hud_turn_num">回合数</span><span id="turn-num">0</span></div>
-    <div class="hud-block hud-toggle"><label><input type="checkbox" id="auto-end-toggle"><span data-i18n="hud_auto_end">法力不足时<br>自动结束回合</span></label></div>
-    <div class="hud-block hud-toggle"><label><input type="checkbox" id="auto-end-no-enemy-toggle"><span data-i18n="hud_auto_end_no_enemy">无敌人时<br>自动结束回合<br>(每点法力+1金币)</span></label></div>
+    <div class="hud-block hud-toggle-group">
+      <label class="hud-toggle-row"><input type="checkbox" id="auto-end-toggle" checked><span data-i18n="hud_auto_end">法力不足时自动结束回合</span></label>
+      <label class="hud-toggle-row"><input type="checkbox" id="auto-end-no-enemy-toggle" checked><span data-i18n="hud_auto_end_no_enemy">无敌人时自动结束回合 (每点法力+1金币)</span></label>
+    </div>
     <div class="hud-block hud-gold"><span class="label" data-i18n="hud_gold">金币</span><span id="gold" class="gold-badge">5</span></div>
     <div class="hud-block hud-cannon hidden" id="cannon-hud"><span class="label" data-i18n="cannon_hud_label">炮台</span><span id="cannon-icon" class="cannon-icon">⚙</span><span id="cannon-name" class="cannon-name">—</span></div>
     <div class="hud-block hud-lang"><button id="lang-btn" class="lang-btn">EN</button></div>
@@ -106,6 +108,8 @@
       </div>
       <div id="shop-prob-bar" class="shop-prob-bar"></div>
     </div>
+    <!-- 永久升级：满级商店后无限购买 4 项 buff（damage / pierce / bound / speed） -->
+    <div id="perm-upgrades" class="perm-upgrades hidden"></div>
     <div class="modal-sub" id="loot-hint" data-i18n="loot_hint_pick">点击候选卡 → 再点背包槽完成替换（或直接继续）</div>
     <!-- 背包：左 主卡 + 右 其它 8 张 2 行 4 列 -->
     <div class="loot-bag-area">
