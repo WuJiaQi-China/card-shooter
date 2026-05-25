@@ -3414,33 +3414,41 @@ class BattleManager {
       p.armor = p.armorPerTurn || 3;
       Events.emit('armorChanged', p.armor);
     }
-    // 进入敌方回合：分两阶段串行执行（我方 → 敌方）
-    //   阶段 1（我方）：实体效果（剑士挥剑、蝙蝠射子弹）+ 我方召唤队列 + 友军衰减 + 召唤物发射
-    //                  实体效果用 setTimeout 摊到 0~810ms 播放，是唯一的异步部分
-    //   阶段 2（敌方）：等阶段 1 跑完（场上有实体子弹时延后 850ms）→ 波次 spawn + 敌人 intent
-    //                  阶段 1 进行中：_enemyPhasePending=true，敌人 update + 回合计时器都暂停
+    // 进入敌方回合：三阶段串行（射击残余 → 我方 → 敌方）
+    //   阶段 0（射击残余）：等场上所有非实体的我方子弹打完（撞墙 / 命中 / 寿命 / 变实体）。
+    //                  期间 _entityPhasePending + _enemyPhasePending 都 true → 敌人不动，计时器不走。
+    //   阶段 1（我方/实体回合）：实体效果（剑士挥剑、蝙蝠射子弹、引信燃烧）+ 我方召唤队列 + 友军衰减 + 召唤物发射
+    //                  实体效果用 setTimeout 摊到 0~810ms 播放。
+    //   阶段 2（敌方）：场上有实体子弹时延后 850ms → 波次 spawn + 敌人 intent → _enemyPhasePending=false 解锁敌人移动
     // 火焰已移到 endPlayerTurn（玩家回合结束触发）
     if (t === 'enemy') {
-      // 阶段 1：我方
-      this._tickEntityBullets();
-      this._tickSummonOverTurns();
-      this._tickFriendlyDecay();
-      this._tickSummonFire();
-      // 阶段 2：敌方（场上有实体子弹 → 延后 850ms，让阶段 1 完整结算后再进入）
-      const hasEntity = this.world.bullets.some(b => b.alive && b.isEntity);
-      if (hasEntity) {
-        this._enemyPhasePending = true;
-        setTimeout(() => {
-          this._enemyPhasePending = false;
-          this._tickWaveSpawn();
-          this._tickEnemyIntents();
-        }, 850);
-      } else {
-        this._tickWaveSpawn();
-        this._tickEnemyIntents();
-      }
+      this._entityPhasePending = true;
+      this._enemyPhasePending = true;
     }
     Events.emit('turnChanged', t);
+  }
+
+  // 阶段 1：实体回合（剑士挥剑 / 蝙蝠射 / 引信燃烧 / 友军衰减 / 召唤物发射）
+  _startEntityPhase() {
+    this._entityPhasePending = false;
+    this._tickEntityBullets();
+    this._tickSummonOverTurns();
+    this._tickFriendlyDecay();
+    this._tickSummonFire();
+    // 实体效果异步播放（setTimeout，最长 ~810ms）→ 给 850ms 缓冲让所有效果完整结算再进敌人回合
+    const hasEntity = this.world.bullets.some(b => b.alive && b.isEntity);
+    if (hasEntity) {
+      setTimeout(() => this._startEnemyPhase(), 850);
+    } else {
+      this._startEnemyPhase();
+    }
+  }
+
+  // 阶段 2：敌方回合（波次 spawn + intent 推进）；解锁敌人移动 + 启动回合计时
+  _startEnemyPhase() {
+    this._enemyPhasePending = false;
+    this._tickWaveSpawn();
+    this._tickEnemyIntents();
   }
 
   // 火焰层数结算：每个有火焰的敌人受 stacks 伤害，然后 stacks-1（自然衰减）
@@ -3648,6 +3656,13 @@ class BattleManager {
 
   update(dt) {
     if (this.state !== State.Battle) return;
+
+    // 阶段 0：进入敌方回合后，等场上所有非实体的我方子弹清空（撞墙 / 命中 / 寿命 / 变实体）
+    //         → 启动实体回合（剑士挥剑等）→ 启动敌方回合（敌人移动 + intent）
+    if (this._entityPhasePending && this.turn === 'enemy') {
+      const hasFlying = this.world.bullets.some(b => b.alive && !b.isEntity && b.team !== 'enemy');
+      if (!hasFlying) this._startEntityPhase();
+    }
 
     // 怪物回合倒计时 → 行动结束后 0.75s 沉淀窗口（让挥剑、爆炸、AOE 等特效与扣血结算完成）
     // 阶段 1 (_enemyPhasePending) 进行中 → 不递减计时器，等我方实体效果跑完才正式开始敌方阶段
