@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title data-i18n="page_title">卡牌射击 · Web 复刻</title>
+<link rel="stylesheet" href="style.css?v=18">
+</head>
+<body>
+<div id="page-root">
+<!-- 左侧：按键教程 -->
+<aside id="left-rail">
+  <div class="rail-title" data-i18n="rail_ops">操作</div>
+  <div class="rail-key"><kbd data-i18n="kbd_mouse">鼠标</kbd> <span data-i18n="rail_mouse">瞄准</span></div>
+  <div class="rail-key"><kbd data-i18n="kbd_lmb">左键</kbd> <span data-i18n="rail_left">打左卡</span></div>
+  <div class="rail-key"><kbd data-i18n="kbd_rmb">右键</kbd> <span data-i18n="rail_right">打右卡</span></div>
+  <div class="rail-key"><kbd data-i18n="kbd_wheel_up">滚轮↑</kbd> <span data-i18n="rail_wheel_up">弃左</span></div>
+  <div class="rail-key"><kbd data-i18n="kbd_wheel_down">滚轮↓</kbd> <span data-i18n="rail_wheel_down">弃右</span></div>
+  <div class="rail-key"><kbd>Space</kbd> <span data-i18n="rail_space">结束回合</span></div>
+  <div class="rail-key"><kbd>Enter</kbd> <span data-i18n="rail_enter">开战 / 重开</span></div>
+  <div class="rail-sep"></div>
+  <div class="rail-tip" data-i18n="rail_tip_combo">连携 stacks &gt; 0 时，下次发射自动触发（左+右+主同发，费用三卡相加）</div>
+  <div class="rail-tip" data-i18n="rail_tip_entity">实体(N) 子弹：撞墙/穿透耗尽后会留在原地，每回合触发实体效果（如挥剑），承受 N 次敌人碰撞后销毁</div>
+  <div class="rail-tip" data-i18n="rail_tip_enemy">敌人右下角图标 + 数字 = N 回合后的下一动作</div>
+</aside>
+
+<div id="game-root">
+  <div id="hud">
+    <div class="hud-block"><span class="label" data-i18n="hud_turn">回合</span><span id="turn" class="turn-player">玩家</span></div>
+    <div class="hud-block"><span class="label" data-i18n="hud_state">状态</span><span id="state">Idle</span></div>
+    <div class="hud-block"><span class="label" data-i18n="hud_turn_num">回合数</span><span id="turn-num">0</span></div>
+    <div class="hud-block hud-toggle"><label><input type="checkbox" id="auto-end-toggle"><span data-i18n="hud_auto_end">法力不足时<br>自动结束回合</span></label></div>
+    <div class="hud-block hud-gold"><span class="label" data-i18n="hud_gold">金币</span><span id="gold" class="gold-badge">5</span></div>
+    <div class="hud-block hud-lang"><button id="lang-btn" class="lang-btn">EN</button></div>
+  </div>
+
+  <!-- 经验条（在回合/状态 HUD 之下） -->
+  <div id="xp-bar-row">
+    <span class="xp-lv">Lv <span id="xp-lv-num">1</span></span>
+    <div class="xp-bar-track"><div id="xp-bar-fill" class="xp-bar-fill"></div></div>
+    <span class="xp-num"><span id="xp-cur">0</span>/<span id="xp-max">6</span></span>
+  </div>
+
+  <canvas id="stage" width="900" height="560"></canvas>
+
+  <div id="hand-area">
+    <div id="hand-row"></div>
+    <div id="hand-main-row">
+      <!-- 主卡左侧：仅背包按钮（金币已挪到右上 HUD） -->
+      <div id="main-left">
+        <button id="open-inventory-btn" class="modal-btn modal-btn-shop">🎒 背包 (10 法力)</button>
+      </div>
+      <div id="hand-main"></div>
+      <!-- 主卡右侧：水晶 / 血量 / 护甲 / 连携 / 连击 -->
+      <div id="main-stats">
+        <div class="ms-row"><span class="ms-label" data-i18n="ms_hp">血量</span><span id="hp" class="ms-val">20 / 20</span><div class="ms-bar"><div id="hp-bar" class="ms-bar-fill hp"></div></div></div>
+        <div class="ms-row"><span class="ms-label" data-i18n="ms_armor">护甲</span><span id="armor" class="armor-badge">🛡 3</span></div>
+        <div class="ms-row"><span class="ms-label" data-i18n="ms_mana">水晶</span><span id="mana" class="ms-val">10 / 10</span><div class="ms-bar"><div id="mana-bar" class="ms-bar-fill mana"></div></div></div>
+        <div class="ms-row"><span class="ms-label" data-i18n="ms_chain">连携</span><span id="combo-stacks" class="stack-badge zero">0</span></div>
+        <div class="ms-row"><span class="ms-label" data-i18n="ms_combo">连击</span><span id="combo" class="ms-combo">0</span></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- 关键词解释悬浮容器：hover 卡时 JS 动态填充 -->
+  <div id="keyword-popovers"></div>
+
+  <!-- 敌人详情 tooltip：canvas hover 时显示 -->
+  <div id="enemy-tooltip" class="enemy-tooltip hidden"></div>
+
+  <!-- HUD 飞行特效层：金币 / 经验球与 +N 弹出文字（DOM 元素，可覆盖 HUD 而不被 canvas 边裁剪） -->
+  <div id="fx-layer"></div>
+
+
+  <div id="toast"></div>
+
+  <!-- 卡牌背包模态：随时可打开整理（战斗中花 10 法力） -->
+  <div id="modal-inventory" class="modal hidden">
+    <div class="modal-title"><span data-i18n="inv_title">🎒 背包整理</span></div>
+    <div class="modal-sub" data-i18n="inv_sub">右键 = 设为主卡 · 拖拽 = 交换位置</div>
+    <div class="bag-grid" id="inventory-bag"></div>
+    <button class="modal-btn" id="close-inventory-btn" data-i18n="inv_close">关闭（重新洗牌）</button>
+  </div>
+
+  <!-- 战利品面板：候选区 + 背包 + 继续；
+       新布局：候选卡左侧 / 刷新+升级+概率右侧；背包主卡单独左 + 8 张 2 行 4 列 -->
+  <div id="modal-loot" class="modal hidden">
+    <div class="modal-title">
+      <span data-i18n="loot_title">升级！可选一张新卡加入背包</span>
+    </div>
+    <!-- 顶部三段：[商店候选] [刷新/升级] [概率] -->
+    <div class="loot-top">
+      <div class="modal-cards" id="loot-candidates"></div>
+      <div class="loot-controls">
+        <button class="modal-btn modal-btn-secondary" id="reroll-btn" data-i18n="reroll_init">刷新（× 0）</button>
+        <button class="modal-btn modal-btn-shop" id="shop-level-btn" data-i18n="shop_btn_init">商店 Lv 1 (0/1)</button>
+      </div>
+      <div id="shop-prob-bar" class="shop-prob-bar"></div>
+    </div>
+    <div class="modal-sub" id="loot-hint" data-i18n="loot_hint_pick">点击候选卡 → 再点背包槽完成替换（或直接继续）</div>
+    <!-- 背包：左 主卡 + 右 其它 8 张 2 行 4 列 -->
+    <div class="loot-bag-area">
+      <div id="loot-bag-main"></div>
+      <div class="bag-grid bag-grid-8" id="loot-bag"></div>
+    </div>
+    <div class="modal-hint" data-i18n="inv_sub">右键 = 设为主卡 · 拖拽 = 交换位置</div>
+    <button class="modal-btn" id="continue-btn" data-i18n="continue">继续游戏</button>
+  </div>
+</div>
+
+<!-- 右侧：下波预告面板 -->
+<aside id="right-rail">
+  <div class="rail-title" data-i18n="wave_preview">下波预告</div>
+  <div class="wave-cd"><span id="wave-cd-num">—</span></div>
+  <div class="wave-list" id="wave-enemies"></div>
+  <div class="rail-sep"></div>
+  <div class="rail-stat"><span data-i18n="score_run">本局：</span><b id="score-val">0</b></div>
+  <div class="rail-stat"><span data-i18n="score_best">最高：</span><b id="score-high">0</b></div>
+  <div class="rail-stat"><span data-i18n="stat_kills">击杀：</span><b id="stat-kills">0</b></div>
+  <div class="rail-stat"><span data-i18n="stat_level">等级：</span><b id="stat-level">1</b></div>
+  <div class="rail-stat"><span data-i18n="stat_shop">商店：</span><b id="stat-shop">Lv 1</b></div>
+</aside>
+
+</div><!-- /#page-root -->
+
+<script src="game.js?v=18"></script>
+</body>
+</html>

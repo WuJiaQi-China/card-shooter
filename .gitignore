@@ -1,0 +1,20 @@
+# Build artifacts
+dist/
+*.zip
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs / temp
+*.log
+*.tmp
+
+# Python cache (build_xlsx.py)
+__pycache__/
+*.pyc
