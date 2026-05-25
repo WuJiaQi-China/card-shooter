@@ -2150,8 +2150,12 @@ function applyAoe(world, source, opts = {}) {
     : world.enemies.filter(e => e && e.alive);
   const damage = opts.damage ?? 0;
   // 命中钩子传播：AOE 视为 source.bullet 对每个范围内敌方受害者的一次"命中"。
-  // 让"命中触发"类钩子（引燃 _fireApplyHook 等）在 AOE 时也生效。仅当 source 是子弹（有 triggerHooks）且目标是敌人时触发。
-  const propagateOnHit = !isAllyTarget && source && typeof source.triggerHooks === 'function';
+  // 让"命中触发"类钩子（引燃 _fireApplyHook 等）在 AOE 时也生效。
+  // 仅当 source 是子弹（有 triggerHooks）+ 目标是敌人 + isHit (默认 true) 时触发。
+  // 纯 debuff 类 AOE（引信扩散燃烧、燃烧弹爆炸燃烧）传 isHit:false → 不算"命中"，不触发 OnHit。
+  // "命中 = 伤害行为"（即便伤害值为 0 也算）；"施加 debuff" 不算伤害行为。
+  const isHit = opts.isHit !== false;
+  const propagateOnHit = isHit && !isAllyTarget && source && typeof source.triggerHooks === 'function';
   let hits = 0;
   for (const v of victims) {
     if (!v) continue;
@@ -2647,9 +2651,10 @@ class Card_燃烧弹 extends Card {
     return [new Effect(Phase.Destroyed, 0, ctx => {
       const w = ctx.world || window.__game;
       if (!w) return;
+      // 纯 debuff AOE：传 isHit:false → 不算"命中"事件，不触发引燃等 OnHit 钩子
       applyAoe(w, ctx.bullet, {
         damage: 0, mult: AOE_MULT.arcaneExplode, target: 'enemies',
-        knockback: false,
+        knockback: false, isHit: false,
         onHit: (e) => applyFire(e, 2),
       });
     })];
@@ -2672,9 +2677,10 @@ class Card_引信 extends Card {
         (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('wings');
       }),
       new Effect(Phase.EntityTurn, 0, ctx => {
+        // 纯 debuff AOE：isHit:false → 不视作"命中"，不触发引燃等 OnHit 钩子
         applyAoe(ctx.world, ctx.bullet, {
           damage: 0, mult: AOE_MULT.swordSlash, target: 'enemies',
-          knockback: false, fx: false,
+          knockback: false, fx: false, isHit: false,
           onHit: (e) => applyFire(e, 1),
         });
         // 视觉：橙色环
