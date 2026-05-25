@@ -273,6 +273,41 @@ html, body {
 .kw.kw-armor   { color: #9aa8b8; }
 .kw-pop.kw-fire .kw-title { color: #ff7030; }
 
+/* HUD 炮台展示 */
+.hud-block.hud-cannon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.hud-block.hud-cannon.hidden { display: none; }
+.cannon-icon {
+  font-size: 18px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.cannon-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f1f4f8;
+}
+
+/* 炮台选择卡（在 #modal-cannon 内） */
+.modal-card.cannon-card {
+  border: 2px solid #4a5868;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+.modal-card.cannon-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
+}
+.modal-card.cannon-card .card-art {
+  font-size: 40px;
+  text-align: center;
+  padding: 12px 0 6px;
+  filter: drop-shadow(0 0 12px currentColor);
+}
+
 /* HUD 语言切换按钮 */
 .hud-block.hud-lang {
   display: flex;

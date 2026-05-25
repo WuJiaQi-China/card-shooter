@@ -85,6 +85,9 @@ const I18N = {
     prob_label_cur: 'Lv {lv} 当前', prob_label_next: 'Lv {lv} 升级后',
     rarity_common: '普通', rarity_rare: '稀有', rarity_epic: '史诗', rarity_legendary: '传说',
     main_card_label: '主卡',
+    cannon_select_title: '选择起始炮台',
+    cannon_select_sub: '选择后无法更改（本局有效）',
+    cannon_hud_label: '炮台',
     lang_btn: 'EN',
   },
   en: {
@@ -143,6 +146,9 @@ const I18N = {
     prob_label_cur: 'Lv {lv} now', prob_label_next: 'Lv {lv} after upgrade',
     rarity_common: 'Common', rarity_rare: 'Rare', rarity_epic: 'Epic', rarity_legendary: 'Legendary',
     main_card_label: 'Main',
+    cannon_select_title: 'Choose Your Starting Cannon',
+    cannon_select_sub: 'Locked in for this run',
+    cannon_hud_label: 'Cannon',
     lang_btn: '中文',
   },
 };
@@ -2030,6 +2036,77 @@ const CARD_TR = {
                    en: { name: 'Boost',      desc: 'Damage+1' } },
 };
 
+// ─── 炮台（开局选一）────────────────────────────────────────────────
+// 炮台是贯穿一局的被动 modifier；每次 fireFromCards 触发 onFire 一次。
+// onFire(self, world, tpl, opts) 在 PreActive 钩子之前调用 → 调整 tpl 基础属性 / 累计状态。
+// mainCostMod：主卡牌额外消耗，被 fireFromCards + _comboTotalCost + updateUsableState 读取。
+const CANNON_DEFS = {
+  chain: {
+    id: 'chain', name: '锁链炮台', desc: '每发射3次，获得1层连携。',
+    icon: '⛓', color: '#a08060',
+    onFire(self, world, tpl) {
+      self._shotCount = ((self._shotCount || 0) + 1) % 3;
+      if (self._shotCount === 0) world.addComboStacks(1);
+    },
+  },
+  fire: {
+    id: 'fire', name: '火焰炮台', desc: '每发射2次，命中施加1层燃烧。',
+    icon: '🔥', color: '#ff7030',
+    onFire(self, world, tpl) {
+      self._shotCount = ((self._shotCount || 0) + 1) % 2;
+      if (self._shotCount === 0) {
+        tpl._fireOnHit = (tpl._fireOnHit || 0) + 1;
+        if (!tpl._fireHookAdded) {
+          tpl.addHook(_fireApplyHook);
+          tpl._fireHookAdded = true;
+        }
+      }
+    },
+  },
+  power: {
+    id: 'power', name: '强能炮台', desc: '伤害+1，数量+1。主卡牌消耗+1。',
+    icon: '⚡', color: '#7eb1ff',
+    mainCostMod: 1,
+    onFire(self, world, tpl) {
+      tpl.attack += 1;
+      tpl.bulletCount += 1;
+    },
+  },
+};
+
+const CANNON_TR = {
+  chain: { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携。（连携发射也算）' },
+           en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack. (Chain-fires count.)' } },
+  fire:  { zh: { name: '火焰炮台', desc: '每发射2次，命中施加1层燃烧。（施加燃烧的发射也算）' },
+           en: { name: 'Fire Cannon', desc: 'Every 2 shots, the bullet applies 1 Fire on hit. (Fire-applying shots count.)' } },
+  power: { zh: { name: '强能炮台', desc: '伤害+1，数量+1。主卡牌消耗+1。' },
+           en: { name: 'Power Cannon', desc: 'Damage +1, Bullets +1. Main card cost +1.' } },
+};
+
+class Cannon {
+  constructor(id) {
+    const def = CANNON_DEFS[id];
+    if (!def) throw new Error('unknown cannon: ' + id);
+    this.id = id;
+    this.def = def;
+    this._shotCount = 0;
+  }
+  get name() {
+    const tr = CANNON_TR[this.id];
+    if (tr && tr[LANG.current]) return tr[LANG.current].name;
+    return this.def.name;
+  }
+  get desc() {
+    const tr = CANNON_TR[this.id];
+    if (tr && tr[LANG.current]) return tr[LANG.current].desc;
+    return this.def.desc;
+  }
+  get icon() { return this.def.icon; }
+  get color() { return this.def.color; }
+  get mainCostMod() { return this.def.mainCostMod || 0; }
+  onFire(world, tpl, opts) { this.def.onFire?.(this, world, tpl, opts); }
+}
+
 class Card {
   constructor(def) {
     this.id = def.id;
@@ -3568,9 +3645,14 @@ class BattleManager {
     // Battle / PreBattle / Reward / Inventory 中不响应（Inventory 由「继续」按钮专门处理）
     if (this.state === State.Battle || this.state === State.PreBattle
         || this.state === State.Reward || this.state === State.Inventory) return;
-    // 上一局阵亡后重开：完整重置玩家进度（等级 / 卡组 / 金币 / 商店 / 计分等）
+    // 上一局阵亡后重开：完整重置玩家进度（等级 / 卡组 / 金币 / 商店 / 计分 + cannon 清空）
     if (this.state === State.PostBattle) {
       this.world.resetForNewGame();
+    }
+    // 还没选炮台：弹出选择面板，选完后再重新调 startBattle
+    if (!this.world.cannon) {
+      Events.emit('requestCannonSelect', () => this.startBattle());
+      return;
     }
     this.world.player.hp = this.world.player.maxHp;
     this.world.player.mana = this.world.player.maxMana;
@@ -3891,6 +3973,7 @@ class World {
     // 下次开背包时直接折算为减少的法力消耗，打开后归零。
     this.inventoryDiscount = 0;
     this.summons = [];       // 友方召唤物（士兵 / 炮台 / 护盾兵 / 狙击塔等）
+    this.cannon = null;      // 起始炮台（开局选一）；为 null 时进 Idle 会弹选择面板
     this.deck = new CardDeck();
     this.deck.world = this;          // 反向引用，衍生卡 / 召唤通过 deck 访问 world
     this.combo = new ComboManager();
@@ -3956,6 +4039,9 @@ class World {
     const cards = [];
     for (let i = 0; i < 9; i++) cards.push(new Card_强化());
     this.deck.setBag(cards);
+    // 炮台清空 → 下次进 Idle 会再次弹出选择面板
+    this.cannon = null;
+    Events.emit('cannonChanged', null);
   }
 
   // 经验粒子到达经验条时调用
@@ -4676,7 +4762,13 @@ function fireFromCards(world, cards, side, opts = {}) {
   const useList = [...cards, main];
 
   // 单卡有效消耗：基础 cost 扣掉 _costMod（cost 减免类卡填这个字段），但不低于 0
-  const effectiveCost = (c) => Math.max(0, c.cost - (c._costMod || 0));
+  // 主卡额外加上 cannon.mainCostMod（强能炮台 +1）
+  const mainCostMod = world.cannon?.mainCostMod || 0;
+  const effectiveCost = (c) => {
+    let cost = c.cost - (c._costMod || 0);
+    if (c === main) cost += mainCostMod;
+    return Math.max(0, cost);
+  };
   // 计算总法力：连携时「完美协调」cost 视为 0（_comboCostFree 标记）
   const totalCost = useList.reduce((s, c) => {
     if (isCombo && c._comboCostFree) return s;
@@ -4689,6 +4781,9 @@ function fireFromCards(world, cards, side, opts = {}) {
     x: player.x, y: player.y, angle: player.angle,
     speed: 480, lifetime: 2.0, bulletCount: 1, waveCount: 1, attack: 1, bound: 0, penetrate: 0,
   });
+
+  // 炮台被动：在 PreActive 之前修改 tpl 基础属性 / 累计 cannon 状态（连击 stack / 燃烧计数等）
+  if (world.cannon) world.cannon.onFire(world, tpl, opts);
 
   // 让外部（如展露光环）有机会改模板
   Events.emit('beforeShoot', tpl);
@@ -4858,16 +4953,18 @@ function setupInput(world, canvas) {
 }
 
 // 预计算连携模式下的总法力消耗（左 + 右 + 主，含 _comboCostFree 例外）
+// 主卡额外加上 cannon.mainCostMod（如强能炮台 +1）
 function _comboTotalCost(world) {
   const hand = world.deck.hand;
   if (hand.length < 2) return Infinity;
   const main = world.deck.mainCard;
   const left = hand[0];
   const right = hand[hand.length - 1];
+  const mainCostMod = world.cannon?.mainCostMod || 0;
   const eff = (c) => Math.max(0, (c?.cost ?? 0) - (c?._costMod || 0));
   const lc = left?._comboCostFree ? 0 : eff(left);
   const rc = right?._comboCostFree ? 0 : eff(right);
-  const mc = main?._comboCostFree ? 0 : eff(main);
+  const mc = main?._comboCostFree ? 0 : Math.max(0, eff(main) + mainCostMod);
   return lc + rc + mc;
 }
 
@@ -5147,7 +5244,8 @@ function setupUI(world) {
   function updateUsableState() {
     const mana = world.player.mana;
     const mainCard = world.deck.mainCard;
-    const mainCost = mainCard ? mainCard.cost : 0;
+    const mainCostMod = world.cannon?.mainCostMod || 0;
+    const mainCost = mainCard ? Math.max(0, mainCard.cost + mainCostMod) : 0;
     const hand = world.deck.hand;
     const left = hand[0];
     const right = hand[hand.length - 1];
@@ -5351,8 +5449,28 @@ function setupUI(world) {
 
   setupLootPanel(world);
   setupInventoryPanel(world);
+  setupCannonSelect(world);
   setupKeywordTooltips();
   setupEnemyTooltip(world);
+
+  // HUD 上的炮台显示（在切换语言 / cannon 变更时刷新）
+  const $cannonHud = document.getElementById('cannon-hud');
+  const $cannonName = document.getElementById('cannon-name');
+  const $cannonIcon = document.getElementById('cannon-icon');
+  function refreshCannonHud() {
+    if (!$cannonHud) return;
+    if (world.cannon) {
+      $cannonHud.classList.remove('hidden');
+      $cannonName.textContent = world.cannon.name;
+      $cannonIcon.textContent = world.cannon.icon;
+      $cannonIcon.style.color = world.cannon.color;
+    } else {
+      $cannonHud.classList.add('hidden');
+    }
+  }
+  Events.on('cannonChanged', refreshCannonHud);
+  Events.on('langChanged', refreshCannonHud);
+  refreshCannonHud();
 
   // 初次手动触发一次 state / turn 渲染，让初始文案就是当前语言
   Events.emit('stateChanged', world.battle.state);
@@ -5623,6 +5741,61 @@ function setupKeywordTooltips() {
     const slot = e.target.closest('.card-slot, .modal-card, .bag-slot');
     if (slot) clear();
   });
+}
+
+// ---- 起始炮台选择面板（首次进入 / 阵亡后重开）----
+function setupCannonSelect(world) {
+  const $modal = document.getElementById('modal-cannon');
+  const $opts = document.getElementById('cannon-options');
+  const $title = document.getElementById('cannon-select-title');
+  const $sub = document.getElementById('cannon-select-sub');
+  if (!$modal || !$opts) return;
+  let pendingCallback = null;
+
+  function refreshLabels() {
+    if ($title) $title.textContent = t('cannon_select_title');
+    if ($sub) $sub.textContent = t('cannon_select_sub');
+  }
+  Events.on('langChanged', () => {
+    refreshLabels();
+    if (!$modal.classList.contains('hidden')) render();
+  });
+
+  function render() {
+    $opts.innerHTML = '';
+    for (const id of Object.keys(CANNON_DEFS)) {
+      const c = new Cannon(id);
+      const el = document.createElement('div');
+      el.className = 'modal-card cannon-card';
+      el.style.borderColor = c.color;
+      el.innerHTML = `
+        <div class="card-art" style="color:${c.color}">${c.icon}</div>
+        <div class="card-name">${c.name}</div>
+        <div class="card-desc">${c.desc}</div>
+      `;
+      el.addEventListener('click', () => {
+        world.cannon = c;
+        Events.emit('cannonChanged', c);
+        $modal.classList.add('hidden');
+        const cb = pendingCallback;
+        pendingCallback = null;
+        if (cb) cb();
+      });
+      $opts.appendChild(el);
+    }
+  }
+
+  function open(cb) {
+    pendingCallback = cb || null;
+    refreshLabels();
+    render();
+    $modal.classList.remove('hidden');
+  }
+
+  Events.on('requestCannonSelect', open);
+
+  // 首次加载时若无 cannon → 立即弹出（玩家选完才能按 Enter 开战）
+  if (!world.cannon) open(null);
 }
 
 // ---- 战利品面板（合并 = 3 张候选 + 背包编辑 + 继续按钮）----
