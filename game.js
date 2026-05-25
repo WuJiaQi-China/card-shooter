@@ -386,7 +386,8 @@ class Bullet {
       this._updateEntity(dt, now, world);
       return;
     }
-    // 追踪：平滑转向最近"对方阵营"（玩家弹追敌人；敌方弹追 ally）
+    // 追踪：保留初始方向手感 + 距离自适应转向速率。
+    // 远处低速纠正（玩家瞄准被尊重）、贴近目标时显著加快（避免环绕）。无瞬移 snap。
     if (this.tracking) {
       let nearest = null, minD = Infinity;
       if (this.team === 'enemy') {
@@ -408,18 +409,15 @@ class Bullet {
         const dy = nearest.y - this.y;
         const d = Math.hypot(dx, dy);
         const targetA = Math.atan2(dy, dx);
-        // 近距锁定：目标距离 < snap 半径时，强制对准目标方向（避免轨道环绕：
-        // 原因 — 子弹的转向半径 = speed/turnRate，若大于目标到飞行路径的垂距，子弹永远绕不进来）
-        const snapR = Math.max(36, this.radius * 4);
-        if (d < snapR) {
-          this.angle = targetA;
-        } else {
-          let diff = targetA - this.angle;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          // 默认转向速率提高到 12 rad/s（原 6 太低，远距离也会绕圈）
-          this.angle += diff * Math.min(1, dt * (this.trackRate || 12));
-        }
+        let diff = targetA - this.angle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        // 默认 5 rad/s（之前 12 抢戏）；越靠近，转向速率越高（base..base*5）。
+        // closeFactor: 0（远）→ 1（擦边）；近距加速避免擦肩 / 环绕。
+        const closeFactor = Math.max(0, 1 - d / (this.radius * 3 + 30));
+        const baseRate = this.trackRate || 5;
+        const effectiveRate = baseRate * (1 + closeFactor * 4);
+        this.angle += diff * Math.min(1, dt * effectiveRate);
       }
     }
     // 记录拖尾位置（每帧 push 一次，保留最近 6 个）
@@ -3662,10 +3660,10 @@ class BattleManager {
       }
     }
 
-    // 设置：场上无敌人时自动结束回合（金球 / 奖励目标不算敌人，不阻塞）
+    // 设置：场上无敌人时自动结束回合（金球也算敌人 → 在场时阻塞，让玩家可以慢慢打掉换金币）
     // 触发时把剩余法力 1:1 转为金币（鼓励无敌人时直接跳过）
     if (this.autoEndOnNoEnemy && this.turn === 'player'
-        && !this.world.enemies.some(e => e.alive && !e._isReward)) {
+        && !this.world.enemies.some(e => e.alive)) {
       if (this._fieldClearForAutoEnd()) {
         this._autoEndNoEnemySettleTime = (this._autoEndNoEnemySettleTime || 0) + dt;
         if (this._autoEndNoEnemySettleTime > 0.5) {
