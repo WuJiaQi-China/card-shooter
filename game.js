@@ -185,8 +185,10 @@ const KEYWORDS_DICT = {
     { word: '洗入',  cls: 'shuffle', title: '洗入',  desc: '向手牌的随机位置洗入一张卡牌（落在边缘则立即展露）。' },
     { word: '弃置',  cls: 'discard', title: '弃置',  desc: '把卡弃到弃牌堆触发效果。手牌空时弃牌堆全部洗回。' },
     { word: '实体化', cls: 'entity', title: '实体化', desc: '子弹拥有实体化层数。子弹本该销毁时（撞墙 / 穿透耗尽 / 寿命结束）转入实体态，停在原地。实体态下：与敌人碰撞 = 造成子弹伤害 + 击退 + 层数-1；敌方回合开始前 = 触发实体效果 + 层数-1。层数 0 → 销毁。子弹半径翻倍。' },
-    { word: '弹射',  cls: 'bounce',  title: '弹射',  desc: '子弹撞墙时反弹（消耗 1 次弹射）。0 时撞墙销毁。' },
-    { word: '穿透',  cls: 'bounce',  title: '穿透',  desc: '命中敌人后继续飞（消耗 1 次穿透）。0 时命中销毁。' },
+    { word: '弹射',  cls: 'bounce',  title: '弹射',  desc: '子弹撞墙时反弹（消耗 1 次弹射）。0 时撞墙销毁。「弹射时…」效果在弹射次数减少的瞬间触发。' },
+    { word: '穿透',  cls: 'bounce',  title: '穿透',  desc: '命中敌人后继续飞（消耗 1 次穿透）。0 时命中销毁。「穿透时…」效果在穿透次数减少的瞬间触发。' },
+    { word: '命中',  cls: 'other',   title: '命中',  desc: '子弹尝试对敌人造成伤害的时刻（被格挡 / 伤害为 0 也算）。直接碰撞和范围伤害都会触发命中效果。' },
+    { word: '碰撞',  cls: 'other',   title: '碰撞',  desc: '子弹与敌人或墙壁发生接触的时刻，不论后续是否真造成伤害。' },
     { word: '护盾',  cls: 'summon',  title: '护盾',  desc: '吸收 1 次伤害（吸完后消失）。' },
     { word: '护甲',  cls: 'armor',   title: '护甲',  desc: '按数值抵挡伤害。玩家回合开始重置为 3。' },
     { word: '追踪',  cls: 'other',   title: '追踪',  desc: '子弹自动转向追踪最近的敌人。' },
@@ -203,8 +205,10 @@ const KEYWORDS_DICT = {
     { word: 'Shuffle in', cls: 'shuffle', title: 'Shuffle in', desc: 'Insert a card into your hand at a random position (reveals immediately if it lands at an edge).' },
     { word: 'Discard',   cls: 'discard', title: 'Discard',   desc: 'Send a card to the discard pile and trigger its discard effect. Discard pile reshuffles when hand is empty.' },
     { word: 'Entity',    cls: 'entity',  title: 'Entity',    desc: 'The bullet has Entity stacks. When it would be destroyed (hit a wall / out of pierce / lifetime ended) it stays in place instead. While in Entity state: enemy contact = deal bullet damage + knockback + stack-1; start of each enemy turn = trigger Entity effect + stack-1. At 0 → destroyed. Entity bullet radius is increased.' },
-    { word: 'Bounce',    cls: 'bounce',  title: 'Bounce',    desc: 'Bullet bounces off walls (uses 1 Bounce). At 0, bullet is destroyed on wall hit.' },
-    { word: 'Pierce',    cls: 'bounce',  title: 'Pierce',    desc: 'Bullet continues after hitting an enemy (uses 1 Pierce). At 0, bullet is destroyed on enemy hit.' },
+    { word: 'Bounce',    cls: 'bounce',  title: 'Bounce',    desc: 'Bullet bounces off walls (uses 1 Bounce). At 0, bullet is destroyed on wall hit. "On bounce…" effects trigger the moment the Bounce counter decreases.' },
+    { word: 'Pierce',    cls: 'bounce',  title: 'Pierce',    desc: 'Bullet continues after hitting an enemy (uses 1 Pierce). At 0, bullet is destroyed on enemy hit. "On pierce…" effects trigger the moment the Pierce counter decreases.' },
+    { word: 'On hit',    cls: 'other',   title: 'On hit',    desc: 'The moment a bullet attempts to damage an enemy (even if blocked or damage = 0). Both direct collisions and AOE hits fire on-hit effects.' },
+    { word: 'On collision', cls: 'other', title: 'On collision', desc: 'The moment a bullet touches an enemy or wall, regardless of whether damage is actually dealt.' },
     { word: 'Shield',    cls: 'summon',  title: 'Shield',    desc: 'Absorbs 1 hit of damage, then disappears.' },
     { word: 'Armor',     cls: 'armor',   title: 'Armor',     desc: 'Absorbs damage by its value. Resets to 3 at the start of each player turn.' },
     { word: 'Track',     cls: 'other',   title: 'Track',     desc: 'Bullet auto-turns toward the nearest enemy.' },
@@ -279,8 +283,13 @@ const Events = new Emitter();
 const Phase = Object.freeze({
   PreActive:  'PreActive',   // 发射前一次（模板）
   Spawned:    'Spawned',     // 每颗克隆生成（per-clone 随机决策唯一时机）
-  HitWall:    'HitWall',     // 撞墙
-  HitEnemy:   'HitEnemy',    // 命中敌人
+  HitWall:    'HitWall',     // 撞墙（碰撞墙 / "弹射"触发 = bound-- 时点）
+  HitEnemy:   'HitEnemy',    // 与敌人直接碰撞（"碰撞"触发；"穿透"触发 = penetrate-- 时点）
+  // OnHit: 任何对敌人的"命中"尝试 — 直接子弹碰撞 + AOE 都会触发；
+  // 不论 attack 是 0、敌方有护盾抵挡、或 HitEnemy 钩子 handled=true，都会触发。
+  // 给"命中触发"类卡（如引燃）用。和 HitEnemy 严格区分：HitEnemy 改子弹状态（弹/穿、速度等），
+  // OnHit 只对被命中的"那个敌人"做事，不修改子弹状态，避免 AOE 链式叠加 bug。
+  OnHit:      'OnHit',
   Destroyed:  'Destroyed',   // 销毁
   PostActive: 'PostActive',  // 一波打完（模板）
   EntityTurn: 'EntityTurn',  // 实体化子弹：每个敌方回合开始前触发（也可空 → 仅承伤实体）
@@ -465,7 +474,10 @@ class Bullet {
         const last = this.recentHits.get(e.id);
         if (last != null && now - last < this.hitCooldown) continue;
         this.recentHits.set(e.id, now);
+        // 碰撞钩子：可改子弹状态，可 handled=true 拦截默认伤害
         const handled = this.triggerHooks(Phase.HitEnemy, { enemy: e, world });
+        // 命中钩子：与 handled 无关、与是否拦截无关 — "尝试造成伤害"语义
+        this.triggerHooks(Phase.OnHit, { enemy: e, world });
         if (!handled) this._defaultHitEnemy(e, world);
         if (!this.alive) break;
       }
@@ -508,6 +520,7 @@ class Bullet {
       if (last != null && now - last < this.hitCooldown) continue;
       this.recentHits.set(e.id, now);
       this.triggerHooks(Phase.HitEnemy, { enemy: e, world });
+      this.triggerHooks(Phase.OnHit, { enemy: e, world });
       const dealt = e.takeDamage(this.attack);
       if (dealt && world) {
         const baseForce = clamp(3 + this.attack * 1.0, 3, 16);
@@ -1984,8 +1997,8 @@ const CARD_TR = {
                    en: { name: 'Arcane Missile', desc: 'Fires a tracking projectile. When face-up, triggers automatically and costs no mana.' } },
   leaded:        { zh: { name: '注铅',     desc: '伤害+8，穿透-5，弹射-5。' },
                    en: { name: 'Lead Slug',  desc: 'Damage+8, Pierce-5, Bounce-5.' } },
-  ignite:        { zh: { name: '引燃',     desc: '伤害时施加2层燃烧。' },
-                   en: { name: 'Ignite',     desc: 'On dealing damage, apply 2 Fire.' } },
+  ignite:        { zh: { name: '引燃',     desc: '命中时施加2层燃烧。' },
+                   en: { name: 'Ignite',     desc: 'On hit, apply 2 Fire.' } },
   roar:          { zh: { name: '怒吼',     desc: '获得1层连携。' },
                    en: { name: 'Roar',       desc: 'Gain 1 Chain stack.' } },
   photongun:     { zh: { name: '光子枪',   desc: '穿透+2，弹射+4。速度大幅提高。' },
@@ -2131,6 +2144,9 @@ function applyAoe(world, source, opts = {}) {
     ? [world.player, ...world.summons.filter(s => s && s.alive)]
     : world.enemies.filter(e => e && e.alive);
   const damage = opts.damage ?? 0;
+  // 命中钩子传播：AOE 视为 source.bullet 对每个敌方受害者的一次"命中"。
+  // 让"命中触发"类钩子（引燃 _fireApplyHook 等）在 AOE 时也生效。仅当 source 是子弹（有 triggerHooks）且目标是敌人时触发。
+  const propagateOnHit = !isAllyTarget && source && typeof source.triggerHooks === 'function';
   let hits = 0;
   for (const v of victims) {
     if (!v || v === opts.exclude) continue;
@@ -2144,6 +2160,10 @@ function applyAoe(world, source, opts = {}) {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       if (Math.abs(diff) > opts.halfAngle) continue;
+    }
+    // OnHit 钩子先于伤害结算 — 即使 damage=0、即使敌人挡住，也都视作"命中"
+    if (propagateOnHit) {
+      source.triggerHooks(Phase.OnHit, { enemy: v, world });
     }
     if (damage > 0) {
       const dealt = v.takeDamage(damage);
@@ -2234,8 +2254,9 @@ function detonateFire(world, sourceOrMult, multiplier) {
   });
 }
 
-// 通用 fire-on-hit hook：bullet._fireOnHit > 0 时命中敌人后 applyFire
-const _fireApplyHook = new Effect(Phase.HitEnemy, -1, ctx => {
+// 通用 fire-on-hit hook：bullet._fireOnHit > 0 时命中敌人后 applyFire。
+// 走 Phase.OnHit 而非 HitEnemy：直接子弹 + AOE 都会触发，且不影响子弹状态。
+const _fireApplyHook = new Effect(Phase.OnHit, -1, ctx => {
   const n = ctx.bullet._fireOnHit;
   if (n > 0) applyFire(ctx.enemy, n);
 });
@@ -2776,7 +2797,7 @@ class Card_引燃 extends Card {
   constructor() {
     super({
       id: 'ignite', name: '引燃',
-      desc: '伤害时施加2层燃烧。',
+      desc: '命中时施加2层燃烧。',
       cost: 1, rarity: 'common', fxType: 'fire',
       art: { emoji: '🔥' },
     });
