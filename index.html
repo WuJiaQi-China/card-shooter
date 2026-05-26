@@ -27,7 +27,7 @@
   <div id="hud">
     <div class="hud-block"><span class="label" data-i18n="hud_turn">回合</span><span id="turn" class="turn-player">玩家</span></div>
     <div class="hud-block"><span class="label" data-i18n="hud_state">状态</span><span id="state">Idle</span></div>
-    <div class="hud-block"><span class="label" data-i18n="hud_turn_num">回合数</span><span id="turn-num">0</span></div>
+    <div class="hud-block"><span class="label" data-i18n="hud_turn_num">本关回合</span><span id="turn-num">0/20</span></div>
     <div class="hud-block hud-toggle-group">
       <label class="hud-toggle-row"><input type="checkbox" id="auto-end-toggle" checked><span data-i18n="hud_auto_end">法力不足时自动结束回合</span></label>
       <label class="hud-toggle-row"><input type="checkbox" id="auto-end-no-enemy-toggle" checked><span data-i18n="hud_auto_end_no_enemy">无敌人时自动结束回合 (每点法力+1金币)</span></label>
@@ -37,11 +37,11 @@
     <div class="hud-block hud-lang"><button id="lang-btn" class="lang-btn">EN</button></div>
   </div>
 
-  <!-- 经验条（在回合/状态 HUD 之下） -->
+  <!-- 关卡进度条（替换原经验条）：左 = "第 X 关" · 中 = 当关波次进度（7 段填充）· 右 = "Y/7" -->
   <div id="xp-bar-row">
-    <span class="xp-lv">Lv <span id="xp-lv-num">1</span></span>
+    <span class="xp-lv"><span data-i18n="stage_label">第</span> <span id="xp-lv-num">1</span> <span data-i18n="stage_unit">关</span></span>
     <div class="xp-bar-track"><div id="xp-bar-fill" class="xp-bar-fill"></div></div>
-    <span class="xp-num"><span id="xp-cur">0</span>/<span id="xp-max">6</span></span>
+    <span class="xp-num"><span id="xp-cur">0</span>/<span id="xp-max">7</span></span>
   </div>
 
   <canvas id="stage" width="900" height="560"></canvas>

@@ -40,7 +40,8 @@ const I18N = {
     rail_tip_combo: '连携 stacks > 0 时，下次发射自动触发（左+右+主同发，费用三卡相加）',
     rail_tip_entity: '实体(N) 子弹：撞墙/穿透耗尽后会留在原地，每回合触发实体效果（如挥剑），承受 N 次敌人碰撞后销毁',
     rail_tip_enemy: '敌人右下角图标 + 数字 = N 回合后的下一动作',
-    hud_turn: '回合', hud_state: '状态', hud_turn_num: '回合数',
+    hud_turn: '回合', hud_state: '状态', hud_turn_num: '本关回合',
+    stage_label: '第', stage_unit: '关', stage_cleared: '★ 第 {n} 关通过 ★',
     hud_auto_end: '法力不足时自动结束回合',
     hud_auto_end_no_enemy: '无敌人时自动结束回合 (每点法力+1金币)',
     hud_gold: '金币',
@@ -102,7 +103,8 @@ const I18N = {
     rail_tip_combo: 'When Chain stacks > 0, next shot fires Left + Right + Main together (costs add up).',
     rail_tip_entity: 'Entity(N) bullets stay in place after hitting a wall / piercing out, triggering their effect each turn. Destroyed after N enemy hits.',
     rail_tip_enemy: 'Bottom-right icon + number on enemies = action coming in N turns.',
-    hud_turn: 'Turn', hud_state: 'State', hud_turn_num: 'Turn #',
+    hud_turn: 'Turn', hud_state: 'State', hud_turn_num: 'Stage Turn',
+    stage_label: 'Stage', stage_unit: '', stage_cleared: '★ Stage {n} Cleared ★',
     hud_auto_end: 'Auto-end turn when low on mana',
     hud_auto_end_no_enemy: 'Auto-end turn when no enemies (+1 gold per mana)',
     hud_gold: 'Gold',
@@ -902,73 +904,73 @@ const INTENT_ICON = {
 //   'support'       - 治疗 / 增益类：跟在前排队友身后，远离炮台保持安全距离。
 const ENEMY_TYPES = {
   // —— 早期敌人（Tier 1）——
-  goblin:    { name: '哥布林',   icon: '👹', maxHp: 4,  attack: 1, speed: 90, radius: 16, color: '#7a8a4a', shape: 'circle', xpReward: 2, value: 3,
+  goblin:    { name: '哥布林',   icon: '👹', maxHp: 4,  attack: 1, speed: 90, radius: 16, color: '#7a8a4a', shape: 'circle', xpReward: 2, value: 3, minWave: 1,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成 1 伤害，自爆' }] },
-  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 3,  attack: 0, speed: 40, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 3, value: 7,
+  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 3,  attack: 0, speed: 40, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 3, value: 7, minWave: 1,
                behavior: 'kiter', preferredRange: 260,
                intents: [{ kind: 'ranged', icon: '🏹', cooldown: 2, value: 2, desc: '2 回合后射 1 颗弹（2 伤）' }] },
-  flier:     { name: '飞行兵',   icon: '🦇', maxHp: 5,  attack: 1, speed: 130, radius: 12, color: '#4adcd0', shape: 'triangle', xpReward: 3, value: 4, flies: true,
+  flier:     { name: '飞行兵',   icon: '🦇', maxHp: 5,  attack: 1, speed: 130, radius: 12, color: '#4adcd0', shape: 'triangle', xpReward: 3, value: 4, flies: true, minWave: 1,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '飞行接触 1 伤' }] },
-  rusher:    { name: '突击兵',   icon: '💨', maxHp: 5,  attack: 2, speed: 180, radius: 13, color: '#ff5050', shape: 'circle', xpReward: 4, value: 5,
+  rusher:    { name: '突击兵',   icon: '💨', maxHp: 5,  attack: 2, speed: 180, radius: 13, color: '#ff5050', shape: 'circle', xpReward: 4, value: 5, minWave: 3,
                behavior: 'rusher',
                intents: [{ kind: 'rush', icon: '👟', cooldown: 0, desc: '高速冲刺 2 伤撞击' }] },
 
   // —— 中期敌人（Tier 2）——
-  sniper:    { name: '狙击手',   icon: '🎯', maxHp: 6,  attack: 0, speed: 12, radius: 16, color: '#604070', shape: 'triangle', xpReward: 6, value: 7,
+  sniper:    { name: '狙击手',   icon: '🎯', maxHp: 6,  attack: 0, speed: 12, radius: 16, color: '#604070', shape: 'triangle', xpReward: 6, value: 7, minWave: 8,
                behavior: 'kiter', preferredRange: 360,
                intents: [{ kind: 'sniper', icon: '🎯', cooldown: 3, value: 5, desc: '3 回合后高伤射击（5 伤）' }] },
-  bouncer:   { name: '弹射射手', icon: '⚪', maxHp: 5, attack: 0, speed: 45, radius: 15, color: '#80d0d0', shape: 'circle', xpReward: 5, value: 6,
+  bouncer:   { name: '弹射射手', icon: '⚪', maxHp: 5, attack: 0, speed: 45, radius: 15, color: '#80d0d0', shape: 'circle', xpReward: 5, value: 6, minWave: 5,
                behavior: 'edge_kiter', preferredRange: 220, accuracyJitter: 0.22,
                intents: [{ kind: 'ranged', icon: '🏹', cooldown: 2, value: 1, bound: 3, desc: '2 回合后射弹射弹（弹 3）' }] },
-  tracker:   { name: '追踪兵',   icon: '🎯', maxHp: 6, attack: 0, speed: 45, radius: 15, color: '#80a0d0', shape: 'circle', xpReward: 5, value: 6,
+  tracker:   { name: '追踪兵',   icon: '🎯', maxHp: 6, attack: 0, speed: 45, radius: 15, color: '#80a0d0', shape: 'circle', xpReward: 5, value: 6, minWave: 7,
                behavior: 'kiter', preferredRange: 260,
                intents: [{ kind: 'ranged', icon: '🎯', cooldown: 2, value: 1, tracking: true, desc: '2 回合后射追踪弹' }] },
-  healer:    { name: '治疗师',   icon: '💚', maxHp: 7, attack: 0, speed: 40, radius: 15, color: '#60c060', shape: 'circle', xpReward: 5, value: 6,
+  healer:    { name: '治疗师',   icon: '💚', maxHp: 7, attack: 0, speed: 40, radius: 15, color: '#60c060', shape: 'circle', xpReward: 5, value: 6, minWave: 6,
                behavior: 'support', preferredRange: 340,
                intents: [{ kind: 'heal', icon: '➕', cooldown: 2, value: 3, desc: '2 回合后治疗最近敌人 +3 HP' }] },
-  bomber:    { name: '自爆球',   icon: '💣', maxHp: 4, attack: 6, speed: 100, radius: 14, color: '#ffa040', shape: 'circle', xpReward: 4, value: 5,
+  bomber:    { name: '自爆球',   icon: '💣', maxHp: 4, attack: 6, speed: 100, radius: 14, color: '#ffa040', shape: 'circle', xpReward: 4, value: 5, minWave: 5,
                behavior: 'melee',
                intents: [{ kind: 'selfdest', icon: '💥', cooldown: 3, desc: '3 回合后自爆 6 伤 AOE' }] },
-  spammer:   { name: '弹幕兵',   icon: '🌌', maxHp: 6, attack: 0, speed: 45, radius: 15, color: '#8080c0', shape: 'circle', xpReward: 6, value: 7,
+  spammer:   { name: '弹幕兵',   icon: '🌌', maxHp: 6, attack: 0, speed: 45, radius: 15, color: '#8080c0', shape: 'circle', xpReward: 6, value: 7, minWave: 9,
                behavior: 'kiter', preferredRange: 210,
                intents: [{ kind: 'rangedMulti', icon: '🏹', cooldown: 3, value: 1, count: 3, desc: '3 回合后 3 颗扇形弹（1 伤×3）' }] },
 
   // —— 后期敌人（Tier 3）——
-  summoner:  { name: '召唤师',   icon: '👻', maxHp: 8,  attack: 0, speed: 0, radius: 18, color: '#702070', shape: 'rect', xpReward: 8, value: 12,
+  summoner:  { name: '召唤师',   icon: '👻', maxHp: 8,  attack: 0, speed: 0, radius: 18, color: '#702070', shape: 'rect', xpReward: 8, value: 12, minWave: 12,
                behavior: 'kiter',
                intents: [{ kind: 'summon', icon: '👥', cooldown: 3, spawn: 'goblin', desc: '3 回合后召唤 1 哥布林' }] },
-  buffer:    { name: '指挥官',   icon: '👑', maxHp: 10, attack: 1, speed: 45, radius: 16, color: '#c08000', shape: 'rect', xpReward: 7, value: 7,
+  buffer:    { name: '指挥官',   icon: '👑', maxHp: 10, attack: 1, speed: 45, radius: 16, color: '#c08000', shape: 'rect', xpReward: 7, value: 7, minWave: 11,
                behavior: 'support', preferredRange: 300,
                intents: [{ kind: 'buff', icon: '⬆', cooldown: 2, value: 1, desc: '2 回合后友军 +1 攻击' }] },
-  tank:      { name: '重甲兵',   icon: '🛡', maxHp: 15, attack: 3, speed: 35, radius: 22, color: '#444444', shape: 'circle', xpReward: 9, value: 12,
+  tank:      { name: '重甲兵',   icon: '🛡', maxHp: 15, attack: 3, speed: 35, radius: 22, color: '#444444', shape: 'circle', xpReward: 9, value: 12, minWave: 20,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成 3 伤' }] },
-  mage:      { name: '法师',     icon: '🔮', maxHp: 6, attack: 0, speed: 28, radius: 15, color: '#a05ec0', shape: 'circle', xpReward: 7, value: 8,
+  mage:      { name: '法师',     icon: '🔮', maxHp: 6, attack: 0, speed: 28, radius: 15, color: '#a05ec0', shape: 'circle', xpReward: 7, value: 8, minWave: 13,
                behavior: 'kiter', preferredRange: 220,
                intents: [{ kind: 'aoe', icon: '💢', cooldown: 3, value: 3, desc: '3 回合后 AOE 法术 3 伤' }] },
-  berserker: { name: '狂战士',   icon: '⚔', maxHp: 9,  attack: 2, speed: 100, radius: 17, color: '#d04040', shape: 'circle', xpReward: 7, value: 9,
+  berserker: { name: '狂战士',   icon: '⚔', maxHp: 9,  attack: 2, speed: 100, radius: 17, color: '#d04040', shape: 'circle', xpReward: 7, value: 9, minWave: 15,
                behavior: 'melee',
                intents: [
                  { kind: 'selfbuff', icon: '⚔', cooldown: 1, value: 1, desc: '1 回合后 +1 攻击（叠加）' },
                  { kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成伤害' },
                ] },
-  splitter:  { name: '分裂者',   icon: '✂', maxHp: 8,  attack: 0, speed: 55, radius: 18, color: '#80c080', shape: 'circle', xpReward: 6, value: 8, onDeath: 'split',
+  splitter:  { name: '分裂者',   icon: '✂', maxHp: 8,  attack: 0, speed: 55, radius: 18, color: '#80c080', shape: 'circle', xpReward: 6, value: 8, onDeath: 'split', minWave: 16,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触 / 死亡分裂 2 个小型' }] },
 
   // —— 精英 / 杂项 ——
-  slug:      { name: '慢虫',     icon: '🐌', maxHp: 7,  attack: 1, speed: 15, radius: 20, color: '#a08040', shape: 'rect', xpReward: 6, value: 8,
+  slug:      { name: '慢虫',     icon: '🐌', maxHp: 7,  attack: 1, speed: 15, radius: 20, color: '#a08040', shape: 'rect', xpReward: 6, value: 8, minWave: 18,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '缓慢推进接触' }] },
-  shrieker:  { name: '尖叫者',   icon: '📢', maxHp: 7,  attack: 0, speed: 40, radius: 15, color: '#c0a040', shape: 'circle', xpReward: 5, value: 5,
+  shrieker:  { name: '尖叫者',   icon: '📢', maxHp: 7,  attack: 0, speed: 40, radius: 15, color: '#c0a040', shape: 'circle', xpReward: 5, value: 5, minWave: 13,
                behavior: 'support', preferredRange: 320,
                intents: [{ kind: 'buffall', icon: '📢', cooldown: 3, value: 3, desc: '3 回合后全敌人 +3 最大 HP' }] },
-  slower:    { name: '时空法师', icon: '⏳', maxHp: 9, attack: 0, speed: 45, radius: 16, color: '#6080c0', shape: 'circle', xpReward: 6, value: 6,
+  slower:    { name: '时空法师', icon: '⏳', maxHp: 9, attack: 0, speed: 45, radius: 16, color: '#6080c0', shape: 'circle', xpReward: 6, value: 6, minWave: 14,
                behavior: 'support', preferredRange: 300,
                intents: [{ kind: 'debuff', icon: '⬇', cooldown: 2, desc: '2 回合后抽走玩家 1 法力' }] },
-  boss:      { name: '深渊魔王', icon: '👺', maxHp: 25, attack: 4, speed: 35, radius: 28, color: '#400040', shape: 'circle', xpReward: 20, value: 25,
+  boss:      { name: '深渊魔王', icon: '👺', maxHp: 25, attack: 4, speed: 35, radius: 28, color: '#400040', shape: 'circle', xpReward: 20, value: 25, minWave: 25,
                behavior: 'kiter', preferredRange: 200,
                intents: [
                  { kind: 'ranged', icon: '🏹', cooldown: 1, value: 3, desc: '1 回合后射 3 伤弹' },
@@ -1006,17 +1008,17 @@ const ENEMY_TR = {
   reward:    { name_en: 'Gold Orb',     intents_en: ['Reward target. Hit it for gold (per-stage damage threshold + Fibonacci; color brightens from dark gold to white).'] },
 };
 
-// 按 shopLevel 决定可 spawn 的敌人池
-const SPAWN_POOL = {
-  1: ['goblin', 'archer', 'flier'],
-  2: ['goblin', 'archer', 'flier', 'rusher', 'bouncer'],
-  3: ['archer', 'flier', 'rusher', 'sniper', 'bouncer', 'healer'],
-  4: ['rusher', 'sniper', 'bouncer', 'tracker', 'healer', 'bomber', 'spammer', 'summoner'],
-  5: ['sniper', 'tracker', 'healer', 'bomber', 'spammer', 'summoner', 'buffer', 'mage', 'shrieker'],
-  6: ['spammer', 'summoner', 'buffer', 'mage', 'shrieker', 'berserker', 'splitter', 'slower'],
-  7: ['summoner', 'buffer', 'tank', 'mage', 'berserker', 'splitter', 'slug', 'slower'],
-  8: ['tank', 'berserker', 'splitter', 'slug', 'slower', 'boss'],
-};
+// 敌人按 minWave 解锁（每个 ENEMY_TYPES 上有 minWave 字段）：随累计波次提升，可 spawn 种类只增不减。
+// 由 _availableEnemies(waveNumber) 动态计算，不再用静态 SPAWN_POOL 查表。
+function _availableEnemies(waveNumber) {
+  const out = [];
+  for (const k in ENEMY_TYPES) {
+    const def = ENEMY_TYPES[k];
+    if (def._isReward) continue;                        // 金球不入波次池
+    if ((def.minWave || 1) <= waveNumber) out.push(k);
+  }
+  return out;
+}
 
 let _enemyId = 0;
 class Enemy {
@@ -4319,13 +4321,15 @@ class BattleManager {
     this.arcaneNextDouble = 0;       // 奥光：下 N 颗奥弹伤害 ×2
     this.summonBuffActive = false;   // 军团统帅：本回合召唤的单位 HP+100% 攻+2
     this.summonOverTurns = [];       // 持续召唤队列：[{ remaining: 3, kind: 'soldier' }]
-    // 波次系统
-    this.turnNumber = 0;             // 当前已过去的敌方回合数
-    this.waveNumber = 0;             // 已生成的波次数（0 = 还没开始 / 第一波）
-    this.turnsUntilWave = 0;         // 距下一波的回合数（0 = 本回合 spawn）
+    // 关卡 / 波次系统（土豆兄弟式）
+    this.stageNumber = 1;            // 当前第几关（玩家可见，1 起）
+    this.waveInStage = 0;            // 当前关已 spawn 的波次（0..7）
+    this.stageTurn = 0;              // 当前关进度（玩家回合号 1..20+）
+    this.waveNumber = 0;             // 跨关累积波次（决定难度曲线 + minWave 解锁）
     this.nextWaveTypes = null;       // 下一波预览（数组 of typeKey），UI 显示
     this.rewardTurn = false;         // 当前是否奖励回合（特殊视觉 + 金球）
     this._rewardHits = 0;            // 奖励回合期间击中金球的累计次数
+    this._stageEndPending = false;   // 标记关卡结束 → pendingShops 已 +1，待商店打开
     this._enemyPhasePending = false; // 我方阶段进行中（敌人 update + 回合计时器都暂停）
     // 玩家击杀才计数；接触自爆不算
     Events.on('enemyDied', () => { this.killCount++; });
@@ -4528,30 +4532,43 @@ class BattleManager {
     this.world.addComboStacks(-999);    // 重置 stacks
     this.world._shotBuffs = [];         // 缓释胶囊 buff 清空
     this.world.summons = [];
+    this.world.inventoryDiscount = 0;   // 背包减费跨关不继承
+    Events.emit('inventoryDiscountChanged', 0);
     this.world.deck.resetForBattle();
     this.killCount = 0;
     this.waveIndex = 0;
     this.waveTimer = 0;
     this.resumeAfterLoot = false;
-    // 波次系统重置
-    this.turnNumber = 0;
+    // 关卡系统（土豆兄弟式）：每关 20 回合，固定波次时间表 [1,4,7,10,13,16,19]。
+    // stageNumber 玩家可见；waveInStage 当前关已进的波次 1..7；stageTurn 当前关进度 1..20+。
+    // waveNumber 是跨关累积，决定难度曲线 — 永远只增不减。
+    this.stageNumber = 1;
+    this.waveInStage = 0;
+    this.stageTurn = 0;
     this.waveNumber = 0;
-    this.turnsUntilWave = 0;        // 第 1 个敌方回合就 spawn 第 1 波
     this.rewardTurn = false;
     this._rewardHits = 0;
+    this._stageEndPending = false;
     this._planNextWave();
     this.setTurn('player');
     this.enemyTurnTimer = 0;
     this.setState(State.PreBattle);
     setTimeout(() => {
       this.setState(State.Battle);
-      // 立即生成第 0 波（按 Enter 后即可见敌人，不必等首个敌方回合）
+      // 第 1 回合开始 = 立即生成第 1 波（stageTurn=1, waveInStage=1）
       this._spawnPlannedWave();
       this.waveNumber++;
-      this.turnsUntilWave = this._waveInterval();
+      this.waveInStage = 1;
+      this.stageTurn = 1;
+      Events.emit('stageChanged');
       this._planNextWave();
     }, 800);
   }
+
+  // 当前关卡内"何时刷波"的硬编码时间表（玩家可见的回合号 1..19）
+  _stageWaveTurns() { return [1, 4, 7, 10, 13, 16, 19]; }
+  _stageMaxTurns()  { return 20; }
+  _stageWaveCount() { return 7; }
 
   endPlayerTurn() {
     if (this.state !== State.Battle || this.turn !== 'player') return;
@@ -4707,20 +4724,12 @@ class BattleManager {
     return true;
   }
 
-  // 波次系统：每 m 回合（按 shopLevel）spawn 一波；每波价值 n 递增
-  // m: 商店等级 [1..8] → 间隔 [2,2,2,3,3,3,4,4]
-  // n: 波次 w（从 0 起）→ value = floor(8 + 2.5w + 0.1w²)（曲线放缓 — 前期接近原表，第 10 波 ~ 42 = 原值的 62%）
-  // - w=0: 8  w=1: 10  w=2: 13  w=3: 16  w=5: 22  w=10: 42  w=15: 67  w=20: 98
-  _waveInterval() {
-    const m = [2, 2, 2, 3, 3, 3, 4, 4];
-    return m[Math.min(7, Math.max(0, this.world.shopLevel - 1))];
-  }
-  // 难度曲线平移 +3（早期更柔和；旧版 +6 导致首波就 24 价值 ≈ 5–8 只怪，玩家 4 发/回合根本清不掉）。
-  // 新版 w=0 → 15、w=5 → 31、w=10 → 49、w=20 → 91、w=30 → 144。
-  // 前期大幅缓和（首波 -37%），中后期仅 -10~15%。0.05 二次项保留，避免后期爆炸增长。
+  // 难度曲线：线性 15 + 1.1×(w-1)。
+  // w=1 → 15、w=10 → 24、w=20 → 35、w=30 → 47、w=50 → 69、w=100 → 124。
+  // 二次项删掉避免后期爆炸，玩家每回合最多 4 发的输出节奏匹配。
   _waveValue(w) {
-    const shifted = w + 3;
-    return Math.floor(8 + 2.5 * shifted + 0.05 * shifted * shifted);
+    const n = Math.max(1, w);
+    return Math.floor(15 + 1.1 * (n - 1));
   }
 
   // 背包式随机填充：把 targetValue 分配给敌人种类（贪心 + 随机）
@@ -4743,37 +4752,99 @@ class BattleManager {
   }
 
   // 决定下一波敌人种类（不立刻 spawn，仅预览）
+  // 预览的是"即将到来的那一波" — 累计 waveNumber 已经表示已 spawn 的波数，所以下一波 = waveNumber+1。
   _planNextWave() {
-    const v = this._waveValue(this.waveNumber);
-    const pool = SPAWN_POOL[Math.min(8, this.world.shopLevel)] || SPAWN_POOL[1];
+    const upcomingWave = this.waveNumber + 1;
+    const v = this._waveValue(upcomingWave);
+    const pool = _availableEnemies(upcomingWave);
     this.nextWaveTypes = this._pickEnemiesForValue(v, pool);
     Events.emit('waveChanged');
   }
 
-  // 敌方回合开始：根据 turnsUntilWave 决定 spawn 波 / 奖励回合 / 什么都不做
+  // 敌方回合开始：按关卡时间表决定 spawn 波 / 奖励回合 / 关卡结束
   _tickWaveSpawn() {
     const w = this.world;
-    // 奖励回合期间：上一回合的金球自动消失（活 1 回合）— 不再结算火焰（用户要求删除）
+    // 上一回合的金球到这一回合（即 reward 回合结束）→ 触发关卡结束（金球已是 stage 末尾的奖励）
     if (this.rewardTurn) {
       w.enemies.length = 0;
       this.rewardTurn = false;
       this._rewardHits = 0;
+      this._endStage();
+      return;
     }
-    this.turnNumber++;
-    this.turnsUntilWave--;
-    if (this.turnsUntilWave <= 0) {
-      // 到点 spawn 当前规划的下一波
+    // 关卡已结束等待商店：什么也不做（防止重复 endStage / 越界推进 stageTurn）
+    if (this._stageEndPending) return;
+
+    // 推进到"下一个玩家回合号"（_tickWaveSpawn 在敌方回合开始处调用 = 玩家上回合刚结束）
+    this.stageTurn++;
+    const waveTurns = this._stageWaveTurns();
+    const inSchedule = waveTurns.indexOf(this.stageTurn) >= 0;
+    const maxTurns = this._stageMaxTurns();
+    if (this.stageTurn <= maxTurns && inSchedule && this.waveInStage < this._stageWaveCount()) {
+      // 时间表上的固定波次：spawn
       this._spawnPlannedWave();
       this.waveNumber++;
-      this.turnsUntilWave = this._waveInterval();
+      this.waveInStage++;
+      Events.emit('stageChanged');
       this._planNextWave();
-    } else {
-      // 没到 spawn 时间：若场上无敌人 → 奖励回合
+    } else if (this.stageTurn >= maxTurns) {
+      // 第 20 回合及之后：不刷新波次，不计入难度。
+      // 场上清空 → 出金球奖励回合 → 下一个 enemy-turn 自动 endStage。
+      // 若怪还在 → 继续 21、22 回合等，等玩家清完。
       const alive = w.enemies.filter(e => e.alive).length;
-      if (alive === 0) {
-        this._spawnRewardTurn();
-      }
+      if (alive === 0) this._spawnRewardTurn();
     }
+    // 中间空场（非 stage 末尾、非时间表）：什么也不做。等下一个时间表点刷新。
+  }
+
+  // 关卡结束：触发商店（pendingShops++ + resumeAfterLoot），下一个玩家回合 end 时开店。
+  // 商店关闭后由「继续游戏」按钮检测 _stageEndPending → 调 _startNextStage 重置状态并开始下一关。
+  _endStage() {
+    this.world.pendingShops = (this.world.pendingShops || 0) + 1;
+    this.resumeAfterLoot = true;
+    this._stageEndPending = true;
+    toast(LANG.current === 'en'
+      ? `★ Stage ${this.stageNumber} cleared! ★`
+      : `★ 第 ${this.stageNumber} 关通过 ★`, 1.8);
+  }
+
+  // 商店关闭后的下一关启动：恢复 HP/法力/护甲；洗牌；清空临时 buff；推进 stageNumber。
+  // 跨关保留：卡牌本身、金币、shopLevel、permUpgrades、击杀/分数 等。
+  _startNextStage() {
+    const w = this.world;
+    this.stageNumber++;
+    this.waveInStage = 0;
+    this.stageTurn = 0;
+    this._stageEndPending = false;
+    // 玩家状态重置
+    w.player.hp = w.player.maxHp;
+    w.player.mana = w.player.maxMana;
+    w.player.shield = 0;
+    w.player.armor = w.player.armorPerTurn || 3;
+    Events.emit('armorChanged', w.player.armor);
+    Events.emit('manaChanged', w.player.mana);
+    Events.emit('hpChanged', w.player.hp);
+    // 战场重置
+    w.enemies.length = 0;
+    w.bullets.length = 0;
+    w.summons = [];
+    this.summonOverTurns = [];
+    // 临时 buff 全部清空
+    w._shotBuffs = [];
+    w.inventoryDiscount = 0;
+    Events.emit('inventoryDiscountChanged', 0);
+    w.combo.reset();
+    w.addComboStacks(-999);
+    // 关卡内"洗入手牌"等临时卡也清空（这些 hook 在 deck 上由未来的卡牌系统处理 —
+    // 当前 resetForBattle 已经把 hand/discard 重洗、临时卡若标记 _stageScoped 也丢弃）
+    w.deck.resetForBattle();
+    // 立即 spawn 新关第 1 波（与 startBattle 行为一致）
+    this._spawnPlannedWave();
+    this.waveNumber++;
+    this.waveInStage = 1;
+    this.stageTurn = 1;
+    Events.emit('stageChanged');
+    this._planNextWave();
   }
 
   _spawnPlannedWave() {
@@ -4850,20 +4921,19 @@ class BattleManager {
   }
 
   _spawnEnemy(typeKey) {
-    // 仅从顶部 spawn（梯形上底 = 整个 canvas 宽）；若未指定 typeKey 则从池随机
+    // 仅从顶部 spawn（梯形上底 = 整个 canvas 宽）；若未指定 typeKey 则按当前累计波次池随机
     const W = this.world.w, m = 40;
     if (!typeKey) {
-      const lv = clamp(this.world.shopLevel, 1, 8);
-      const pool = SPAWN_POOL[lv] || SPAWN_POOL[1];
-      typeKey = pool[randInt(0, pool.length - 1)];
+      const pool = _availableEnemies(Math.max(1, this.waveNumber));
+      typeKey = pool[randInt(0, pool.length - 1)] || 'goblin';
     }
     const e = new Enemy(rand(m, W - m), m, typeKey, this.world);
-    // 按当前回合数缩放敌人统计：前 50 回合不成长（newbie 期），50 回合后按 3 倍放缓的曲线
-    //   shifted = max(0, turn - 50)
-    //   HP   × e^(shifted / 150)        无上限（每 150 回合 ×e；turn 200 → ×2.72，turn 350 → ×7.4）
-    //   攻击 ×(1 + shifted / 300), cap 3  3 倍上限（turn 650 满）
-    //   速度 ×(1 + shifted / 600), cap 2  2 倍上限（turn 650 满）
-    const turn = this.turnNumber || 0;
+    // 按当前累计波次（不是 turn）缩放敌人统计 — 关卡间难度连续递增
+    //   shifted = max(0, waveNumber - 50)
+    //   HP   × e^(shifted / 150)        无上限（每 150 波 ×e；wave 200 → ×2.72，wave 350 → ×7.4）
+    //   攻击 ×(1 + shifted / 300), cap 3  3 倍上限（wave 650 满）
+    //   速度 ×(1 + shifted / 600), cap 2  2 倍上限（wave 650 满）
+    const turn = this.waveNumber || 0;
     const shifted = Math.max(0, turn - 50);
     const hpMult = Math.exp(shifted / 150);
     const atkMult = Math.min(3, 1 + shifted / 300);
@@ -4904,11 +4974,7 @@ class World {
     this.combo = new ComboManager();
     this.comboStacks = 0;            // 连携 stacks（v3.3 重定义）：>0 时自动消耗 1 层 + 左+右+主一起发
     this.battle = new BattleManager(this);
-    // 玩家等级（升级触发 Loot 面板 + 给 1 次刷新）
-    this.level = 1;
-    this.xp = 0;
-    this.xpMax = 6;  // 与 _gainXp 公式一致：Lv 1→2 需 6 XP
-    // 商店等级（独立于玩家等级；通过消耗刷新次数升级；影响候选数 + 稀有度概率）
+    // 商店等级（通过消耗刷新次数升级；影响候选数 + 稀有度概率）
     this.shopLevel = 1;
     // 每 3 级 +1 槽位；min(8, 3 + floor((lv-1)/3))。Lv 1-3=3 / Lv 4-6=4 / ... / Lv 16=8
     this.candidatesCount = 3;
@@ -4956,11 +5022,8 @@ class World {
     Events.emit('comboStacksChanged', this.comboStacks);
   }
 
-  // 阵亡后重开：完全重置进度（等级 / 卡组 / 金币 / 商店 / 连击 / 计分）
+  // 阵亡后重开：完全重置进度（卡组 / 金币 / 商店 / 连击 / 计分；关卡由 startBattle 重置回 1）
   resetForNewGame() {
-    this.level = 1;
-    this.xp = 0;
-    this.xpMax = 6;
     this.shopLevel = 1;
     this.candidatesCount = 3;
     this.gold = 10;
@@ -4987,23 +5050,6 @@ class World {
     // 炮台清空 → 下次进 Idle 会再次弹出选择面板
     this.cannon = null;
     Events.emit('cannonChanged', null);
-  }
-
-  // 经验粒子到达经验条时调用
-  // xpMax 曲线（参考通用 roguelike 设计：早期快升级解锁复杂度，后期平缓避免 grind）
-  // 升级行为修改：入队 pendingShops，不立即开商店；玩家回合开始时弹出
-  _gainXp(amount) {
-    this.xp += amount;
-    while (this.xp >= this.xpMax) {
-      this.xp -= this.xpMax;
-      this.level++;
-      const lv = this.level;
-      this.xpMax = Math.min(100, Math.floor(6 + (lv - 1) * 4 + (lv - 1) * (lv - 1) * 0.6));
-      this.gold += 5;
-      this.pendingShops += 1;
-      Events.emit('levelUp', this.level);
-      toast(t('upgrade_toast', { lv: this.level }), 1.4);
-    }
   }
 
   // 玩家点商店「升级」按钮：消耗金币（按 SHOP_THRESHOLDS）
@@ -5582,8 +5628,8 @@ class XpOrb {
     if (this.alive === false) return;
     this.alive = false;
     if (this.el) { this.el.remove(); this.el = null; }
-    this.world._gainXp(1);
-    flashOrbArrival(this.world, '+1 XP', null, '#7eb1ff', 'xp');
+    // XP 系统已删除 — orb 直接消失，不再加经验、不再 flash。
+    // 留下类与生成路径以便后续在敌死亡时复用为别的奖励视觉（金币粒子已另有处理）。
   }
   draw(ctx) {
     // canvas 不渲染；每帧把 DOM orb 投影到屏幕坐标
@@ -6150,15 +6196,16 @@ function setupUI(world) {
       $armor.classList.toggle('zero', p.armor <= 0);
     }
     if ($gold) $gold.textContent = world.gold;
-    // XP DOM 条
+    // 关卡 / 波次进度（XP 条已删 — 这里展示 Stage X · Wave Y/7）
     if ($xpLv) {
-      $xpLv.textContent = world.level;
-      $xpCur.textContent = world.xp;
-      $xpMax.textContent = world.xpMax;
-      $xpFill.style.width = `${(world.xp / world.xpMax) * 100}%`;
+      const b = world.battle;
+      $xpLv.textContent = b.stageNumber || 1;
+      if ($xpCur) $xpCur.textContent = b.waveInStage || 0;
+      if ($xpMax) $xpMax.textContent = 7;
+      // 关卡内波次的填充比例 = waveInStage / 7
+      if ($xpFill) $xpFill.style.width = `${((b.waveInStage || 0) / 7) * 100}%`;
     }
-    // 计算 XP / 金币粒子目标：用 HUD DOM 节点的真实屏幕位置投影到 canvas 坐标系，
-    // 允许 y 为负数（HUD 在 canvas 上方）—— HTML orb 渲染时按屏幕投影显示，可飞越 canvas 顶边
+    // 计算金币粒子目标：用 HUD DOM 节点的真实屏幕位置投影到 canvas 坐标系
     if ($xpFill && $canvas) {
       const fr = $xpFill.getBoundingClientRect();
       const track = $xpFill.parentElement;
@@ -6257,12 +6304,21 @@ function setupUI(world) {
   const $waveCdNum = document.getElementById('wave-cd-num');
   const $waveEnemies = document.getElementById('wave-enemies');
   function renderWavePreview() {
-    if ($waveTurnNum) $waveTurnNum.textContent = world.battle.turnNumber || 0;
+    // 关卡进度：第 X 关 · 第 Y/7 波 · 当前回合 Z/20
+    if ($waveTurnNum) {
+      const b = world.battle;
+      const cur = b.stageTurn || 0;
+      $waveTurnNum.textContent = `${cur}/20`;
+    }
     const types = world.battle.nextWaveTypes;
-    const tu = world.battle.turnsUntilWave;
+    // 倒计时：从 stageTurn 算下次刷波到几号
+    const waveTurns = [1, 4, 7, 10, 13, 16, 19];
+    const cur = world.battle.stageTurn || 0;
+    const nextScheduled = waveTurns.find(n => n > cur);
+    const tu = (nextScheduled != null) ? (nextScheduled - cur) : -1;
     if ($waveCdNum) {
-      if (!types || types.length === 0) $waveCdNum.textContent = t('wave_none');
-      else if (tu <= 0) $waveCdNum.textContent = t('wave_this');
+      if (!types || types.length === 0 || tu < 0) $waveCdNum.textContent = t('wave_none');
+      else if (tu === 0) $waveCdNum.textContent = t('wave_this');
       else $waveCdNum.textContent = t('wave_after', { n: tu });
     }
     if ($waveEnemies) {
@@ -6347,17 +6403,19 @@ function setupUI(world) {
   Events.on('enemyDied', () => {
     if ($statKills) $statKills.textContent = (parseInt($statKills.textContent, 10) || 0) + 1;
   });
-  Events.on('levelUp', lv => {
-    if ($statLevel) $statLevel.textContent = lv;
+  // 关卡推进时同步统计区的"关卡数"显示
+  Events.on('stageChanged', () => {
+    if ($statLevel) $statLevel.textContent = world.battle.stageNumber || 1;
   });
   // 商店等级显示 + reset 时同步
   function updateStats() {
     if ($statShop) $statShop.textContent = 'Lv ' + world.shopLevel;  // 'Lv' 通用，不翻译
-    if ($statLevel) $statLevel.textContent = world.level;
+    if ($statLevel) $statLevel.textContent = world.battle.stageNumber || 1;
     if ($statKills) $statKills.textContent = world.battle.killCount || 0;
   }
   Events.on('stateChanged', updateStats);
   Events.on('bagChanged', updateStats);
+  Events.on('stageChanged', updateStats);
   Events.on('stateChanged', s => { $state.textContent = t('state_' + s); });
   Events.on('turnChanged', turn => {
     $turn.textContent = turn === 'player' ? t('turn_player') : t('turn_enemy');
@@ -7200,6 +7258,16 @@ function setupLootPanel(world) {
     }
     if (world.battle.resumeAfterLoot) {
       world.battle.resumeAfterLoot = false;
+      // 关卡结束流程：商店关闭 → 启动下一关（重置 HP / 法力 / 牌组 / 临时 buff，spawn 第 1 波）
+      if (world.battle._stageEndPending) {
+        world.battle.setState(State.Battle);
+        world.battle._startNextStage();
+        // 直接进玩家回合，让玩家看到新关第 1 波
+        world.battle.setTurn('player');
+        world.battle.enemyTurnTimer = 0;
+        return;
+      }
+      // 关卡途中（玩家因 levelUp 历史遗留逻辑或其他原因）：原行为 — 继续战斗
       world.deck.resetForBattle();
       world.battle.setState(State.Battle);
       world.battle._afterPlayerTurnComplete();
@@ -7336,37 +7404,42 @@ function renderComboOverlay(ctx, world) {
   ctx.restore();
 }
 
-// 经验条：canvas 顶部细横条；xp 粒子飞向左端
+// canvas 顶部条：替换为关卡 / 波次进度条（不再有 XP）
+// 填充 = 当前关已 spawn 的波数 / 7；右侧显示 "Stage X · Wave Y/7"
 function renderXpBar(ctx, world) {
   const x = 20, y = 16, w = world.w - 130, h = 8;
-  // 底
+  const b = world.battle;
+  const stage = b.stageNumber || 1;
+  const waveCur = b.waveInStage || 0;
+  const waveMax = 7;
   ctx.save();
+  // 底
   ctx.fillStyle = 'rgba(10, 13, 17, 0.85)';
   ctx.fillRect(x, y, w, h);
-  // 填充
-  const fillW = w * (world.xp / world.xpMax);
+  // 填充（紫色 = 关卡进度，区分于 XP 蓝）
+  const fillW = w * (waveCur / waveMax);
   const grad = ctx.createLinearGradient(x, 0, x + w, 0);
-  grad.addColorStop(0, '#4a82d4');
-  grad.addColorStop(1, '#7eb1ff');
+  grad.addColorStop(0, '#6b3aff');
+  grad.addColorStop(1, '#c97aff');
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, fillW, h);
   // 边框
   ctx.strokeStyle = '#3a4452';
   ctx.lineWidth = 1;
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-  // Lv 数字
+  // 文字：Stage X 在条右侧；Wave Y/7 紧跟其后
   ctx.fillStyle = '#f1f4f8';
   ctx.font = 'bold 14px "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`Lv ${world.level}`, x + w + 10, y + h / 2);
+  const label = LANG.current === 'en' ? `Stage ${stage}` : `第 ${stage} 关`;
+  ctx.fillText(label, x + w + 10, y + h / 2);
   ctx.font = '11px "Microsoft YaHei", sans-serif';
-  ctx.fillStyle = '#7eb1ff';
-  ctx.fillText(`${world.xp}/${world.xpMax}`, x + w + 50, y + h / 2);
+  ctx.fillStyle = '#c97aff';
+  ctx.fillText(`${waveCur}/${waveMax}`, x + w + 70, y + h / 2);
   ctx.restore();
-  // 更新经验条左端的目标坐标（粒子飞这里）
-  world.xpBarPos.x = x + 4;
-  world.xpBarPos.y = y + h / 2;
+  // 兼容旧字段：金币粒子继续飞向条的左端
+  if (world.xpBarPos) { world.xpBarPos.x = x + 4; world.xpBarPos.y = y + h / 2; }
 }
 
 function render(ctx, world) {
@@ -7478,11 +7551,9 @@ function main() {
   world.deck.resetForBattle();    // 初始洗牌让 UI 有手牌显示（Idle 状态下也能看见）
   ui.renderHand();
 
-  // 敌人被玩家击杀 → 爆出经验球 + 金币球（都先散落周围再飞向条） + 计分
-  // 使用 _spawnPlannedWave 时分配给敌人的 waveGoldDrop / waveXpDrop；fallback 用 xpReward 兜底
+  // 敌人被玩家击杀 → 爆出金币球（先散落周围再飞向条） + 计分
+  // 使用 _spawnPlannedWave 时分配给敌人的 waveGoldDrop；fallback 用 xpReward 兜底（旧字段沿用）
   Events.on('enemyDied', enemy => {
-    const xp = enemy.waveXpDrop ?? enemy.xpReward ?? 2;
-    FX.xpBurst(world, enemy.x, enemy.y, xp);
     const goldAmount = enemy.waveGoldDrop ?? Math.max(1, Math.ceil((enemy.xpReward || 2) / 5));
     const orbCount = Math.min(5, Math.max(1, goldAmount));
     const perOrb = Math.max(1, Math.ceil(goldAmount / orbCount));
@@ -7529,9 +7600,14 @@ function main() {
     // 触发死亡特殊效果（如分裂）
     enemy.onDie?.(world);
   });
-  Events.on('levelUp', lv => {
-    world.score += 50;
-    Events.emit('scoreChanged', world.score);
+  // 关卡完成奖励分数
+  Events.on('stageChanged', () => {
+    // 仅在 stage 实际推进时加分 — stageChanged 也会在每波 spawn 后 emit，所以校验下：
+    // 只有 waveInStage 重新归位到 1（= 新关刚开始）时才认为是 stage 完成事件。
+    if (world.battle.waveInStage === 1 && world.battle.stageNumber > 1) {
+      world.score += 50;
+      Events.emit('scoreChanged', world.score);
+    }
   });
 
   let last = performance.now() / 1000;
