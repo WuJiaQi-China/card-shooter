@@ -636,7 +636,29 @@ class Bullet {
   //   - 与敌人碰撞 → 触发 HitEnemy 钩子 + 造成伤害 + 击退 + 扣 1 层（不消耗 penetrate）
   //   - 每个敌方回合开始前由 BattleManager._tickEntityBullets 触发 EntityTurn 钩子（挥剑、射蝙蝠等）
   _updateEntity(dt, now, world) {
+    // 骷髅 dash 拖尾在玩家回合也要衰减（让粒子尾迹自然淡出）
+    if (this._isSkeleton && this._dashTrail) {
+      for (const p of this._dashTrail) p.life -= dt;
+      this._dashTrail = this._dashTrail.filter(p => p.life > 0);
+    }
     if (world.battle.turn !== 'enemy') return;
+    // 骷髅 dash 动画：在碰撞检测前更新位置，让 dash 路径上经过的敌人都能被下方
+    // for-of 命中（每个 enemy 在 hitCooldown 内只命中 1 次，所以 dash 穿过多个敌人 = 每个 -1 层）
+    if (this._isSkeleton && this._dashInit && !this._dashResolved) {
+      const dashDur = 0.5;
+      const elapsed = now - this._dashStartT;
+      const target = this._dashTarget;
+      if (target && target.alive) {
+        const k = Math.min(1, elapsed / dashDur);
+        this.x = lerp(this._dashStartX, target.x, k);
+        this.y = lerp(this._dashStartY, target.y, k);
+        this._dashTrail = this._dashTrail || [];
+        this._dashTrail.push({ x: this.x, y: this.y, life: 0.25, max: 0.25 });
+        if (k >= 1) this._dashResolved = true;
+      } else if (elapsed >= dashDur) {
+        this._dashResolved = true;
+      }
+    }
     // 敌人碰撞：实体造成 attack 伤害 + 击退 + 扣 1 层（不消耗 penetrate）
     for (const e of world.enemies) {
       if (!e.alive) continue;
@@ -714,10 +736,26 @@ class Bullet {
 
   draw(ctx) {
     if (!this.alive) return;
-    // 敌方子弹：红色；蝙蝠子弹：紫黑；玩家弹：黄色；奥弹：紫色
+    // 骷髅 dash 拖尾（白骨色 + 紫光）：画在主体之前，让骨身盖在 trail 之上
+    if (this._isSkeleton && this._dashTrail && this._dashTrail.length > 0) {
+      ctx.save();
+      for (const p of this._dashTrail) {
+        const k = p.life / p.max;
+        ctx.globalAlpha = k * 0.6;
+        ctx.fillStyle = '#dde3ec';
+        ctx.shadowColor = '#c97aff';
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, this.radius * (0.6 + 0.4 * k), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    // 敌方子弹：红色；蝙蝠子弹：紫黑；玩家弹：黄色；奥弹：紫色；骷髅：紫白
     const color = this._batBullet ? '#5a1f7a'
                 : this.team === 'enemy' ? '#ff5050'
                 : this.isArcane ? '#c97aff'
+                : this._isSkeleton ? '#aebfd8'
                 : '#ffd84a';
     // 拖尾：从最旧到次新，圆点逐渐变淡变小（juice）
     const n = this.trail.length;
@@ -2088,23 +2126,10 @@ class Unit {
   }
   takeDamage(amount) {
     if (!this.alive) return false;
-    // 骷髅 dash 期间免疫敌人接触伤害（实体化层数只由 dash 完成时主动消耗 1 层）
-    if (this.kind === 'skeleton' && this._dashImmune) return false;
     const w = window.__game;
     if (this.shield > 0) {
       this.shield = Math.max(0, this.shield - 1);
       this.hitFlash = 0.15;
-      return true;
-    }
-    // 骷髅按实体化子弹规则受击：每次命中固定 -1 层（不论伤害数值），归 0 时销毁
-    if (this.kind === 'skeleton') {
-      this.hp -= 1;
-      this.hitFlash = 0.15;
-      if (w) FX.damage(w, this.x, this.y - this.radius - 5, 1);
-      if (this.hp <= 0) {
-        this.alive = false;
-        Events.emit('summonDied', this);
-      }
       return true;
     }
     this.hp -= amount;
@@ -2142,68 +2167,7 @@ class Summon extends Unit {
   update(dt, world) {
     if (!this.alive) return;
     this.hitFlash = Math.max(0, this.hitFlash - dt);
-    // 跨回合 dash 状态拖尾仍然要画 → trail 在任意 turn 都衰减
-    if (this._dashTrail) {
-      for (const p of this._dashTrail) p.life -= dt;
-      this._dashTrail = this._dashTrail.filter(p => p.life > 0);
-    }
     if (world.battle.turn !== 'enemy') return;
-    // === 骷髅：和实体化子弹一样，每回合在实体回合开始时由 BattleManager._tickSkeletons
-    // 初始化 dash（设置 _dashInit / _dashTarget / _dashStartT 等）。这里只负责动画插值 +
-    // 撞击结算 + 实体化层数消耗；不做任何 "本帧自动开 dash" 的逻辑。
-    if (this.kind === 'skeleton') {
-      this._dashTrail = this._dashTrail || [];
-      if (!this._dashInit || this._dashResolved) return;
-      const dashDur = 0.5;
-      const elapsed = performance.now() / 1000 - this._dashStartT;
-      const target = this._dashTarget;
-      const resolve = (didHit) => {
-        if (this._dashResolved) return;
-        this._dashResolved = true;
-        // 碎骨 / 紫色光环视觉
-        for (let i = 0; i < 14; i++) {
-          const a = Math.PI * 2 * Math.random();
-          const sp = 80 + Math.random() * 140;
-          world.particles.push(new Particle({
-            x: this.x, y: this.y,
-            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
-            life: 0.45 + Math.random() * 0.2,
-            color: i % 3 === 0 ? '#dde3ec' : (i % 3 === 1 ? '#8a6bc0' : '#c97aff'),
-            size: 2.4,
-          }));
-        }
-        world.particles.push(new Particle({
-          x: this.x, y: this.y, life: 0.32, color: '#c97aff',
-          size: didHit ? 18 : 12, type: 'ring',
-        }));
-        // 撞击 = 消耗 1 层实体化；hp 归 0 时死亡
-        this.hp -= 1;
-        this._dashImmune = false;
-        if (this.hp <= 0) {
-          this.alive = false;
-          Events.emit('summonDied', this);
-        } else {
-          // 还活着 → 清掉本次 dash 状态，等下一次 _tickSkeletons 在新的实体回合重新初始化
-          this._dashInit = false;
-          this._dashTarget = null;
-        }
-      };
-      if (target && target.alive) {
-        const k = Math.min(1, elapsed / dashDur);
-        this.x = lerp(this._dashStartX, target.x, k);
-        this.y = lerp(this._dashStartY, target.y, k);
-        this._dashTrail.push({ x: this.x, y: this.y, life: 0.25, max: 0.25 });
-        if (k >= 1) {
-          const dealt = target.takeDamage(this.attack);
-          if (dealt && world) FX.damage(world, target.x, target.y - target.radius, this.attack);
-          resolve(true);
-        }
-      } else if (elapsed >= dashDur) {
-        // 目标提前死亡 + 时间到 → 不造成伤害，但仍消耗 1 层
-        resolve(false);
-      }
-      return;
-    }
     // 移动行为：士兵 / 护盾兵向最近敌人推进
     if (this.moves) {
       const target = nearestEnemy(world, this);
@@ -2283,45 +2247,11 @@ class Summon extends Unit {
 
   draw(ctx) {
     if (!this.alive) return;
-    // === 骷髅 dash 拖尾（在主体之前先画，保证主体盖在 trail 上方）===
-    if (this.kind === 'skeleton' && this._dashTrail && this._dashTrail.length > 0) {
-      ctx.save();
-      for (const p of this._dashTrail) {
-        const k = p.life / p.max;
-        ctx.globalAlpha = k * 0.6;
-        ctx.fillStyle = '#dde3ec';
-        ctx.shadowColor = '#c97aff';
-        ctx.shadowBlur = 6;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, this.radius * (0.6 + 0.4 * k), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
     ctx.save();
     ctx.translate(this.x, this.y);
     const flash = this.hitFlash > 0;
     const k = this.kind;
-    // 骷髅造型：白头骨 emoji + 紫色亡灵气浪
-    if (k === 'skeleton') {
-      // 紫色光环
-      ctx.fillStyle = 'rgba(201, 122, 255, 0.25)';
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius + 2, 0, Math.PI * 2);
-      ctx.fill();
-      // 主体白骨色圆
-      ctx.fillStyle = flash ? '#ffffff' : '#e8ecf3';
-      ctx.strokeStyle = '#3a2a4a';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-      ctx.fill(); ctx.stroke();
-      // 💀 emoji 居中
-      ctx.font = (this.radius * 1.8).toFixed(0) + 'px serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('💀', 0, 1);
-    } else if (k === 'turret' || k === 'arcaneTurret' || k === 'bouncyTurret' || k === 'heavyTurret') {
+    if (k === 'turret' || k === 'arcaneTurret' || k === 'bouncyTurret' || k === 'heavyTurret') {
       // 圆形 + 炮管 (面向最近敌人)
       ctx.fillStyle = flash ? '#fff' : (k === 'arcaneTurret' ? '#9d6dff' : k === 'bouncyTurret' ? '#4ad4d4' : k === 'heavyTurret' ? '#a8a060' : '#6b8a4a');
       ctx.strokeStyle = '#2a3a1f';
@@ -2526,6 +2456,89 @@ function spawnSummon(world, kind, opts = {}) {
   world.summons.push(sp);
   Events.emit('summonSpawned', sp);
   return sp;
+}
+
+// 骷髅 = 速度 0、实体化层数默认 2 的友方"实体化子弹"。
+// 不放在 world.summons，而是直接进 world.bullets（享受完整 Bullet 生命周期：
+//   - 敌方子弹按距离命中实体（每次 -1 层）
+//   - 实体回合开始触发 EntityTurn 钩子（含 dash） + -1 层
+//   - 层数 0 → 触发 Destroyed + 死亡）
+// 默认带一条 EntityTurn 钩子：挑随机敌人 → dash 撞击；其他卡牌的 hooks 通过
+// world._turnHookCards 在 spawn 时一并继承（attack/bound/penetrate/fireOnHit/挥剑/蝙蝠 等）。
+function spawnSkeleton(world, opts = {}) {
+  const player = world.player;
+  // 默认 spawn 在炮台前 180° 弧（上半圆）随机位置
+  let x, y;
+  if (opts.x != null && opts.y != null) {
+    x = opts.x; y = opts.y;
+  } else {
+    const ang = rand(-Math.PI, 0);
+    const dist = 70 + rand(0, 50);
+    x = player.x + Math.cos(ang) * dist;
+    y = player.y + Math.sin(ang) * dist;
+  }
+  const r = 8;
+  const tb = trapBounds(world, y);
+  x = clamp(x, tb.leftX + r, tb.rightX - r);
+  y = clamp(y, r, world.h - r);
+
+  const skel = new Bullet({
+    x, y, angle: 0, speed: 0, lifetime: 9999,
+    attack: 1, bound: 0, penetrate: 0,
+    bulletCount: 1, waveCount: 1, radius: r,
+    entityLayers: opts.entityLayers ?? 2,
+  });
+  skel.team = 'ally';
+  skel.kind = 'skeleton';
+  skel._isSkeleton = true;
+  // 用现成的 skull 装饰 → Bullet.draw 会画 💀 emoji 漂浮在球体上方
+  skel._entityDecos = ['skull'];
+
+  // EntityTurn 钩子：每个实体回合挑一个随机敌人 → 启动 dash（动画与碰撞在 _updateEntity 中处理）
+  skel.addHook(new Effect(Phase.EntityTurn, 0, ctx => {
+    const b = ctx.bullet, w = ctx.world;
+    const alive = w.enemies.filter(e => e.alive && (e.spawnT == null || e.spawnT <= 0));
+    if (alive.length === 0) return;     // 无敌人 → 本回合不 dash（但 _tickEntityBullets 还会扣 1 层）
+    const t = alive[Math.floor(Math.random() * alive.length)];
+    b._dashInit = true;
+    b._dashStartT = performance.now() / 1000;
+    b._dashStartX = b.x;
+    b._dashStartY = b.y;
+    b._dashTarget = t;
+    b._dashResolved = false;
+    b._dashTrail = b._dashTrail || [];
+    b.recentHits.clear();   // 新一轮 dash → 旧的"刚命中过的敌人"清零，允许再次命中
+  }));
+
+  // Destroyed 钩子：对外发出 summonDied，让 bone_blossom / skeleton_lord 等沿用现有事件机制
+  skel.addHook(new Effect(Phase.Destroyed, 0, ctx => {
+    Events.emit('summonDied', ctx.bullet);
+  }));
+
+  // 继承本回合用过的卡牌效果（PreActive + Spawned 等），让骷髅吃完整 buff
+  if (world._turnHookCards && world._turnHookCards.length > 0) {
+    for (const tc of world._turnHookCards) {
+      for (const h of tc.initializeEffects()) skel.addHook(h);
+    }
+  }
+  // 模板属性结算 + Spawned 装饰（与正常子弹同流程）
+  skel.triggerHooks(Phase.PreActive, { world });
+  skel.triggerHooks(Phase.Spawned, { world });
+  // 立即激活并进入实体态（speed=0 → 不会有飞行阶段）
+  skel.activate(performance.now() / 1000);
+  skel.isEntity = true;
+  // 入场视觉
+  for (let i = 0; i < 8; i++) {
+    const a = Math.PI * 2 * Math.random();
+    const sp = 50 + Math.random() * 70;
+    world.particles.push(new Particle({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
+      life: 0.32, color: i % 2 ? '#c97aff' : '#dde3ec', size: 2.6,
+    }));
+  }
+  world.bullets.push(skel);
+  Events.emit('summonSpawned', skel);
+  return skel;
 }
 
 // 召唤物的子弹波次发射（同款流程仿 fireOneWave，但 source = 召唤物，team = ally）
@@ -2977,17 +2990,6 @@ function _nearestEnemyTo(world, x, y) {
   return nearest;
 }
 
-// ─── 骷髅小兵召唤定义（墓穴 / 亡灵法师）──────────────────────────────
-// 行为：敌方回合开始 → 0.5s 内 dash 到最近敌人（无视距离）→ 撞击造成伤害 → 自毁
-// 无自然衰减（decayRate=0）+ 无标准近战（moves=false，自带 dash 逻辑）
-// 场上无敌人时不消失，等到有敌人才 dash
-SUMMON_DEFS.skeleton = {
-  kind: 'skeleton', name: '骷髅', desc: '每个敌方回合冲撞一名随机敌人，造成 1 伤害。',
-  maxHp: 2, attack: 1, radius: 8, moves: false, speed: 0,
-  canFire: false, decayRate: 0,
-};
-SUMMON_TR.skeleton = { name_en: 'Skeleton', desc_en: 'Each enemy turn, charges a random enemy and deals 1 damage.' };
-
 // ─── 全局"下 N 次射击 +M 攻"队列（缓释胶囊用）─────────────────────────
 // fireFromCards 在 onUse 之前调用：应用全部存量 buff + decrement
 function applyAndTickShotBuffs(world, tpl) {
@@ -3006,8 +3008,7 @@ function handleDiscardForNecromancer(world) {
   if (!world || !world.bullets) return;
   for (const b of world.bullets) {
     if (b.alive && b._isNecromancer) {
-      const sk = spawnSummon(world, 'skeleton');
-      if (sk) { sk.x = b.x + rand(-20, 20); sk.y = b.y + rand(-20, 20); }
+      spawnSkeleton(world, { x: b.x + rand(-20, 20), y: b.y + rand(-20, 20) });
     }
   }
 }
@@ -3050,9 +3051,11 @@ function _autoFireArcaneMissile(world, card) {
         if (Math.random() < chance) applyFreeze(ctx.enemy, 1);
       }));
     }
-    // 继承本回合用过的卡牌效果（PreActive hooks），让奥弹也获得本回合的 buff
-    if (world._turnHookCards && world._turnHookCards.length > 0) {
-      for (const tc of world._turnHookCards) {
+    // 继承洗入时刻 snapshot 的卡牌效果（固化在 card._inheritedHooks 上）。
+    // 这样后续回合再用别的 buff 不会回头叠加给已经洗入的奥弹。
+    const hookCards = card._inheritedHooks || [];
+    if (hookCards.length > 0) {
+      for (const tc of hookCards) {
         for (const h of tc.initializeEffects()) bullet.addHook(h);
       }
       bullet.triggerHooks(Phase.PreActive, { world });
@@ -3203,8 +3206,7 @@ function _skeletonLordTier(spawnN, value) {
       new Effect(Phase.EntityTurn, 0, ctx => {
         const b = ctx.bullet, w = ctx.world;
         for (let i = 0; i < spawnN; i++) {
-          const sk = spawnSummon(w, 'skeleton');
-          if (sk) { sk.x = b.x + rand(-22, 22); sk.y = b.y + rand(-22, 22); }
+          spawnSkeleton(w, { x: b.x + rand(-22, 22), y: b.y + rand(-22, 22) });
         }
         for (let k = 0; k < 8; k++) {
           const a = Math.PI * 2 * Math.random();
@@ -3231,7 +3233,7 @@ function _boneBlossomTier(skN, atkBoost, value, desc) {
   return {
     cost: 2, value, hasRevealFx: true, desc,
     effects: () => [],
-    onUse(card, world) { for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton'); },
+    onUse(card, world) { for (let i = 0; i < skN; i++) spawnSkeleton(world); },
     onReveal(card) {
       if (card._bbHandler) return;
       card._bbHandler = (s) => {
@@ -3278,9 +3280,10 @@ function _boneBlossomTier(skN, atkBoost, value, desc) {
 // 注意：buff 只作用一次性、对当前场上骷髅；不影响未来召唤的骷髅。
 function _skeletonHornTier(skN, atkBoost, value) {
   const apply = (world) => {
-    for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton');
-    for (const s of world.summons) {
-      if (s.alive && s.kind === 'skeleton') s.attack = (s.attack || 0) + atkBoost;
+    for (let i = 0; i < skN; i++) spawnSkeleton(world);
+    // 骷髅现在是 world.bullets 中的实体化子弹（_isSkeleton 标记）
+    for (const b of world.bullets) {
+      if (b.alive && b._isSkeleton) b.attack = (b.attack || 0) + atkBoost;
     }
   };
   return {
@@ -3520,6 +3523,8 @@ function _arcaneboostTier(boost, doubleTrigger, value) {
       const newCard = mkCard('arcane_missile', 'silver');
       newCard._arcBonus = boost;
       if (doubleTrigger) newCard._arcDoubleFire = true;
+      // 洗入时刻：snapshot 当前本回合用过的卡（包括奥术强化本身），固化到这张奥弹上
+      newCard._inheritedHooks = (world._turnHookCards || []).slice();
       world.deck.shuffleIntoHand(newCard);
     },
   };
@@ -3678,9 +3683,16 @@ function _arcaneFireworkTier(extraRolls, value) {
     desc: { zh: descZh, en: descEn },
     effects: () => [],
     onUse(_, world) {
-      for (let i = 0; i < 2; i++) world.deck.shuffleIntoHand(mkCard('arcane_missile', 'silver'));
+      // 洗入时刻 snapshot：每张奥弹固化当时本回合用过的卡牌效果
+      const snap = (world._turnHookCards || []).slice();
+      const mk = () => {
+        const m = mkCard('arcane_missile', 'silver');
+        m._inheritedHooks = snap.slice();
+        return m;
+      };
+      for (let i = 0; i < 2; i++) world.deck.shuffleIntoHand(mk());
       for (let i = 0; i < extraRolls; i++) {
-        if (Math.random() < 0.5) world.deck.shuffleIntoHand(mkCard('arcane_missile', 'silver'));
+        if (Math.random() < 0.5) world.deck.shuffleIntoHand(mk());
       }
     },
   };
@@ -3753,8 +3765,8 @@ function _cryptTier(n, value) {
     cost: 1, value,
     desc: { zh: `召唤${n}个骷髅。弃置此牌：召唤${n}个骷髅。`, en: `Summon ${n} Skeletons. Discard: summon ${n} Skeletons.` },
     effects: () => [],
-    onUse(_, world) { for (let i = 0; i < n; i++) spawnSummon(world, 'skeleton'); },
-    onDiscard(_, world) { for (let i = 0; i < n; i++) spawnSummon(world, 'skeleton'); },
+    onUse(_, world) { for (let i = 0; i < n; i++) spawnSkeleton(world); },
+    onDiscard(_, world) { for (let i = 0; i < n; i++) spawnSkeleton(world); },
   };
 }
 
@@ -5019,10 +5031,10 @@ class BattleManager {
   }
 
   // 阶段 1：实体回合（剑士挥剑 / 蝙蝠射 / 引信燃烧 / 友军衰减 / 召唤物发射）
+  // 骷髅本身是实体化子弹，由 _tickEntityBullets 统一驱动（含其 EntityTurn dash hook）
   _startEntityPhase() {
     this._entityPhasePending = false;
     this._tickEntityBullets();
-    this._tickSkeletons();
     this._tickSummonOverTurns();
     this._tickFriendlyDecay();
     this._tickSummonFire();
@@ -5040,30 +5052,6 @@ class BattleManager {
     this._enemyPhasePending = false;
     this._tickWaveSpawn();
     this._tickEnemyIntents();
-  }
-
-  // 实体回合中调用：和实体化子弹一样，每个 alive 骷髅在这里挑随机敌人 + 启动 dash。
-  // 之后由 Summon.update 负责动画与撞击结算（每回合 1 次，绝不重入）。
-  _tickSkeletons() {
-    const w = this.world;
-    if (!w.summons) return;
-    for (const s of w.summons) {
-      if (!s.alive || s.kind !== 'skeleton') continue;
-      // 上一次 dash 没结算完（理论上不该发生，0.5s dashDur + 850ms 实体阶段缓冲足以收尾）
-      // → 跳过本回合的初始化，让动画自然走完
-      if (s._dashInit && !s._dashResolved) continue;
-      const alive = w.enemies.filter(e =>
-        e.alive && (e.spawnT == null || e.spawnT <= 0));
-      if (alive.length === 0) continue;     // 场上无敌 → 跳过本回合（不消耗实体化）
-      const t = alive[Math.floor(Math.random() * alive.length)];
-      s._dashInit = true;
-      s._dashImmune = true;                 // dash 全程免疫敌人接触伤害
-      s._dashResolved = false;
-      s._dashStartT = performance.now() / 1000;
-      s._dashStartX = s.x;
-      s._dashStartY = s.y;
-      s._dashTarget = t;
-    }
   }
 
   // 火焰层数结算：每个有火焰的敌人受 stacks 伤害，然后 stacks-1（自然衰减）
