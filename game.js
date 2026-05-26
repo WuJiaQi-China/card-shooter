@@ -3942,7 +3942,10 @@ function handleDiscardForNecromancer(world) {
   if (!world || !world.bullets) return;
   for (const b of world.bullets) {
     if (b.alive && b._isNecromancer) {
-      spawnSkeleton(world, { x: b.x + rand(-20, 20), y: b.y + rand(-20, 20) });
+      // v5：每个亡灵法师每次弃牌召唤 2 个骷髅
+      for (let i = 0; i < 2; i++) {
+        spawnSkeleton(world, { x: b.x + rand(-20, 20), y: b.y + rand(-20, 20) });
+      }
     }
   }
 }
@@ -4142,15 +4145,15 @@ function _necromancerTier(ent, value) {
   return {
     cost: 3, value,
     desc: {
-      zh: `实体化+${ent}，速度大幅降低。每回合攻击最近的敌人。当你弃牌时，召唤1个骷髅。`,
-      en: `Entity+${ent}, greatly reduced speed. Each turn attacks the nearest enemy. When you discard, summon 1 Skeleton.`,
+      zh: `实体化+${ent}，速度大幅降低。每回合攻击最近的敌人。当你弃牌时，召唤2个骷髅。`,
+      en: `Entity+${ent}, greatly reduced speed. Each turn attacks the nearest enemy. When you discard, summon 2 Skeletons.`,
     },
     effects: () => [
       // 所有钩子在 ctx.bullet._isSkeleton 时早退：召唤的骷髅继承本回合用过的卡牌效果，
       // 但不应继承"亡灵法师自身"的光环（避免无限传染 / 弃牌爆炸）。
       new Effect(Phase.PreActive, 0, ctx => {
         if (ctx.bullet._isSkeleton) return;
-        ctx.bullet.entityLayers += ent; ctx.bullet.speed *= 0.4;
+        ctx.bullet.entityLayers += ent; ctx.bullet.speed *= 0.05;
       }),
       new Effect(Phase.Spawned, 0, ctx => {
         if (ctx.bullet._isSkeleton) return;
@@ -4187,12 +4190,15 @@ function _necromancerTier(ent, value) {
 }
 
 // 骷髅领主：实体子弹，每回合召唤 N 个骷髅 + 友军骷髅死亡时获得 +1 实体化层数
-function _skeletonLordTier(spawnN, value) {
+function _skeletonLordTier(spawnN, value, sepZh = '。', sepEn = '. ') {
+  // sep 控制"提供 1 层实体化"与"每回合召唤 N 个骷髅"之间的连接：
+  //   金：'，且' / ', and '  → 一句话连写
+  //   钻：'。' / '. '         → 两句独立
   return {
     cost: 3, value,
     desc: {
-      zh: `实体化+2。在场时，每个死亡的骷髅会为此单位提供1层实体化。每回合召唤${spawnN}个骷髅。`,
-      en: `Entity+2. While alive, each dead skeleton grants +1 Entity layer. Each turn, summons ${spawnN} skeleton(s).`,
+      zh: `实体化+2。在场时，每个死亡的骷髅会为此单位提供1层实体化${sepZh}每回合召唤${spawnN}个骷髅。`,
+      en: `Entity+2. While alive, each dead skeleton grants +1 Entity layer${sepEn}Each turn, summons ${spawnN} skeleton(s).`,
     },
     // 所有钩子在 ctx.bullet._isSkeleton 时早退：召唤的骷髅会继承本回合"别的"卡的 buff，
     // 但不能继承骷髅领主自身的光环 — 否则每只骷髅每回合也会再召唤 N 只 → 无限繁殖。
@@ -4241,11 +4247,14 @@ function _skeletonLordTier(spawnN, value) {
 }
 
 // 爆骨花：召唤 1 个骷髅；展露状态下，骷髅死亡时向随机方向造成圆锥范围伤害（+可选骷髅攻击+1）
-function _boneBlossomTier(atkBoost, halfAngle, value, desc) {
+// 爆骨花：召唤 skN 个骷髅；展露时骷髅死亡造成全圆 AOE。
+//   radiusMult：AOE 半径 = 骷髅半径 × radiusMult（小/中/大：3 / 4 / 5）
+//   atkBoost：钻级展露时给召唤的骷髅 +N 攻击
+function _boneBlossomTier(skN, atkBoost, radiusMult, value, desc) {
   return {
     cost: 3, value, hasRevealFx: true, desc,
     effects: () => [],
-    onUse(_, world) { spawnSkeleton(world); },
+    onUse(_, world) { for (let i = 0; i < skN; i++) spawnSkeleton(world); },
     onReveal(card) {
       if (card._bbHandler) return;
       card._bbHandler = (s) => {
@@ -4253,12 +4262,11 @@ function _boneBlossomTier(atkBoost, halfAngle, value, desc) {
         if (!s || s.kind !== 'skeleton') return;
         const w = window.__game;
         if (!w) return;
-        // 圆锥范围伤害：随机方向 halfAngle 张角；伤害 = 骷髅当前攻击（继承骷髅号角等 buff）。
+        // 全圆范围伤害：半径 = 骷髅半径 × radiusMult（3/4/5 倍）。
+        // 内部公式：AOE 半径 = source.radius × AOE_VOL_RATIO(=6) × mult → 套 mult = radiusMult/6 得到所需倍数
         const dmg = s.attack || 1;
         applyAoe(w, { x: s.x, y: s.y, radius: s.radius || 8 }, {
-          kind: 'cone', damage: dmg, mult: 0.5, target: 'enemies',
-          dirAngle: Math.random() * Math.PI * 2, halfAngle,
-          color: '#c97aff',
+          damage: dmg, mult: radiusMult / 6, target: 'enemies',
         });
         for (let k = 0; k < 10; k++) {
           const a = Math.PI * 2 * Math.random();
@@ -4272,7 +4280,7 @@ function _boneBlossomTier(atkBoost, halfAngle, value, desc) {
       Events.on('summonDied', card._bbHandler);
       if (atkBoost > 0) {
         if (card._bbBuffHandler) return;
-        // diamond: 展露时骷髅伤害 +1。给所有未来召唤的骷髅打 buff
+        // diamond: 展露时骷髅伤害 +N。给所有未来召唤的骷髅打 buff
         card._bbBuffHandler = (s) => {
           if (!card.faceUp) return;
           if (!s || s.kind !== 'skeleton') return;
@@ -4543,11 +4551,13 @@ function _snipeTier(perPx, value, desc) {
   return {
     cost: 1, value, desc,
     effects: () => [
+      // 基础 +2 伤害（所有 tier 共有）
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 2; }),
       new Effect(Phase.Spawned, 0, ctx => {
         const b = ctx.bullet;
         b._snipeStartX = b.x;
         b._snipeStartY = b.y;
-        b._snipeBaseAttack = b.attack;
+        b._snipeBaseAttack = b.attack;     // 此时已含 +2 基础
         b._snipePerPx = perPx;
       }),
       new Effect(Phase.HitEnemy, -2, ctx => {
@@ -4608,7 +4618,7 @@ function _photonGunTier(pen, bound, value) {
 }
 
 function _hotairTier(atk, radiusMult, value) {
-  const sizeWord = radiusMult >= 1.5 ? '体积大幅增加' : '体积增大';
+  const sizeWord = radiusMult >= 1.5 ? '体积大幅增加' : '体积增加';
   const sizeWordEn = radiusMult >= 1.5 ? 'greatly increased size' : 'larger size';
   return {
     cost: 1, value,
@@ -4659,8 +4669,8 @@ function _railgunTier(pen, bound, gainPct, alsoBound, value) {
 
 function _scatterTier(count, value) {
   return {
-    cost: 1, value,
-    desc: { zh: `数量+${count}。伤害会随着经过距离增加而降低。`, en: `Bullets+${count}. Damage falls off with distance.` },
+    cost: 2, value,
+    desc: { zh: `数量+${count}。伤害随距离减少。`, en: `Bullets+${count}. Damage falls off with distance.` },
     effects: () => [
       new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bulletCount += count; }),
       new Effect(Phase.Spawned, 0, ctx => {
@@ -4678,13 +4688,13 @@ function _scatterTier(count, value) {
   };
 }
 
-function _arcaneFireworkTier(extraChance, value) {
+function _arcaneFireworkTier(baseCount, extraChance, value) {
   const descZh = extraChance > 0
-    ? `洗入1张奥弹。有${Math.round(extraChance * 100)}%概率额外洗入一张。`
-    : '洗入1张奥弹。';
+    ? `洗入${baseCount}张奥弹。有${Math.round(extraChance * 100)}%概率额外洗入1张。`
+    : `洗入${baseCount}张奥弹。`;
   const descEn = extraChance > 0
-    ? `Shuffle in 1 Arcane Missile. ${Math.round(extraChance * 100)}% chance to add 1 more.`
-    : 'Shuffle in 1 Arcane Missile.';
+    ? `Shuffle in ${baseCount} Arcane Missiles. ${Math.round(extraChance * 100)}% chance to add 1 more.`
+    : `Shuffle in ${baseCount} Arcane Missiles.`;
   return {
     cost: 1, value,
     desc: { zh: descZh, en: descEn },
@@ -4692,7 +4702,7 @@ function _arcaneFireworkTier(extraChance, value) {
     onUse(_, world) {
       // 洗入裸奥弹（无 _arcBonus / 无继承）— 奥弹只吃显式 buff，本卡没说要 buff
       const mk = () => mkCard('arcane_missile', 'silver');
-      world.deck.shuffleIntoHand(mk());
+      for (let i = 0; i < baseCount; i++) world.deck.shuffleIntoHand(mk());
       if (extraChance > 0 && Math.random() < extraChance) {
         world.deck.shuffleIntoHand(mk());
       }
@@ -4767,7 +4777,7 @@ function _cryptTier(n, value, atkBoost = 0) {
     for (let i = 0; i < n; i++) spawnSkeleton(world, { attackBonus: atkBoost });
   };
   const descZh = atkBoost > 0
-    ? `召唤${n}个骷髅，它的伤害+${atkBoost}。弃置此牌等同于使用。`
+    ? `召唤${n}个骷髅，他们的伤害+${atkBoost}。弃置此牌等同于使用。`
     : `召唤${n}个骷髅。弃置此牌等同于使用。`;
   const descEn = atkBoost > 0
     ? `Summon ${n} Skeleton(s) with Damage+${atkBoost}. Discard = use.`
@@ -4832,11 +4842,14 @@ const SKELETON_FAMILY_IDS = new Set([
 ]);
 
 // 火力覆盖：纯数量加成。
-function _firepowerTier(count, value) {
+function _firepowerTier(damage, count, value) {
   return {
     cost: 2, value,
-    desc: { zh: `数量+${count}。`, en: `Bullets+${count}.` },
-    effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bulletCount += count; })],
+    desc: { zh: `伤害+${damage}，数量+${count}。`, en: `Damage+${damage}, Bullets+${count}.` },
+    effects: () => [new Effect(Phase.PreActive, 0, ctx => {
+      ctx.bullet.attack += damage;
+      ctx.bullet.bulletCount += count;
+    })],
   };
 }
 
@@ -4872,26 +4885,28 @@ function _armorPiercerTier(halfAngle, value) {
   };
 }
 
-// 叫魂：召唤 1 骷髅 + 随机弃 2 张手牌。每张骷髅关键词的牌额外召唤 1 骷髅；diamond 时非骷髅牌使场上骷髅伤害+1。
-function _soulcallTier(diamondBoost, value) {
+// 叫魂：召唤 baseN 骷髅 + 随机弃 2 张手牌。
+//   skeletonKwExtra=true（金/钻）：弃出的骷髅关键词牌每张再召唤 1 骷髅。
+//   diamondBoost=true（钻）：弃出的非骷髅关键词牌反而使场上骷髅 +1 攻击。
+function _soulcallTier(baseN, skeletonKwExtra, diamondBoost, value) {
   const descZh = diamondBoost
-    ? '召唤1个骷髅。随机弃置2张手牌，每张包含骷髅关键词的牌会额外召唤1个骷髅，反之使场上的骷髅伤害+1。'
-    : (value >= 10
-      ? '召唤1个骷髅。随机弃置2张手牌，每张包含骷髅关键词的牌会额外召唤1个骷髅。'
-      : '召唤1个骷髅。随机弃置2张手牌。');
+    ? `召唤${baseN}个骷髅。随机弃置2张手牌，每张包含骷髅关键词的牌会额外召唤1个骷髅，反之使场上的骷髅伤害+1。`
+    : (skeletonKwExtra
+      ? `召唤${baseN}个骷髅。随机弃置2张手牌，每张包含骷髅关键词的牌会额外召唤1个骷髅。`
+      : `召唤${baseN}个骷髅。随机弃置2张手牌。`);
   const descEn = diamondBoost
-    ? 'Summon 1 Skeleton. Discard 2 random hand cards; each with the Skeleton keyword summons 1 more Skeleton, otherwise +1 damage to your skeletons.'
-    : (value >= 10
-      ? 'Summon 1 Skeleton. Discard 2 random hand cards; each with the Skeleton keyword summons 1 more Skeleton.'
-      : 'Summon 1 Skeleton. Discard 2 random hand cards.');
-  const summon = (world, n = 1) => { for (let i = 0; i < n; i++) spawnSkeleton(world); };
+    ? `Summon ${baseN} Skeletons. Discard 2 random hand cards; each with the Skeleton keyword summons 1 more Skeleton, otherwise +1 damage to your skeletons.`
+    : (skeletonKwExtra
+      ? `Summon ${baseN} Skeletons. Discard 2 random hand cards; each with the Skeleton keyword summons 1 more Skeleton.`
+      : `Summon ${baseN} Skeletons. Discard 2 random hand cards.`);
+  const summon = (world, n) => { for (let i = 0; i < n; i++) spawnSkeleton(world); };
   const apply = (_, world) => {
-    summon(world);
+    summon(world, baseN);
     const discarded = world.deck.discardRandomFromHand(2);
-    if (value <= 8) return;   // silver：仅基础召唤 + 弃
+    if (!skeletonKwExtra) return;   // silver：仅基础召唤 + 弃
     for (const c of discarded) {
       if (SKELETON_FAMILY_IDS.has(c.familyId)) {
-        summon(world);
+        summon(world, 1);
       } else if (diamondBoost) {
         for (const b of world.bullets) {
           if (b.alive && b._isSkeleton) b.attack = (b.attack || 0) + 1;
@@ -4912,17 +4927,16 @@ function _soulcallTier(diamondBoost, value) {
 // rollsPerMissile: 0 (silver) / 1 (gold) / 2 (diamond)
 // 用完之后自身在 fireFromCards 后被替换为同 tier 奥术礼花。
 function _continuousCastTier(rollsPerMissile, value) {
-  const tail = rollsPerMissile > 0
-    ? `它们具有${rollsPerMissile}种随机强化。`
-    : '';
+  // 银：句尾直接 "。"；金/钻：用"，"接随机强化短语
+  const tailZh = rollsPerMissile > 0 ? `，它们具有${rollsPerMissile}种随机强化` : '';
   const tailEn = rollsPerMissile > 0
-    ? ` They each gain ${rollsPerMissile} random buff${rollsPerMissile > 1 ? 's' : ''}.`
+    ? `, each with ${rollsPerMissile} random buff${rollsPerMissile > 1 ? 's' : ''}`
     : '';
   return {
     cost: 3, value,
     desc: {
-      zh: `在本关卡中，每回合开始时洗入2张奥弹。${tail}用奥术礼花替换此牌。`,
-      en: `For the rest of this stage, each turn shuffle 2 Arcane Missiles into your hand.${tailEn} Replace this card with Arcane Firework.`,
+      zh: `在本关卡中，每回合开始时洗入2张奥弹${tailZh}。用奥术礼花替换此牌。`,
+      en: `For the rest of this stage, each turn shuffle 2 Arcane Missiles into your hand${tailEn}. Replace this card with Arcane Firework.`,
     },
     effects: () => [],
     onUse(card, world) {
@@ -4962,13 +4976,13 @@ function _continuousCastShuffleIn(world) {
   }
 }
 
-// 转生：每个敌人死亡时有 10% 概率召唤 1 骷髅；用完后自身被替换为同 tier 墓穴。
+// 转生：每个敌人死亡时有 20% 概率召唤 1 骷髅；用完后自身被替换为同 tier 墓穴。
 function _reincarnationTier(value) {
   return {
     cost: 3, value,
     desc: {
-      zh: '在本关卡中，每个敌人死亡时，有10%的概率召唤1个骷髅。用墓穴替换此牌。',
-      en: 'For the rest of this stage, each enemy death has a 10% chance to summon a Skeleton. Replace this card with Crypt.',
+      zh: '在本关卡中，每个敌人死亡时，有20%的概率召唤1个骷髅。用墓穴替换此牌。',
+      en: 'For the rest of this stage, each enemy death has a 20% chance to summon a Skeleton. Replace this card with Crypt.',
     },
     effects: () => [],
     onUse(card, world) {
@@ -5147,8 +5161,8 @@ const CARD_DATA = {
     tiers: {
       diamond: {
         cost: 2, value: 30, hasRevealFx: true,
-        desc: { zh: '数量+3。展露：数量+2。', en: 'Bullets+3. Reveal: Bullets+2.' },
-        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bulletCount += 3; })],
+        desc: { zh: '数量+1。展露：数量+2。', en: 'Bullets+1. Reveal: Bullets+2.' },
+        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bulletCount += 1; })],
         onReveal(card) {
           if (card._revealHandler) return;
           card._revealHandler = (tpl) => { tpl.addHook(new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bulletCount += 2; })); };
@@ -5345,8 +5359,8 @@ const CARD_DATA = {
     emoji: '👑',
     name: { zh: '骷髅领主', en: 'Skeleton Lord' },
     tiers: {
-      gold: _skeletonLordTier(1, 39),
-      diamond: _skeletonLordTier(2, 50),
+      gold:    _skeletonLordTier(2, 39, '，且', ', and '),  // 金：连写"且每回合召唤"
+      diamond: _skeletonLordTier(3, 50),                    // 钻：两句独立（默认 '。' / '. '）
     },
   },
 
@@ -5387,9 +5401,9 @@ const CARD_DATA = {
     emoji: '🗡',
     name: { zh: '剑士', en: 'Swordsman' },
     tiers: {
-      silver: _swordsmanTier({ atk: 1, ent: 2, half: Math.PI / 4, value: 30, desc: { zh: '伤害+1，实体化+2。每回合向最近的一名敌人挥剑，造成范围伤害。', en: 'Damage+1, Entity+2. Each turn slashes the nearest enemy for AOE damage.' } }),
-      gold: _swordsmanTier({ atk: 1, ent: 2, half: Math.PI, value: 39, desc: { zh: '伤害+1，实体化+2。每回合向周围挥剑，造成无死角的范围伤害。', en: 'Damage+1, Entity+2. Each turn slashes 360° for AOE damage.' } }),
-      diamond: _swordsmanTier({ atk: 2, ent: 2, half: Math.PI, reachMult: 1.5, value: 50, desc: { zh: '伤害+2，实体化+2。每回合向周围挥剑，造成无死角的大范围伤害。', en: 'Damage+2, Entity+2. 360° slash with +50% reach.' } }),
+      silver: _swordsmanTier({ atk: 1, ent: 2, half: Math.PI / 4, value: 30, desc: { zh: '伤害+1，实体化+2。每回合向最近的一名敌人挥剑，造成90°的范围伤害。', en: 'Damage+1, Entity+2. Each turn slashes the nearest enemy for a 90° AOE.' } }),
+      gold: _swordsmanTier({ atk: 1, ent: 2, half: Math.PI / 2, value: 39, desc: { zh: '伤害+1，实体化+2。每回合向周围挥剑，造成180°的范围伤害。', en: 'Damage+1, Entity+2. Each turn slashes 180° AOE.' } }),
+      diamond: _swordsmanTier({ atk: 2, ent: 2, half: Math.PI, reachMult: 1.5, value: 50, desc: { zh: '伤害+2，实体化+2。每回合向周围挥剑，造成360°的大范围伤害。', en: 'Damage+2, Entity+2. 360° slash with +50% reach.' } }),
     },
   },
 
@@ -5427,9 +5441,9 @@ const CARD_DATA = {
     emoji: '✦',
     name: { zh: '奥术强化', en: 'Arcane Boost' },
     tiers: {
-      silver: _arcaneboostTier(2, 1, 18),
-      gold: _arcaneboostTier(2, 1, 23),
-      diamond: _arcaneboostTier(3, 1, 30),
+      silver:  _arcaneboostTier(4, 1, 18),
+      gold:    _arcaneboostTier(5, 1, 23),
+      diamond: _arcaneboostTier(6, 2, 30),
     },
   },
 
@@ -5437,9 +5451,9 @@ const CARD_DATA = {
     emoji: '🌸',
     name: { zh: '爆骨花', en: 'Bone Blossom' },
     tiers: {
-      silver: _boneBlossomTier(0, Math.PI / 4, 30, { zh: '召唤1个骷髅。展露：骷髅死亡时，向随机方向造成90°的范围伤害。', en: 'Summon 1 Skeleton. Reveal: on skeleton death, deal a 90° cone in a random direction.' }),
-      gold: _boneBlossomTier(0, Math.PI / 3, 39, { zh: '召唤1个骷髅。展露：骷髅死亡时，向随机方向造成120°的范围伤害。', en: 'Summon 1 Skeleton. Reveal: on skeleton death, deal a 120° cone in a random direction.' }),
-      diamond: _boneBlossomTier(1, Math.PI / 3, 50, { zh: '召唤1个骷髅。展露：骷髅伤害+1；骷髅死亡时，向随机方向造成120°的范围伤害。', en: 'Summon 1 Skeleton. Reveal: skeletons +1 damage; on death, deal a 120° cone in a random direction.' }),
+      silver:  _boneBlossomTier(2, 0, 3, 30, { zh: '召唤2个骷髅。展露：骷髅死亡时，造成小范围伤害。', en: 'Summon 2 Skeletons. Reveal: on skeleton death, deal a small AOE.' }),
+      gold:    _boneBlossomTier(2, 0, 4, 39, { zh: '召唤2个骷髅。展露：骷髅死亡时，造成范围伤害。', en: 'Summon 2 Skeletons. Reveal: on skeleton death, deal an AOE.' }),
+      diamond: _boneBlossomTier(3, 1, 5, 50, { zh: '召唤3个骷髅。展露：骷髅伤害+1；骷髅死亡时，造成大范围伤害。', en: 'Summon 3 Skeletons. Reveal: skeletons +1 damage; on death, deal a large AOE.' }),
     },
   },
 
@@ -5448,11 +5462,11 @@ const CARD_DATA = {
     emoji: '🎯',
     name: { zh: '狙击', en: 'Snipe' },
     tiers: {
-      // 距离每 N 像素 +1 攻击；铜级以 1/2 战场高度（≈280px）为基准，逐级递减 1/6
-      bronze: _snipeTier(280, 6, { zh: '伤害会随着经过距离增加而略微增加。', en: 'Damage scales slightly with distance.' }),
-      silver: _snipeTier(233, 8, { zh: '伤害会随着经过距离增加而轻度增加。', en: 'Damage scales lightly with distance.' }),
-      gold: _snipeTier(187, 10, { zh: '伤害会随着经过距离增加而增加。', en: 'Damage scales with distance.' }),
-      diamond: _snipeTier(140, 13, { zh: '伤害会随着经过距离增加而快速增加。', en: 'Damage scales rapidly with distance.' }),
+      // 距离每 N 像素 +1 攻击；铜级以 1/2 战场高度（≈280px）为基准，逐级递减 1/6。基础 +2 伤害写在 _snipeTier 里。
+      bronze: _snipeTier(280, 6, { zh: '伤害+2。伤害会随着经过距离增加而略微增加。', en: 'Damage+2. Damage scales slightly with distance.' }),
+      silver: _snipeTier(233, 8, { zh: '伤害+2。伤害会随着经过距离增加而轻度增加。', en: 'Damage+2. Damage scales lightly with distance.' }),
+      gold: _snipeTier(187, 10, { zh: '伤害+2。伤害会随着经过距离增加而增加。', en: 'Damage+2. Damage scales with distance.' }),
+      diamond: _snipeTier(140, 13, { zh: '伤害+2。伤害会随着经过距离增加而快速增加。', en: 'Damage+2. Damage scales rapidly with distance.' }),
     },
   },
 
@@ -5460,7 +5474,7 @@ const CARD_DATA = {
     emoji: '⚖',
     name: { zh: '注铅', en: 'Lead Slug' },
     tiers: {
-      bronze: _leadedTier(8, 23),
+      bronze: _leadedTier(10, 23),
       silver: _leadedTier(9, 30),
       gold: _leadedTier(11, 39),
       diamond: _leadedTier(13, 50),
@@ -5582,10 +5596,10 @@ const CARD_DATA = {
     emoji: '🌫',
     name: { zh: '散弹', en: 'Scatter' },
     tiers: {
-      bronze: _scatterTier(2, 6),
-      silver: _scatterTier(3, 8),
-      gold: _scatterTier(4, 10),
-      diamond: _scatterTier(5, 13),
+      bronze: _scatterTier(2, 13),
+      silver: _scatterTier(3, 18),
+      gold: _scatterTier(4, 23),
+      diamond: _scatterTier(5, 30),
     },
   },
 
@@ -5593,9 +5607,9 @@ const CARD_DATA = {
     emoji: '🎆',
     name: { zh: '奥术礼花', en: 'Arcane Firework' },
     tiers: {
-      silver: _arcaneFireworkTier(0, 8),
-      gold: _arcaneFireworkTier(0.25, 10),
-      diamond: _arcaneFireworkTier(0.5, 13),
+      silver:  _arcaneFireworkTier(2, 0, 8),
+      gold:    _arcaneFireworkTier(2, 0.5, 10),
+      diamond: _arcaneFireworkTier(3, 0.5, 13),
     },
   },
 
@@ -5638,8 +5652,8 @@ const CARD_DATA = {
     tiers: {
       bronze: _cryptTier(1, 6, 0),
       silver: _cryptTier(1, 8, 1),
-      gold: _cryptTier(1, 10, 2),
-      diamond: _cryptTier(2, 13, 0),
+      gold: _cryptTier(2, 10, 0),
+      diamond: _cryptTier(2, 13, 1),
     },
   },
 
@@ -5647,9 +5661,9 @@ const CARD_DATA = {
     emoji: '📯',
     name: { zh: '骷髅号角', en: 'Skeleton Horn' },
     tiers: {
-      silver: _skeletonHornTier(1, 1, 8),
-      gold: _skeletonHornTier(1, 2, 10),
-      diamond: _skeletonHornTier(2, 3, 13),
+      silver:  _skeletonHornTier(2, 1, 8),
+      gold:    _skeletonHornTier(3, 1, 10),
+      diamond: _skeletonHornTier(4, 1, 13),
     },
   },
 
@@ -5675,15 +5689,15 @@ const CARD_DATA = {
     },
   },
 
-  // 火力覆盖：纯数量加成（4 tier 等同强化系）
+  // 火力覆盖：伤害 + 数量混合加成
   firepower: {
     emoji: '🎯',
     name: { zh: '火力覆盖', en: 'Barrage' },
     tiers: {
-      bronze: _firepowerTier(2, 13),
-      silver: _firepowerTier(3, 18),
-      gold:   _firepowerTier(4, 23),
-      diamond: _firepowerTier(5, 30),
+      bronze: _firepowerTier(1, 1, 13),
+      silver: _firepowerTier(2, 1, 18),
+      gold:   _firepowerTier(2, 2, 23),
+      diamond: _firepowerTier(2, 3, 30),
     },
   },
 
@@ -5729,14 +5743,14 @@ const CARD_DATA = {
     },
   },
 
-  // 叫魂（银 / 金 / 钻）— 召唤骷髅 + 随机弃 2 张
+  // 叫魂（银 / 金 / 钻）— 召唤 2 骷髅 + 随机弃 2 张；金/钻强化弃牌效果
   soulcall: {
     emoji: '💀',
     name: { zh: '叫魂', en: 'Soul Call' },
     tiers: {
-      silver:  _soulcallTier(false, 8),
-      gold:    _soulcallTier(false, 10),
-      diamond: _soulcallTier(true, 13),
+      silver:  _soulcallTier(2, false, false, 8),
+      gold:    _soulcallTier(2, true,  false, 10),
+      diamond: _soulcallTier(2, true,  true,  13),
     },
   },
 
@@ -5746,8 +5760,8 @@ const CARD_DATA = {
     name: { zh: '撒豆成兵', en: 'Bean Soldiers' },
     tiers: {
       silver:  _beanSoldiersTier(2, 30),
-      gold:    _beanSoldiersTier(4, 39),
-      diamond: _beanSoldiersTier(6, 50),
+      gold:    _beanSoldiersTier(3, 39),
+      diamond: _beanSoldiersTier(4, 50),
     },
   },
 
@@ -5834,7 +5848,7 @@ const CARD_DATA = {
       silver: {
         cost: 3, value: 30,
         desc: {
-          zh: '将5种奥术进化衍生牌洗入你的手牌。用奥术强化替换此牌。',
+          zh: '将5种奥术进化洗入你的手牌。用奥术强化替换此牌。',
           en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
         },
         effects: () => [],
@@ -5843,7 +5857,7 @@ const CARD_DATA = {
       gold: {
         cost: 3, value: 39,
         desc: {
-          zh: '将5种奥术进化衍生牌洗入你的手牌。将2张奥术进化翻为正面。用奥术强化替换此牌。',
+          zh: '将5种奥术进化洗入你的手牌。将2张奥术进化翻为正面。用奥术强化替换此牌。',
           en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip 2 of them face-up. Replace this card with Arcane Boost.',
         },
         effects: () => [],
@@ -5852,7 +5866,7 @@ const CARD_DATA = {
       diamond: {
         cost: 3, value: 50,
         desc: {
-          zh: '将5种奥术进化衍生牌洗入你的手牌。将它们翻为正面。用奥术强化替换此牌。',
+          zh: '将5种奥术进化洗入你的手牌。将它们翻为正面。用奥术强化替换此牌。',
           en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip all of them face-up. Replace this card with Arcane Boost.',
         },
         effects: () => [],
@@ -5992,9 +6006,13 @@ function _resolveArcaneEvoReplacements(world) {
   const deck = world.deck;
   if (!deck) return;
   let changed = false;
+  // 临时卡（_destroyAfterUse）已经在 fireFromCards 里通过 destroyCard 移除了，
+  // 这里再加一道防御：即使临时卡因某种意外仍残留在 bag/discard 里，
+  // 也不要把它替换为别的卡（"替换此牌"的文字在临时卡身上不应生效）。
+  const isReplaceable = (c) => !!c && !c._destroyAfterUse;
   // 主卡槽（bag[0]）— 用 deck.replaceAt 保持 face-up 状态
   const main = deck.bag[0];
-  if (main) {
+  if (isReplaceable(main)) {
     for (const r of _CARD_REPLACEMENTS) {
       if (main[r.mark]) {
         deck.replaceAt(0, mkCard(r.family, main[r.mark]));
@@ -6006,7 +6024,7 @@ function _resolveArcaneEvoReplacements(world) {
   // 弃牌堆：直接索引替换（弃牌堆里的卡 faceUp 已是 false，新卡也保持 false）
   for (let i = 0; i < deck.discard.length; i++) {
     const c = deck.discard[i];
-    if (!c) continue;
+    if (!isReplaceable(c)) continue;
     for (const r of _CARD_REPLACEMENTS) {
       if (c[r.mark]) {
         deck.discard[i] = mkCard(r.family, c[r.mark]);
@@ -8549,6 +8567,8 @@ function setupUI(world) {
     cardEl.classList.toggle('face-down', !card.faceUp);
     cardEl.classList.toggle('main', !!opts.main);
     cardEl.classList.toggle('revealed', !!(card.faceUp && card.def?.hasRevealFx));
+    // 临时卡：蓝色边框 + 半透明（与发现/挖掘洗入的 _destroyAfterUse 牌一致的视觉提示）
+    cardEl.classList.toggle('temporary', !!card._destroyAfterUse);
     // 稀有度
     cardEl.classList.remove('rarity-bronze', 'rarity-silver', 'rarity-gold', 'rarity-diamond');
     cardEl.classList.add('rarity-' + (card.rarity || 'bronze'));
@@ -10416,7 +10436,7 @@ function main() {
     // 触发死亡特殊效果（如分裂）
     enemy.onDie?.(world);
     // 转生：本局开启时，每个敌人死亡有 10% 概率召唤 1 个骷髅
-    if (world._reincarnateActive && Math.random() < 0.10) {
+    if (world._reincarnateActive && Math.random() < 0.20) {
       spawnSkeleton(world, { x: enemy.x, y: enemy.y });
     }
   });

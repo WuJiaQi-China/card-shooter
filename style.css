@@ -2019,3 +2019,25 @@ kbd {
 .discover-cards .modal-card:active {
   transform: translateY(-2px) scale(0.99);
 }
+
+/* ─── 临时卡（_destroyAfterUse）视觉：蓝色边框 + 75% 不透明度 ─────────
+ * 通过发现 / 挖掘等机制临时洗入的卡，使用或弃置后会从卡组中移除。
+ * 为了让玩家一眼区分，加蓝色描边 + 略微透明的效果。 */
+.card.temporary .card-front,
+.modal-card.temporary {
+  outline: 2px solid rgba(94, 178, 255, 0.85);
+  outline-offset: -2px;
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 178, 255, 0.4),
+    0 0 14px rgba(94, 178, 255, 0.55);
+  opacity: 0.75;
+}
+.card.temporary.face-down .card-front { opacity: 0; }    /* 反面时不画正面层 */
+.card.temporary.face-down .card-back {
+  outline: 2px solid rgba(94, 178, 255, 0.85);
+  outline-offset: -2px;
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 178, 255, 0.4),
+    0 0 14px rgba(94, 178, 255, 0.55);
+  opacity: 0.75;
+}
