@@ -4627,17 +4627,25 @@ class BattleManager {
 
   endPlayerTurn() {
     if (this.state !== State.Battle || this.turn !== 'player') return;
-    // 剩余法力 → 金币：每个 mana 出一颗金币 orb，飞向 HUD 金币条。
-    // 法力清零（_afterPlayerTurnComplete 之前），避免视觉上 mana 还满；玩家回合恢复时会重置。
+    // 剩余法力 → 金币：累积制，每 10 法力换 1 金币 orb（余数跨关保留，玩家不可见）。
+    // orb 从法力条 fill 末端 spawn → 飞向金币条。
     const leftover = Math.floor(this.world.player.mana || 0);
     if (leftover > 0) {
       const w = this.world;
-      const px = w.player.x, py = w.player.y - 6;
-      // 上限 30 颗，避免极端情况（缓释胶囊 + 没用的回合）一次塞 50 颗 orb 卡帧
-      const orbCount = Math.min(30, leftover);
-      const perOrb = Math.max(1, Math.ceil(leftover / orbCount));
-      for (let i = 0; i < orbCount; i++) {
-        w.particles.push(new GoldOrb(w, px + rand(-12, 12), py + rand(-8, 8), perOrb));
+      w._manaConversionProgress = (w._manaConversionProgress || 0) + leftover;
+      const coins = Math.floor(w._manaConversionProgress / 10);
+      w._manaConversionProgress -= coins * 10;
+      if (coins > 0) {
+        // 取法力条 fill 当前末端的屏幕坐标 → 转 canvas 坐标
+        const pos = _manaBarEndCanvasPos(w);
+        const orbCount = Math.min(30, coins);
+        const perOrb = Math.max(1, Math.ceil(coins / orbCount));
+        for (let i = 0; i < orbCount; i++) {
+          w.particles.push(new GoldOrb(
+            w, pos.x + rand(-6, 6), pos.y + rand(-4, 4), perOrb,
+            { noScatter: true }
+          ));
+        }
       }
       // 法力立刻清零（视觉与逻辑同步）；orb 飞到 HUD 时再加金币
       w.player.mana = 0;
@@ -5029,6 +5037,8 @@ class World {
     // 背包打开费用减免：玩家回合结束时若有剩余水晶，按数值累计到此处（上限 10）。
     // 下次开背包时直接折算为减少的法力消耗，打开后归零。
     this.inventoryDiscount = 0;
+    // 法力 → 金币累计器：每 10 法力换 1 金币，余数跨关保留（不显示给玩家）。
+    this._manaConversionProgress = 0;
     this.summons = [];       // 友方召唤物（士兵 / 炮台 / 护盾兵 / 狙击塔等）
     this.cannon = null;      // 起始炮台（开局选一）；为 null 时进 Idle 会弹选择面板
     this.deck = new CardDeck();
@@ -5095,6 +5105,8 @@ class World {
     this._startupCurrent = null;
     this.permUpgrades = { damage: 0, pierce: 0, bound: 0, speed: 0 };
     this._shotBuffs = [];
+    // 法力换金币进度：阵亡重开才清；关卡间保留余数
+    this._manaConversionProgress = 0;
     this.combo.reset();
     this.comboStacks = 0;
     Events.emit('comboStacksChanged', 0);
@@ -5258,6 +5270,26 @@ function ensureFxLayer() {
   }
   return layer;
 }
+// 法力条 fill 末端的"canvas 坐标"。GoldOrb 用 canvas 坐标系，DOM 元素的屏幕位置
+// 需要反投影回 canvas 坐标系，updateOrbDom 再正向投影到屏幕。
+// fallback：拿不到 DOM 时退回到玩家位置。
+function _manaBarEndCanvasPos(world) {
+  const canvas = document.getElementById('stage');
+  const $fill = document.getElementById('mana-bar');
+  if (!canvas || !$fill) return { x: world.player.x, y: world.player.y - 6 };
+  const cr = canvas.getBoundingClientRect();
+  const fr = $fill.getBoundingClientRect();
+  const track = $fill.parentElement;
+  const tr = track ? track.getBoundingClientRect() : fr;
+  // fill 当前 width 表示剩余法力比例；取 fill 右沿（即 mana 末端）— fill 可能 width=0（mana=0），
+  // 此时退回到 track 左端 + 一点偏移，避免落到屏幕外。
+  const fillEndScreenX = fr.width > 0 ? fr.right : (tr.left + 6);
+  const screenY = fr.top + fr.height / 2;
+  const canvasX = ((fillEndScreenX - cr.left) / cr.width) * canvas.width;
+  const canvasY = ((screenY - cr.top) / cr.height) * canvas.height;
+  return { x: canvasX, y: canvasY };
+}
+
 function createOrbEl(type, glyph) {
   const el = document.createElement('div');
   el.className = 'fx-orb ' + type;
@@ -5317,8 +5349,9 @@ function spawnCardLeaveBurst(slot, action) {
 
 // 金币：3 阶段动画 — 爆开 → 短暂悬浮 → 飞向金币条；到达时累计 +N 文字
 // 渲染：HTML <div> 在 fx-layer 中，按 canvas 坐标投影到屏幕位置（每帧）
+// opts.noScatter: 跳过 phase 0/1（散落 + 悬浮），直接进 fly。法力 → 金币用。
 class GoldOrb {
-  constructor(world, x, y, value) {
+  constructor(world, x, y, value, opts = {}) {
     this.world = world;
     this.startX = x;
     this.startY = y;
@@ -5331,11 +5364,11 @@ class GoldOrb {
     this.scatterX = clamp(x + Math.cos(a) * r, 20, W - 20);
     this.scatterY = clamp(y + Math.sin(a) * r - rand(10, 30), 30, H - 30);
     this.value = value;
-    this.phase = 0;          // 0=scatter, 1=pause, 2=fly
+    this.phase = opts.noScatter ? 2 : 0;          // 0=scatter, 1=pause, 2=fly
     this.phaseTime = 0;
     this.pauseDur = 0.18 + Math.random() * 0.18;
     this.scatterDur = 0.22 + Math.random() * 0.08;
-    this.flySpeed = 80;
+    this.flySpeed = opts.noScatter ? 200 : 80;     // 跳过散落时直接较快起飞
     this.life = 5;
     this.alive = true;
     this.spin = Math.random() * Math.PI * 2;  // 自旋
@@ -6361,31 +6394,27 @@ function setupUI(world) {
       else if (n >= 10) $combo.classList.add('tier-mid');
     }
   });
-  // 波次预告（右侧 rail + 简单的回合数显示）
-  const $waveTurnNum = document.getElementById('turn-num');
+  // 波次预告（右侧 rail）— 不再单独显示当前回合数（已删 turn-num HUD）
   const $waveCdNum = document.getElementById('wave-cd-num');
   const $waveEnemies = document.getElementById('wave-enemies');
   function renderWavePreview() {
-    // 关卡进度：第 X 关 · 第 Y/7 波 · 当前回合 Z/20
-    if ($waveTurnNum) {
-      const b = world.battle;
-      const cur = b.stageTurn || 0;
-      $waveTurnNum.textContent = `${cur}/20`;
-    }
-    const types = world.battle.nextWaveTypes;
-    // 倒计时：从 stageTurn 算下次刷波到几号
+    const b = world.battle;
+    const types = b.nextWaveTypes;
+    // 倒计时：从 stageTurn 算下次刷波到几号；只考虑本关剩余波次（waveInStage < 7）。
     const waveTurns = [1, 4, 7, 10, 13, 16, 19];
-    const cur = world.battle.stageTurn || 0;
+    const cur = b.stageTurn || 0;
     const nextScheduled = waveTurns.find(n => n > cur);
-    const tu = (nextScheduled != null) ? (nextScheduled - cur) : -1;
+    // 本关已经没有后续波次了 → 隐藏预告（waveInStage 已 = 7，或下一刷波点 > 19 已不在本关）
+    const stageHasMoreWaves = (b.waveInStage || 0) < 7 && nextScheduled != null;
+    const tu = stageHasMoreWaves ? (nextScheduled - cur) : -1;
     if ($waveCdNum) {
-      if (!types || types.length === 0 || tu < 0) $waveCdNum.textContent = t('wave_none');
+      if (!stageHasMoreWaves || !types || types.length === 0) $waveCdNum.textContent = t('wave_none');
       else if (tu === 0) $waveCdNum.textContent = t('wave_this');
       else $waveCdNum.textContent = t('wave_after', { n: tu });
     }
     if ($waveEnemies) {
       $waveEnemies.innerHTML = '';
-      if (types && types.length > 0) {
+      if (stageHasMoreWaves && types && types.length > 0) {
         const counts = {};
         for (const t of types) counts[t] = (counts[t] || 0) + 1;
         for (const [k, c] of Object.entries(counts)) {
