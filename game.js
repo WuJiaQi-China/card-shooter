@@ -2497,6 +2497,19 @@ function spawnSummon(world, kind, opts = {}) {
     sp.attack = (sp.attack || 0) + 2;
     sp._noDecay = true;
   }
+  // 骷髅继承本回合用过的卡牌效果：跑一遍 dummy bullet PreActive，把 attack 增量加到撞击伤害上。
+  // 这样玩家本回合用了 boost1 / 凝视 / 注铅 等 attack +N 的卡，召唤出的骷髅撞击也会更猛。
+  if (sp.kind === 'skeleton' && world._turnHookCards && world._turnHookCards.length > 0) {
+    const dummy = new Bullet({
+      x: 0, y: 0, angle: 0, speed: 0, lifetime: 0,
+      attack: 0, bound: 0, penetrate: 0, bulletCount: 1, waveCount: 1, radius: 8,
+    });
+    for (const tc of world._turnHookCards) {
+      for (const h of tc.initializeEffects()) dummy.addHook(h);
+    }
+    dummy.triggerHooks(Phase.PreActive, { world });
+    if (dummy.attack > 0) sp.attack = (sp.attack || 0) + dummy.attack;
+  }
   // 默认 spawn 在炮台前 180° 弧（上半圆）的随机位置
   if (opts.x == null || opts.y == null) {
     const ang = rand(-Math.PI, 0);          // -π..0 = 上半圆（炮台前方 180°）
@@ -3036,6 +3049,13 @@ function _autoFireArcaneMissile(world, card) {
       bullet.addHook(new Effect(Phase.OnHit, -1, ctx => {
         if (Math.random() < chance) applyFreeze(ctx.enemy, 1);
       }));
+    }
+    // 继承本回合用过的卡牌效果（PreActive hooks），让奥弹也获得本回合的 buff
+    if (world._turnHookCards && world._turnHookCards.length > 0) {
+      for (const tc of world._turnHookCards) {
+        for (const h of tc.initializeEffects()) bullet.addHook(h);
+      }
+      bullet.triggerHooks(Phase.PreActive, { world });
     }
     bullet.activate(performance.now() / 1000);
     world.bullets.push(bullet);
@@ -4977,11 +4997,12 @@ class BattleManager {
     this.arcaneBuffs = {};
     this.arcaneNextDouble = 0;
     this.summonBuffActive = false;
-    // 玩家回合开始：护甲重置为 armorPerTurn
+    // 玩家回合开始：护甲重置；清空本回合用过的卡牌（用于奥弹 / 骷髅继承本回合 buff）
     if (t === 'player') {
       const p = this.world.player;
       p.armor = p.armorPerTurn || 3;
       Events.emit('armorChanged', p.armor);
+      this.world._turnHookCards = [];
     }
     // 进入敌方回合：三阶段串行（射击残余 → 我方 → 敌方）
     //   阶段 0（射击残余）：等场上所有非实体的我方子弹打完（撞墙 / 命中 / 寿命 / 变实体）。
@@ -5187,6 +5208,7 @@ class BattleManager {
     this.world.addComboStacks(-999);    // 重置 stacks
     this.world._shotBuffs = [];         // 缓释胶囊 buff 清空
     this.world._arcaneEvo = {};         // 奥术进化本局 buff 清空
+    this.world._turnHookCards = [];     // 本回合用过的卡（奥弹/骷髅继承）清空
     this.world.summons = [];
     this.world.inventoryDiscount = 0;   // 背包减费跨关不继承
     Events.emit('inventoryDiscountChanged', 0);
@@ -5531,6 +5553,7 @@ class BattleManager {
     // 临时 buff 全部清空
     w._shotBuffs = [];
     w._arcaneEvo = {};           // 奥术进化本局 buff 清空
+    w._turnHookCards = [];       // 本回合用过的卡（奥弹/骷髅继承）清空
     w.inventoryDiscount = 0;
     Events.emit('inventoryDiscountChanged', 0);
     w.combo.reset();
@@ -6541,6 +6564,15 @@ function fireFromCards(world, cards, side, opts = {}) {
     }
     // 消耗一次性 cost 减免
     c._costMod = 0;
+  }
+  // 记录本回合用过的卡（供奥弹自动发射 / 骷髅召唤继承本回合 buff）。
+  // 排除奥弹与奥术进化衍生（避免继承自循环 / 重复加成）；boost1 等普通强化保留。
+  world._turnHookCards = world._turnHookCards || [];
+  for (const c of useList) {
+    if (!c) continue;
+    if (c.familyId === 'arcane_missile') continue;
+    if (c._def?.arcEvoDerived) continue;
+    world._turnHookCards.push(c);
   }
   // 通知"哪一侧使用了什么"——展露类侦听该事件以做"另一侧 / 同一侧"等触发
   Events.emit('cardUsedSide', { side, cards, main });
