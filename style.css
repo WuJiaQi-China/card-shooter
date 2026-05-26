@@ -131,6 +131,36 @@ html, body {
   color: #ffd84a;
   font-size: 13px;
 }
+/* 末波高亮：右侧 rail 红橙脉动边框 + 字体高亮 */
+#right-rail.next-last-wave {
+  border-color: #ff7030;
+  box-shadow: 0 0 18px rgba(255, 112, 48, 0.55), inset 0 0 12px rgba(255, 112, 48, 0.25);
+  animation: lastWavePulse 1.4s ease-in-out infinite;
+}
+#right-rail.next-last-wave .wave-cd {
+  color: #ff9c4a;
+  text-shadow: 0 0 10px rgba(255, 156, 74, 0.75);
+  font-size: 17px;
+}
+@keyframes lastWavePulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(255, 112, 48, 0.45), inset 0 0 10px rgba(255, 112, 48, 0.2); }
+  50%      { box-shadow: 0 0 22px rgba(255, 112, 48, 0.85), inset 0 0 16px rgba(255, 112, 48, 0.35); }
+}
+/* 金球宽限期 / 奖励期：金色脉动 */
+#right-rail.orb-grace, #right-rail.orb-active {
+  border-color: #ffd84a;
+  box-shadow: 0 0 18px rgba(255, 216, 74, 0.6), inset 0 0 12px rgba(255, 216, 74, 0.22);
+}
+#right-rail.orb-active .wave-cd, #right-rail.orb-grace .wave-cd {
+  color: #ffd84a;
+}
+.we-item.we-orb {
+  font-size: 38px;
+  background: rgba(255, 216, 74, 0.12);
+  border-color: #ffd84a;
+  grid-column: 1 / -1;
+  padding: 12px;
+}
 .rail-stat {
   margin-bottom: 4px;
 }

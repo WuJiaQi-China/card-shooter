@@ -63,6 +63,12 @@ const I18N = {
     wave_preview: '下波预告',
     score_run: '本局：', score_best: '最高：', stat_kills: '击杀：', stat_level: '等级：', stat_shop: '商店：',
     wave_this: '本回合', wave_after: '{n} 回合后', wave_none: '—',
+    wave_last_this: '★ 最后一波 · 本回合',
+    wave_last_after: '★ 最后一波 · {n} 回合后',
+    orb_appear_in: '💰 金球：{n} 回合内清空',
+    orb_appear_this: '💰 金球：本回合清空',
+    orb_expire_after: '💰 金球：{n} 回合后消失',
+    orb_expire_this: '💰 金球：本回合消失',
     turn_player: '玩家', turn_enemy: '敌方',
     state_Idle: 'Idle', state_PreBattle: 'PreBattle', state_Battle: 'Battle',
     state_PostBattle: 'PostBattle', state_Reward: 'Reward', state_Inventory: 'Inventory',
@@ -126,6 +132,12 @@ const I18N = {
     wave_preview: 'Next Wave',
     score_run: 'Run:', score_best: 'Best:', stat_kills: 'Kills:', stat_level: 'Level:', stat_shop: 'Shop:',
     wave_this: 'this turn', wave_after: 'in {n} turn(s)', wave_none: '—',
+    wave_last_this: '★ Final Wave · this turn',
+    wave_last_after: '★ Final Wave · in {n} turn(s)',
+    orb_appear_in: '💰 Orb: clear in {n} turn(s)',
+    orb_appear_this: '💰 Orb: clear this turn',
+    orb_expire_after: '💰 Orb expires in {n} turn(s)',
+    orb_expire_this: '💰 Orb expires this turn',
     turn_player: 'Player', turn_enemy: 'Enemy',
     state_Idle: 'Idle', state_PreBattle: 'Ready', state_Battle: 'Battle',
     state_PostBattle: 'Defeat', state_Reward: 'Shop', state_Inventory: 'Inventory',
@@ -2104,10 +2116,12 @@ class Summon extends Unit {
             size: 18, type: 'ring',
           }));
           this.alive = false;
+          Events.emit('summonDied', this);
         }
       } else if (elapsed >= dashDur) {
         // 目标提前死亡 + 时间到 → 自毁（无伤害）
         this.alive = false;
+        Events.emit('summonDied', this);
       }
       return;
     }
@@ -2417,7 +2431,12 @@ function spawnSummon(world, kind, opts = {}) {
   const tb = trapBounds(world, sp.y);
   sp.x = clamp(sp.x, tb.leftX + sp.radius, tb.rightX - sp.radius);
   sp.y = clamp(sp.y, sp.radius, world.h - sp.radius);
+  // 骷髅号角永久 buff：骷髅 spawn 时附加 world._skeletonAtkBonus 攻击
+  if (sp.kind === 'skeleton' && world._skeletonAtkBonus > 0) {
+    sp.attack = (sp.attack || 0) + world._skeletonAtkBonus;
+  }
   world.summons.push(sp);
+  Events.emit('summonSpawned', sp);
   return sp;
 }
 
@@ -3033,6 +3052,155 @@ function _necromancerTier(ent, value) {
   };
 }
 
+// 骷髅领主：实体子弹，每回合召唤 N 个骷髅 + 友军骷髅死亡时获得 +1 实体化层数
+function _skeletonLordTier(spawnN, value) {
+  return {
+    cost: 3, value,
+    desc: {
+      zh: `实体化+2。在场时，每个死亡的骷髅会为此单位提供1层实体化。每回合召唤${spawnN}个骷髅。`,
+      en: `Entity+2. While alive, each dead skeleton grants +1 Entity layer. Each turn, summons ${spawnN} skeleton(s).`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.entityLayers += 2; }),
+      new Effect(Phase.Spawned, 0, ctx => {
+        const b = ctx.bullet;
+        (b._entityDecos = b._entityDecos || []).push('skull');
+        if (b._skLordHandler) return;
+        b._skLordHandler = (s) => {
+          if (!b.alive) return;
+          if (!s || s.kind !== 'skeleton') return;
+          b.entityLayers += 1;
+        };
+        Events.on('summonDied', b._skLordHandler);
+      }),
+      new Effect(Phase.EntityTurn, 0, ctx => {
+        const b = ctx.bullet, w = ctx.world;
+        for (let i = 0; i < spawnN; i++) {
+          const sk = spawnSummon(w, 'skeleton');
+          if (sk) { sk.x = b.x + rand(-22, 22); sk.y = b.y + rand(-22, 22); }
+        }
+        for (let k = 0; k < 8; k++) {
+          const a = Math.PI * 2 * Math.random();
+          w.particles.push(new Particle({
+            x: b.x, y: b.y,
+            vx: Math.cos(a) * 70, vy: Math.sin(a) * 70,
+            life: 0.32, color: '#c97aff', size: 3,
+          }));
+        }
+      }),
+      new Effect(Phase.Destroyed, 0, ctx => {
+        const b = ctx.bullet;
+        if (b._skLordHandler) {
+          Events.off('summonDied', b._skLordHandler);
+          b._skLordHandler = null;
+        }
+      }),
+    ],
+  };
+}
+
+// 爆骨花：召唤 N 个骷髅；展露状态下，骷髅死亡时造成 AOE 伤害（+可选骷髅攻击+1）
+function _boneBlossomTier(skN, atkBoost, value, desc) {
+  return {
+    cost: 2, value, hasRevealFx: true, desc,
+    effects: () => [],
+    onUse(card, world) { for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton'); },
+    onReveal(card) {
+      if (card._bbHandler) return;
+      card._bbHandler = (s) => {
+        if (!card.faceUp) return;
+        if (!s || s.kind !== 'skeleton') return;
+        const w = window.__game;
+        if (!w) return;
+        applyAoe(w, { x: s.x, y: s.y, radius: 18 }, {
+          damage: 2, mult: AOE_MULT.arcaneExplode, target: 'enemies',
+        });
+        for (let k = 0; k < 10; k++) {
+          const a = Math.PI * 2 * Math.random();
+          const sp = 90 + Math.random() * 80;
+          w.particles.push(new Particle({
+            x: s.x, y: s.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
+            life: 0.4, color: k % 2 ? '#c97aff' : '#dde3ec', size: 2.6,
+          }));
+        }
+      };
+      Events.on('summonDied', card._bbHandler);
+      if (atkBoost > 0) {
+        if (card._bbBuffHandler) return;
+        // diamond: 展露时骷髅伤害 +1。给所有未来召唤的骷髅打 buff
+        card._bbBuffHandler = (s) => {
+          if (!card.faceUp) return;
+          if (!s || s.kind !== 'skeleton') return;
+          s.attack = (s.attack || 0) + atkBoost;
+        };
+        Events.on('summonSpawned', card._bbBuffHandler);
+      }
+    },
+    onConceal(card) {
+      if (card._bbHandler) { Events.off('summonDied', card._bbHandler); card._bbHandler = null; }
+      if (card._bbBuffHandler) { Events.off('summonSpawned', card._bbBuffHandler); card._bbBuffHandler = null; }
+    },
+  };
+}
+
+// 骷髅号角：召唤 N 骷髅 + 永久 +D 骷髅伤害（本局有效，存到 world._skeletonAtkBonus）。弃置 = 使用。
+function _skeletonHornTier(skN, atkBoost, value) {
+  return {
+    cost: 1, value,
+    desc: {
+      zh: `召唤${skN}个骷髅，使你的骷髅获得+${atkBoost}伤害。弃置此牌等同于使用。`,
+      en: `Summon ${skN} skeleton(s). Your skeletons gain +${atkBoost} damage. Discard = use.`,
+    },
+    effects: () => [],
+    onUse(_, world) {
+      world._skeletonAtkBonus = (world._skeletonAtkBonus || 0) + atkBoost;
+      for (const s of world.summons) {
+        if (s.kind === 'skeleton') s.attack = (s.attack || 1) + atkBoost;
+      }
+      for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton');
+    },
+    onDiscard(card, world) {
+      world._skeletonAtkBonus = (world._skeletonAtkBonus || 0) + atkBoost;
+      for (const s of world.summons) {
+        if (s.kind === 'skeleton') s.attack = (s.attack || 1) + atkBoost;
+      }
+      for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton');
+    },
+  };
+}
+
+// 打火机：摧毁时对随机敌人施加 1 燃烧，重复 N 次。钻：每为无燃烧敌人加燃烧时 reps+1。
+function _lighterTier(reps, chain, value) {
+  const descZh = chain
+    ? `摧毁时对随机敌人施加1燃烧，重复${reps}次。每当为没有燃烧的敌人施加燃烧，重复次数+1。`
+    : `摧毁时对随机敌人施加1燃烧，重复${reps}次。`;
+  const descEn = chain
+    ? `On destruction, applies 1 Burn to a random enemy ${reps} times. Each Burn on a non-burning enemy adds +1 rep.`
+    : `On destruction, applies 1 Burn to a random enemy ${reps} times.`;
+  return {
+    cost: 1, value,
+    desc: { zh: descZh, en: descEn },
+    effects: () => [
+      new Effect(Phase.Spawned, 0, ctx => { ctx.bullet._burnAura = true; }),
+      new Effect(Phase.Destroyed, 0, ctx => {
+        const w = ctx.world || window.__game;
+        if (!w) return;
+        let remaining = reps;
+        let safety = 30;
+        while (remaining > 0 && safety-- > 0) {
+          const alive = w.enemies.filter(e => e.alive);
+          if (alive.length === 0) break;
+          const target = alive[randInt(0, alive.length - 1)];
+          const wasBurning = (target.fire || 0) > 0;
+          applyFire(target, 1);
+          remaining--;
+          if (chain && !wasBurning) remaining++;
+        }
+      }),
+    ],
+  };
+}
+
 function _eyewindTier(pullMult, lifeMult, value) {
   const descZh = lifeMult > 1
     ? `速度降低，持续时间大量增加，并在更大范围持续吸引敌人。`
@@ -3180,17 +3348,25 @@ function _fuseTier(ent, fire, value, variant /* 'silver' | 'gold' | 'diamond' */
 }
 
 function _shockwaveTier(extraBound, radiusMult, value, desc) {
+  // 范围伤害改为随机角度扇形：每次触发都现 roll 一次方向，halfAngle = 60° (总 120°)
+  const _shockwaveCone = (ctx) => {
+    applyAoe(ctx.world, ctx.bullet, {
+      kind: 'cone',
+      damage: ctx.bullet.attack,
+      mult: AOE_MULT.arcaneExplode * radiusMult,
+      target: 'enemies',
+      dirAngle: Math.random() * Math.PI * 2,
+      halfAngle: Math.PI / 3,
+      color: '#ffd84a',
+    });
+  };
   return {
-    cost: 2, value, desc,
+    cost: 3, value, desc,
     effects: () => {
       const list = [];
       if (extraBound > 0) list.push(new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bound += extraBound; }));
-      list.push(new Effect(Phase.HitEnemy, 5, ctx => {
-        applyAoe(ctx.world, ctx.bullet, { damage: ctx.bullet.attack, mult: AOE_MULT.arcaneExplode * radiusMult, target: 'enemies' });
-      }));
-      list.push(new Effect(Phase.HitWall, 5, ctx => {
-        applyAoe(ctx.world, ctx.bullet, { damage: ctx.bullet.attack, mult: AOE_MULT.arcaneExplode * radiusMult, target: 'enemies' });
-      }));
+      list.push(new Effect(Phase.HitEnemy, 5, _shockwaveCone));
+      list.push(new Effect(Phase.HitWall, 5, _shockwaveCone));
       return list;
     },
   };
@@ -3256,14 +3432,19 @@ function _leadedTier(atk, value) {
   };
 }
 
-function _igniteTier(bound, fire, value) {
-  const desc = bound > 0
-    ? { zh: `弹射+${bound}，命中时施加${fire}层燃烧。`, en: `Bounce+${bound}. On hit, apply ${fire} Burn.` }
-    : { zh: `命中时施加${fire}层燃烧。`, en: `On hit, apply ${fire} Burn.` };
+function _igniteTier(bound, fire, value, pen = 0) {
+  const parts = [];
+  const partsEn = [];
+  if (bound > 0) { parts.push(`弹射+${bound}`); partsEn.push(`Bounce+${bound}`); }
+  if (pen > 0) { parts.push(`穿透+${pen}`); partsEn.push(`Pierce+${pen}`); }
+  parts.push(`命中时施加${fire}层燃烧`);
+  partsEn.push(`On hit, apply ${fire} Burn`);
+  const desc = { zh: parts.join('，') + '。', en: partsEn.join('. ') + '.' };
   return {
     cost: 1, value, desc,
     effects: () => [new Effect(Phase.PreActive, 0, ctx => {
       if (bound > 0) ctx.bullet.bound += bound;
+      if (pen > 0) ctx.bullet.penetrate += pen;
       ctx.bullet._fireOnHit = (ctx.bullet._fireOnHit || 0) + fire;
       if (!ctx.bullet._fireHookAdded) {
         ctx.bullet.addHook(_fireApplyHook);
@@ -3520,6 +3701,33 @@ const CARD_DATA = {
     },
   },
 
+  foresight: {
+    emoji: '🔮',
+    name: { zh: '预知', en: 'Foresight' },
+    tiers: {
+      diamond: {
+        cost: 0, value: 4,
+        desc: {
+          zh: '将1张手牌翻为正面。如果它的消耗值为1，重复此行动。',
+          en: 'Flip 1 face-down hand card up. If its cost is 1, repeat.',
+        },
+        effects: () => [],
+        onUse(_, world) {
+          let safety = 20;
+          while (safety-- > 0) {
+            const candidates = world.deck.hand.filter(c => !c.faceUp);
+            if (candidates.length === 0) break;
+            const pick = candidates[randInt(0, candidates.length - 1)];
+            pick._foresightFaceUp = true;
+            world.deck._setFace(pick, true);
+            if (pick.cost !== 1) break;
+          }
+          Events.emit('deckChanged');
+        },
+      },
+    },
+  },
+
   // ─── 金 / 钻 ───
   shades: {
     emoji: '🕶',
@@ -3626,6 +3834,15 @@ const CARD_DATA = {
     },
   },
 
+  skeleton_lord: {
+    emoji: '👑',
+    name: { zh: '骷髅领主', en: 'Skeleton Lord' },
+    tiers: {
+      gold: _skeletonLordTier(1, 39),
+      diamond: _skeletonLordTier(2, 50),
+    },
+  },
+
   // ─── 银 / 金 / 钻 ───
   streamlined: {
     emoji: '🌪',
@@ -3673,9 +3890,9 @@ const CARD_DATA = {
     emoji: '💣',
     name: { zh: '燃烧弹', en: 'Firebomb' },
     tiers: {
-      silver: _firebombTier(2, 1, 18, { zh: '摧毁时对范围内的敌人施加2层燃烧。', en: 'On destruction, applies 2 Burn to enemies in range.' }),
-      gold: _firebombTier(3, 1.2, 23, { zh: '摧毁时对更大范围内的敌人施加3层燃烧。', en: 'On destruction, applies 3 Burn to enemies in a larger area.' }),
-      diamond: _firebombTier(4, 1.5, 30, { zh: '摧毁时对巨大范围内的敌人施加4层燃烧。', en: 'On destruction, applies 4 Burn to enemies in a huge area.' }),
+      silver: _firebombTier(1, 1, 18, { zh: '摧毁时对范围内的敌人施加1层燃烧。', en: 'On destruction, applies 1 Burn to enemies in range.' }),
+      gold: _firebombTier(1, 1.2, 23, { zh: '摧毁时对更大范围内的敌人施加1层燃烧。', en: 'On destruction, applies 1 Burn to enemies in a larger area.' }),
+      diamond: _firebombTier(1, 1.5, 30, { zh: '摧毁时对巨大范围内的敌人施加1层燃烧。', en: 'On destruction, applies 1 Burn to enemies in a huge area.' }),
     },
   },
 
@@ -3693,9 +3910,9 @@ const CARD_DATA = {
     emoji: '💥',
     name: { zh: '冲击波', en: 'Shockwave' },
     tiers: {
-      silver: _shockwaveTier(0, 1.0, 18, { zh: '碰撞时造成范围伤害。', en: 'On collision, deals AOE damage.' }),
-      gold: _shockwaveTier(0, 1.5, 23, { zh: '碰撞时造成大范围伤害。', en: 'On collision, deals large AOE damage.' }),
-      diamond: _shockwaveTier(1, 1.5, 30, { zh: '弹射+1。弹射和碰撞时造成大范围伤害。', en: 'Bounce+1. On bounce or collision, deals large AOE damage.' }),
+      silver: _shockwaveTier(0, 1.0, 30, { zh: '碰撞时造成范围伤害。', en: 'On collision, deals AOE damage.' }),
+      gold: _shockwaveTier(0, 1.5, 39, { zh: '碰撞时造成大范围伤害。', en: 'On collision, deals large AOE damage.' }),
+      diamond: _shockwaveTier(1, 1.5, 50, { zh: '弹射+1。弹射和碰撞时造成大范围伤害。', en: 'Bounce+1. On bounce or collision, deals large AOE damage.' }),
     },
   },
 
@@ -3706,6 +3923,16 @@ const CARD_DATA = {
       silver: _arcaneboostTier(1, false, 8),
       gold: _arcaneboostTier(2, false, 10),
       diamond: _arcaneboostTier(2, true, 13),
+    },
+  },
+
+  bone_blossom: {
+    emoji: '🌸',
+    name: { zh: '爆骨花', en: 'Bone Blossom' },
+    tiers: {
+      silver: _boneBlossomTier(2, 0, 18, { zh: '召唤2个骷髅。展露：骷髅死亡时，造成AOE伤害。', en: 'Summon 2 Skeletons. Reveal: skeleton deaths deal AOE damage.' }),
+      gold: _boneBlossomTier(4, 0, 23, { zh: '召唤4个骷髅。展露：骷髅死亡时，造成AOE伤害。', en: 'Summon 4 Skeletons. Reveal: skeleton deaths deal AOE damage.' }),
+      diamond: _boneBlossomTier(4, 1, 30, { zh: '召唤4个骷髅。展露：骷髅伤害+1；骷髅死亡时，造成AOE伤害。', en: 'Summon 4 Skeletons. Reveal: skeletons +1 damage; skeleton deaths deal AOE damage.' }),
     },
   },
 
@@ -3739,7 +3966,7 @@ const CARD_DATA = {
       bronze: _igniteTier(0, 2, 6),
       silver: _igniteTier(1, 2, 8),
       gold: _igniteTier(2, 2, 10),
-      diamond: _igniteTier(2, 3, 13),
+      diamond: _igniteTier(2, 3, 13, 1),
     },
   },
 
@@ -3752,17 +3979,17 @@ const CARD_DATA = {
         effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 1; })],
         onUse(_, world) { world.addComboStacks(1); } },
       silver: { cost: 2, value: 18,
-        desc: { zh: '获得2层连携。', en: 'Gain 2 Chain stacks.' },
-        effects: () => [],
+        desc: { zh: '伤害+2，获得1层连携。', en: 'Damage+2. Gain 1 Chain stack.' },
+        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 2; })],
+        onUse(_, world) { world.addComboStacks(1); } },
+      gold: { cost: 2, value: 23,
+        desc: { zh: '伤害+2，获得1层连携，50%的概率额外获得1层。', en: 'Damage+2. Gain 1 Chain stack, plus 50% chance to gain 1 more.' },
+        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 2; })],
+        onUse(_, world) { world.addComboStacks(Math.random() < 0.5 ? 2 : 1); } },
+      diamond: { cost: 2, value: 30,
+        desc: { zh: '伤害+2，获得2层连携。', en: 'Damage+2. Gain 2 Chain stacks.' },
+        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 2; })],
         onUse(_, world) { world.addComboStacks(2); } },
-      gold: { cost: 1, value: 10,
-        desc: { zh: '获得1层连携。', en: 'Gain 1 Chain stack.' },
-        effects: () => [],
-        onUse(_, world) { world.addComboStacks(1); } },
-      diamond: { cost: 1, value: 13,
-        desc: { zh: '伤害+1，获得1层连携。', en: 'Damage+1. Gain 1 Chain stack.' },
-        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 1; })],
-        onUse(_, world) { world.addComboStacks(1); } },
     },
   },
 
@@ -3888,10 +4115,10 @@ const CARD_DATA = {
     emoji: '💊',
     name: { zh: '缓释胶囊', en: 'Slow-Release Capsule' },
     tiers: {
-      bronze: _slowCapsuleTier(2, 2, 1, 13),
-      silver: _slowCapsuleTier(2, 2, 2, 18),
-      gold: _slowCapsuleTier(3, 3, 2, 23),
-      diamond: _slowCapsuleTier(3, 3, 3, 30),
+      bronze: _slowCapsuleTier(2, 1, 1, 13),
+      silver: _slowCapsuleTier(3, 2, 1, 18),
+      gold: _slowCapsuleTier(3, 3, 1, 23),
+      diamond: _slowCapsuleTier(3, 5, 1, 30),
     },
   },
 
@@ -3903,6 +4130,28 @@ const CARD_DATA = {
       silver: _cryptTier(3, 8),
       gold: _cryptTier(4, 10),
       diamond: _cryptTier(5, 13),
+    },
+  },
+
+  skeleton_horn: {
+    emoji: '📯',
+    name: { zh: '骷髅号角', en: 'Skeleton Horn' },
+    tiers: {
+      bronze: _skeletonHornTier(1, 1, 6),
+      silver: _skeletonHornTier(1, 1, 8),
+      gold: _skeletonHornTier(1, 2, 10),
+      diamond: _skeletonHornTier(2, 3, 13),
+    },
+  },
+
+  lighter: {
+    emoji: '🔥',
+    name: { zh: '打火机', en: 'Lighter' },
+    tiers: {
+      bronze: _lighterTier(2, false, 6),
+      silver: _lighterTier(3, false, 8),
+      gold: _lighterTier(4, false, 10),
+      diamond: _lighterTier(5, true, 13),
     },
   },
 
@@ -4028,36 +4277,26 @@ function _ownedTiersOf(world, familyId) {
 
 // 商店单槽 roll：返回 Card；超时则返回 null
 // 规则：
-//   - 严格按 RARITY_PROB 抽 tier（不再被"已拥有 tier 必须同"覆盖）→ 高稀有度不再被静默拉高
-//   - 玩家已拥有 family 已升到钻 → 整个 family 黑名单（不再出现）
-//   - 玩家已拥有 family 在某 tier T → 不再 roll 该 family 的 < T 的低 tier
-//     （已升到银了不应该再出铜版本；可以出银/金/钻方便合成）
-//   - 同一次刷新不重复（dedup by familyId+tier）
+//   - 严格按 RARITY_PROB 抽 tier
+//   - 已拥有 family（包内任何 tier）→ 只允许 roll 已拥有的同级 tier，不出更高/更低
+//     （升级路径：买重复同级 + 合并；商店不直接给比手上更高的等级）
+//   - 已拥有钻级 → 整个 family 黑名单（无更高 tier 可升）
+//   - 同一次刷新中不重复（dedup by familyId）
 //   - tier 可强制传入（startup picks 用：forceTier='bronze' / 'silver'）
 function _rollShopCard(world, alreadyKeys, maxAttempts = 40, forceTier = null) {
   const allFamilies = _shopFamilies();
-  // 每个 family 的 max 已拥有 tier 索引（-1 = 没有）
-  const maxOwnedIdx = {};
-  for (const f of allFamilies) {
-    let mi = -1;
-    for (const c of world.deck.bag) {
-      if (c && c.familyId === f) {
-        const ti = TIER_INDEX[c.tier];
-        if (ti > mi) mi = ti;
-      }
-    }
-    maxOwnedIdx[f] = mi;
-  }
+  // 每个 family 已拥有的全部 tier 集合（空 Set = 未拥有）
+  const ownedTiers = {};
+  for (const f of allFamilies) ownedTiers[f] = _ownedTiersOf(world, f);
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const tier = forceTier || _rollTier(world.shopLevel);
-    const tierIdx = TIER_INDEX[tier];
     const pool = allFamilies.filter(f => {
       if (!CARD_DATA[f].tiers[tier]) return false;
-      const mi = maxOwnedIdx[f];
-      // 钻级满级 → 全 family 黑名单
-      if (mi >= 3) return false;
-      // 当前 tier 比已拥有的最高 tier 低 → 跳过（避免出无用低 tier）
-      if (mi >= 0 && tierIdx < mi) return false;
+      const owned = ownedTiers[f];
+      // 钻级已拥有 → 整个 family 黑名单
+      if (owned.has('diamond')) return false;
+      // 已拥有此 family：只允许已拥有的 tier（同级合成，不直接给高级）
+      if (owned.size > 0 && !owned.has(tier)) return false;
       return true;
     });
     if (pool.length === 0) continue;
@@ -4153,6 +4392,7 @@ class CardDeck {
   resetForBattle() {
     // 先关闭所有可能开着的展露（防止重复订阅 / 旧主卡的事件残留）
     for (const c of this.bag) {
+      c._foresightFaceUp = false;
       if (c.faceUp) { c.onConceal(); c.faceUp = false; }
     }
     this._setFace(this.bag[0], true);
@@ -4224,11 +4464,12 @@ class CardDeck {
     this._updateFaceUp();
   }
 
-  // 边缘卡 (最左 / 最右) 展露
+  // 边缘卡 (最左 / 最右) 展露；_foresightFaceUp 标记的卡也保持正面
   _updateFaceUp() {
     for (let i = 0; i < this.hand.length; i++) {
       const isEdge = i === 0 || i === this.hand.length - 1;
-      this._setFace(this.hand[i], isEdge);
+      const targetFace = isEdge || !!this.hand[i]._foresightFaceUp;
+      this._setFace(this.hand[i], targetFace);
     }
   }
 
@@ -4246,6 +4487,7 @@ class CardDeck {
   }
 
   toDiscard(card) {
+    card._foresightFaceUp = false;
     this._setFace(card, false);
     this.discard.push(card);
     this._updateFaceUp();        // 边缘卡可能变了，重算 face-up
@@ -4263,6 +4505,7 @@ class CardDeck {
   destroyCard(card) {
     // 默认按 "buff" 离场（衍生卡如奥术飞弹自毁场景视觉等同于"魔法效果"）
     if (!card._lastAction) card._lastAction = 'buff';
+    card._foresightFaceUp = false;
     let removed = false;
     const i = this.hand.indexOf(card);
     if (i >= 0) { this.hand.splice(i, 1); removed = true; }
@@ -4384,6 +4627,7 @@ class BattleManager {
     this.nextWaveTypes = null;       // 下一波预览（数组 of typeKey），UI 显示
     this.rewardTurn = false;         // 当前是否奖励回合（特殊视觉 + 金球）
     this._rewardHits = 0;            // 奖励回合期间击中金球的累计次数
+    this._rewardTurnsRemaining = 0;  // 金球剩余存在回合数（每个敌方回合 -1）
     this._stageEndPending = false;   // 标记关卡结束 → pendingShops 已 +1，待商店打开
     this._enemyPhasePending = false; // 我方阶段进行中（敌人 update + 回合计时器都暂停）
     // 玩家击杀才计数；接触自爆不算
@@ -4539,7 +4783,7 @@ class BattleManager {
       const rate = s.decayRate ?? 1;
       if (rate <= 0) continue;
       s.hp -= rate;
-      if (s.hp <= 0) { s.alive = false; }
+      if (s.hp <= 0) { s.alive = false; Events.emit('summonDied', s); }
     }
     w.summons = w.summons.filter(s => s.alive);
   }
@@ -4586,6 +4830,7 @@ class BattleManager {
     this.world.combo.reset();
     this.world.addComboStacks(-999);    // 重置 stacks
     this.world._shotBuffs = [];         // 缓释胶囊 buff 清空
+    this.world._skeletonAtkBonus = 0;   // 骷髅号角永久 buff 清空
     this.world.summons = [];
     this.world.inventoryDiscount = 0;   // 背包减费跨关不继承
     Events.emit('inventoryDiscountChanged', 0);
@@ -4603,6 +4848,7 @@ class BattleManager {
     this.waveNumber = 0;
     this.rewardTurn = false;
     this._rewardHits = 0;
+    this._rewardTurnsRemaining = 0;
     this._stageEndPending = false;
     this._planNextWave();
     this.setTurn('player');
@@ -4620,10 +4866,15 @@ class BattleManager {
     }, 800);
   }
 
-  // 当前关卡内"何时刷波"的硬编码时间表（玩家可见的回合号 1..19）
-  _stageWaveTurns() { return [1, 4, 7, 10, 13, 16, 19]; }
-  _stageMaxTurns()  { return 20; }
-  _stageWaveCount() { return 7; }
+  // 当前关卡内"何时刷波"的硬编码时间表（玩家可见的回合号 1..13）
+  // 5 波 / 13 回合；最后一波在 turn 13。清空宽限 2 回合（即 turn 14, 15 内清空也有金球）。
+  _stageWaveTurns()    { return [1, 4, 7, 10, 13]; }
+  _stageMaxTurns()     { return 13; }
+  _stageWaveCount()    { return 5; }
+  // 末波清空后还可获得金球的额外回合数（grace turns）。0 表示仅最后一波回合本身清空有奖励。
+  _stageGraceTurns()   { return 2; }
+  // 金球可被击中的回合数（金球出现后再存在 N 个玩家回合）
+  _stageRewardTurns()  { return 2; }
 
   endPlayerTurn() {
     if (this.state !== State.Battle || this.turn !== 'player') return;
@@ -4834,12 +5085,18 @@ class BattleManager {
   // 敌方回合开始：按关卡时间表决定 spawn 波 / 奖励回合 / 关卡结束
   _tickWaveSpawn() {
     const w = this.world;
-    // 上一回合的金球到这一回合（即 reward 回合结束）→ 触发关卡结束（金球已是 stage 末尾的奖励）
+    // 奖励回合期：金球已 spawn，倒计时存在 _stageRewardTurns 个玩家回合
+    // 每个敌方回合 tick 一次，归零时结束关卡（清掉残留金球，进入商店）
     if (this.rewardTurn) {
-      w.enemies.length = 0;
-      this.rewardTurn = false;
-      this._rewardHits = 0;
-      this._endStage();
+      this._rewardTurnsRemaining = (this._rewardTurnsRemaining ?? 1) - 1;
+      Events.emit('stageChanged');
+      if (this._rewardTurnsRemaining <= 0) {
+        w.enemies.length = 0;
+        this.rewardTurn = false;
+        this._rewardHits = 0;
+        this._rewardTurnsRemaining = 0;
+        this._endStage();
+      }
       return;
     }
     // 关卡已结束等待商店：什么也不做（防止重复 endStage / 越界推进 stageTurn）
@@ -4850,6 +5107,7 @@ class BattleManager {
     const waveTurns = this._stageWaveTurns();
     const inSchedule = waveTurns.indexOf(this.stageTurn) >= 0;
     const maxTurns = this._stageMaxTurns();
+    const grace = this._stageGraceTurns();
     if (this.stageTurn <= maxTurns && inSchedule && this.waveInStage < this._stageWaveCount()) {
       // 时间表上的固定波次：spawn
       this._spawnPlannedWave();
@@ -4857,14 +5115,14 @@ class BattleManager {
       this.waveInStage++;
       Events.emit('stageChanged');
       this._planNextWave();
-    } else if (this.stageTurn >= maxTurns) {
-      // 第 20 回合及之后：不刷新波次，不计入难度。
-      // 金球奖励有 1 回合宽限期 — 只在 stageTurn ∈ [20, 21] 清空才奖励
-      // (= 玩家在第 19 / 20 回合清完最后一波)。
-      // 超过宽限（stageTurn ≥ 22）才清空 → 跳过金球，直接 endStage 进商店。
+    } else if (this.stageTurn > maxTurns) {
+      // 最后一波之后：不刷新波次，不计入难度。
+      // 金球奖励有 grace 回合宽限期 — stageTurn ∈ (maxTurns, maxTurns + grace + 1] 清空就奖励
+      // （即玩家在第 maxTurns..maxTurns+grace 回合清完最后一波）。
+      // 超过宽限 → 跳过金球，直接 endStage 进商店。
       const alive = w.enemies.filter(e => e.alive).length;
       if (alive === 0) {
-        if (this.stageTurn <= maxTurns + 1) {
+        if (this.stageTurn <= maxTurns + grace + 1) {
           this._spawnRewardTurn();
         } else {
           this._endStage();
@@ -4930,7 +5188,18 @@ class BattleManager {
     }
     // 每波固定金币 / XP 总预算（与具体敌人种类解耦）
     // 公式见 _waveRewardBudget()；按敌人数均分到每只敌人身上，死亡时掉落自己那份。
-    const types = this.nextWaveTypes;
+    let types = this.nextWaveTypes.slice();
+    // 最后一波：数量 *1.5（这只影响这一波的实际 spawn，不参与下一波难度计算）
+    // 用 Math.round 处理非整数：5*1.5=7.5→8，4*1.5=6
+    const isLastWave = this.waveInStage === this._stageWaveCount() - 1;
+    if (isLastWave) {
+      const base = types.length;
+      const extra = Math.max(1, Math.round(base * 0.5));
+      for (let i = 0; i < extra; i++) types.push(this.nextWaveTypes[i % base]);
+      toast(LANG.current === 'en'
+        ? `★ Final Wave! Enemies +50% ★`
+        : `★ 最后一波！敌人数量 +50% ★`, 2.0);
+    }
     const budget = this._waveRewardBudget(this.waveNumber);
     const count = Math.max(1, types.length);
     const perGold = Math.max(1, Math.round(budget.gold / count));
@@ -4958,6 +5227,7 @@ class BattleManager {
   _spawnRewardTurn() {
     this.rewardTurn = true;
     this._rewardHits = 0;
+    this._rewardTurnsRemaining = this._stageRewardTurns();
     const w = this.world;
     // 3 个金球使用预设槽位（左/中/右）+ 小扰动；保证彼此间距 >= 160
     const slotsBase = [
@@ -6298,14 +6568,15 @@ function setupUI(world) {
       $armor.classList.toggle('zero', p.armor <= 0);
     }
     if ($gold) $gold.textContent = world.gold;
-    // 关卡 / 波次进度（XP 条已删 — 这里展示 Stage X · Wave Y/7）
+    // 关卡 / 波次进度（XP 条已删 — 这里展示 Stage X · Wave Y/N）
     if ($xpLv) {
       const b = world.battle;
+      const waveMax = b._stageWaveCount ? b._stageWaveCount() : 5;
       $xpLv.textContent = b.stageNumber || 1;
       if ($xpCur) $xpCur.textContent = b.waveInStage || 0;
-      if ($xpMax) $xpMax.textContent = 7;
-      // 关卡内波次的填充比例 = waveInStage / 7
-      if ($xpFill) $xpFill.style.width = `${((b.waveInStage || 0) / 7) * 100}%`;
+      if ($xpMax) $xpMax.textContent = waveMax;
+      // 关卡内波次的填充比例 = waveInStage / waveMax
+      if ($xpFill) $xpFill.style.width = `${((b.waveInStage || 0) / waveMax) * 100}%`;
     }
     // 计算金币粒子目标：用 HUD DOM 节点的真实屏幕位置投影到 canvas 坐标系
     if ($xpFill && $canvas) {
@@ -6404,23 +6675,65 @@ function setupUI(world) {
   // 波次预告（右侧 rail）— 不再单独显示当前回合数（已删 turn-num HUD）
   const $waveCdNum = document.getElementById('wave-cd-num');
   const $waveEnemies = document.getElementById('wave-enemies');
+  const $rightRail = document.getElementById('right-rail');
   function renderWavePreview() {
     const b = world.battle;
     const types = b.nextWaveTypes;
-    // 倒计时：从 stageTurn 算下次刷波到几号；只考虑本关剩余波次（waveInStage < 7）。
-    const waveTurns = [1, 4, 7, 10, 13, 16, 19];
+    // 倒计时：从 stageTurn 算下次刷波到几号；只考虑本关剩余波次。
+    const waveTurns = b._stageWaveTurns ? b._stageWaveTurns() : [1,4,7,10,13];
+    const waveCount = b._stageWaveCount ? b._stageWaveCount() : 5;
+    const maxTurns = b._stageMaxTurns ? b._stageMaxTurns() : 13;
+    const grace = b._stageGraceTurns ? b._stageGraceTurns() : 2;
     const cur = b.stageTurn || 0;
     const nextScheduled = waveTurns.find(n => n > cur);
-    // 本关已经没有后续波次了 → 隐藏预告（waveInStage 已 = 7，或下一刷波点 > 19 已不在本关）
-    const stageHasMoreWaves = (b.waveInStage || 0) < 7 && nextScheduled != null;
+    const stageHasMoreWaves = (b.waveInStage || 0) < waveCount && nextScheduled != null;
     const tu = stageHasMoreWaves ? (nextScheduled - cur) : -1;
+    // 标记：下一波是不是最后一波（用于高亮）
+    const nextIsLastWave = stageHasMoreWaves && (b.waveInStage || 0) === waveCount - 1;
+    // 标记：金球预告 / 金球消失预告状态
+    const inReward = !!b.rewardTurn;
+    const orbsLeft = inReward ? (b._rewardTurnsRemaining || 0) : 0;
+    // 末波之后、未进 reward：玩家有 grace 回合内清空的窗口
+    // turnsUntilCutoff = maxTurns + grace - stageTurn → 还能清几回合
+    const inGrace = !inReward && !stageHasMoreWaves && cur >= maxTurns;
+    const turnsToClear = inGrace ? (maxTurns + grace - cur) : -999;
+    // 重置高亮 class
+    if ($rightRail) {
+      $rightRail.classList.toggle('next-last-wave', nextIsLastWave);
+      $rightRail.classList.toggle('orb-grace', inGrace && turnsToClear >= 0);
+      $rightRail.classList.toggle('orb-active', inReward);
+    }
     if ($waveCdNum) {
-      if (!stageHasMoreWaves || !types || types.length === 0) $waveCdNum.textContent = t('wave_none');
-      else if (tu === 0) $waveCdNum.textContent = t('wave_this');
-      else $waveCdNum.textContent = t('wave_after', { n: tu });
+      if (inReward) {
+        // 金球消失倒计时
+        $waveCdNum.textContent = orbsLeft > 1
+          ? t('orb_expire_after', { n: orbsLeft })
+          : t('orb_expire_this');
+      } else if (inGrace && turnsToClear >= 0) {
+        // 金球出现倒计时（清空才生效）
+        $waveCdNum.textContent = turnsToClear > 0
+          ? t('orb_appear_in', { n: turnsToClear })
+          : t('orb_appear_this');
+      } else if (!stageHasMoreWaves || !types || types.length === 0) {
+        $waveCdNum.textContent = t('wave_none');
+      } else if (tu === 0) {
+        $waveCdNum.textContent = nextIsLastWave ? t('wave_last_this') : t('wave_this');
+      } else {
+        $waveCdNum.textContent = nextIsLastWave
+          ? t('wave_last_after', { n: tu })
+          : t('wave_after', { n: tu });
+      }
     }
     if ($waveEnemies) {
       $waveEnemies.innerHTML = '';
+      // reward / grace 状态展示金球图标，不展示敌人列表
+      if (inReward || (inGrace && turnsToClear >= 0)) {
+        const el = document.createElement('div');
+        el.className = 'we-item we-orb';
+        el.textContent = '💰';
+        $waveEnemies.appendChild(el);
+        return;
+      }
       if (stageHasMoreWaves && types && types.length > 0) {
         const counts = {};
         for (const t of types) counts[t] = (counts[t] || 0) + 1;
@@ -6466,6 +6779,7 @@ function setupUI(world) {
   Events.on('waveChanged', renderWavePreview);
   Events.on('turnChanged', renderWavePreview);
   Events.on('stateChanged', renderWavePreview);
+  Events.on('stageChanged', renderWavePreview);
 
   Events.on('comboStacksChanged', n => {
     $comboStacks.textContent = n;
@@ -7509,7 +7823,7 @@ function renderXpBar(ctx, world) {
   const b = world.battle;
   const stage = b.stageNumber || 1;
   const waveCur = b.waveInStage || 0;
-  const waveMax = 7;
+  const waveMax = b._stageWaveCount ? b._stageWaveCount() : 5;
   ctx.save();
   // 底
   ctx.fillStyle = 'rgba(10, 13, 17, 0.85)';
@@ -7785,6 +8099,7 @@ function main() {
   // 把所有 CARD_DATA 暴露到 window，方便 preview 测试。生产无害。
   window.__cards = CARD_DATA;
   window.__mkCard = mkCard;
+  window.__events = Events;
 }
 
 main();
