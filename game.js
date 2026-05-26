@@ -5603,14 +5603,15 @@ class BattleManager {
     const e = new Enemy(rand(m, W - m), m, typeKey, this.world);
     // 按当前累计波次（不是 turn）缩放敌人统计 — 关卡间难度连续递增
     //   shifted = max(0, waveNumber - 50)
-    //   HP   × e^(shifted / 150)        无上限（每 150 波 ×e；wave 200 → ×2.72，wave 350 → ×7.4）
-    //   攻击 ×(1 + shifted / 300), cap 3  3 倍上限（wave 650 满）
-    //   速度 ×(1 + shifted / 600), cap 2  2 倍上限（wave 650 满）
+    //   HP   × e^(shifted / 450)         无上限（每 450 波 ×e；wave 500 → ×2.72，wave 950 → ×7.4）
+    //   攻击 ×(1 + shifted / 900), cap 3  3 倍上限（wave 1850 满）
+    //   速度 ×(1 + shifted / 1800), cap 2  2 倍上限（wave 1850 满）
+    // 斜率为旧公式的 1/3，让中长线难度爬升更平缓。
     const turn = this.waveNumber || 0;
     const shifted = Math.max(0, turn - 50);
-    const hpMult = Math.exp(shifted / 150);
-    const atkMult = Math.min(3, 1 + shifted / 300);
-    const spdMult = Math.min(2, 1 + shifted / 600);
+    const hpMult = Math.exp(shifted / 450);
+    const atkMult = Math.min(3, 1 + shifted / 900);
+    const spdMult = Math.min(2, 1 + shifted / 1800);
     e.maxHp = Math.ceil(e.maxHp * hpMult);
     e.hp = e.maxHp;
     e.attack = Math.ceil(e.attack * atkMult);
