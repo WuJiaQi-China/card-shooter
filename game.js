@@ -6459,10 +6459,10 @@ function fireFromCards(world, cards, side, opts = {}) {
   }, 0);
   if (player.mana < totalCost) { toast(t('no_mana'), 0.7); return false; }
 
-  // 模板子弹
+  // 模板子弹（基础攻击 = 2，所有 PreActive 加成在此基础上累计）
   const tpl = new Bullet({
     x: player.x, y: player.y, angle: player.angle,
-    speed: 480, lifetime: 3.0, bulletCount: 1, waveCount: 1, attack: 1, bound: 0, penetrate: 0,
+    speed: 480, lifetime: 3.0, bulletCount: 1, waveCount: 1, attack: 2, bound: 0, penetrate: 0,
   });
 
   // 炮台被动：在 PreActive 之前修改 tpl 基础属性 / 累计 cannon 状态（连击 stack / 燃烧计数等）
