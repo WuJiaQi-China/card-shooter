@@ -225,7 +225,7 @@ const KEYWORDS_DICT = {
     { word: '引爆',  cls: 'fire',    title: '引爆',  desc: '立刻让所有有燃烧的敌人受 (燃烧层数 × N) 伤害并清空。' },
     { word: '数量',  cls: 'bullet',  title: '数量',  desc: '一波内发射的子弹数量。数量+N = 每波多打 N 颗。多颗子弹自动均匀扇形展开。' },
     { word: '波次',  cls: 'bullet',  title: '波次',  desc: '单次发射会出几波。波次+N = 同方向多打 N 波，每波间隔 0.12s。' },
-    { word: '骷髅',  cls: 'summon',  title: '骷髅',  desc: '召唤一个矮小的近战骷髅小兵（1 HP / 1 攻）。每敌方回合 HP -1，会自动冲向最近敌人。' },
+    { word: '骷髅',  cls: 'summon',  title: '骷髅',  desc: '召唤一个矮小的近战骷髅小兵（2 层实体化 / 1 攻）。每敌方回合自动冲向最近敌人撞击后自毁。' },
     { word: '弃牌',  cls: 'discard', title: '弃牌',  desc: '把卡弃到弃牌堆触发效果（与「弃置」同义）。手牌空时弃牌堆全部洗回。' },
   ],
   en: [
@@ -249,7 +249,7 @@ const KEYWORDS_DICT = {
     { word: 'Detonate',  cls: 'fire',    title: 'Detonate',  desc: 'Immediately deal (stack × N) damage to all enemies with Burn and clear their stacks.' },
     { word: 'Bullets',   cls: 'bullet',  title: 'Bullets',   desc: 'Number of projectiles fired per wave. Bullets+N = N extra projectiles per wave, fanned automatically.' },
     { word: 'Wave',      cls: 'bullet',  title: 'Wave',      desc: 'How many waves a single shot fires. Wave+N = N extra waves in the same direction, 0.12s apart.' },
-    { word: 'Skeleton',  cls: 'summon',  title: 'Skeleton',  desc: 'Summons a tiny melee skeleton (1 HP / 1 ATK). Loses 1 HP every enemy turn, charges at the nearest enemy.' },
+    { word: 'Skeleton',  cls: 'summon',  title: 'Skeleton',  desc: 'Summons a tiny melee skeleton (2 Entity / 1 ATK). Charges the nearest enemy each enemy turn and self-destructs on impact.' },
   ],
 };
 
@@ -2431,10 +2431,6 @@ function spawnSummon(world, kind, opts = {}) {
   const tb = trapBounds(world, sp.y);
   sp.x = clamp(sp.x, tb.leftX + sp.radius, tb.rightX - sp.radius);
   sp.y = clamp(sp.y, sp.radius, world.h - sp.radius);
-  // 骷髅号角永久 buff：骷髅 spawn 时附加 world._skeletonAtkBonus 攻击
-  if (sp.kind === 'skeleton' && world._skeletonAtkBonus > 0) {
-    sp.attack = (sp.attack || 0) + world._skeletonAtkBonus;
-  }
   world.summons.push(sp);
   Events.emit('summonSpawned', sp);
   return sp;
@@ -2875,11 +2871,11 @@ function _nearestEnemyTo(world, x, y) {
 // 无自然衰减（decayRate=0）+ 无标准近战（moves=false，自带 dash 逻辑）
 // 场上无敌人时不消失，等到有敌人才 dash
 SUMMON_DEFS.skeleton = {
-  kind: 'skeleton', name: '骷髅', desc: '敌方回合 0.5s 冲撞最近敌人，1 攻击，撞后自毁',
-  maxHp: 1, attack: 1, radius: 8, moves: false, speed: 0,
+  kind: 'skeleton', name: '骷髅', desc: '敌方回合 0.5s 冲撞最近敌人，1 攻击，撞后自毁（2 层实体化）',
+  maxHp: 2, attack: 1, radius: 8, moves: false, speed: 0,
   canFire: false, decayRate: 0,
 };
-SUMMON_TR.skeleton = { name_en: 'Skeleton', desc_en: 'Melee skeleton (1 HP / 1 ATK). Loses 1 HP each enemy turn.' };
+SUMMON_TR.skeleton = { name_en: 'Skeleton', desc_en: 'Melee skeleton (2 Entity / 1 ATK). Charges nearest enemy each enemy turn.' };
 
 // ─── 全局"下 N 次射击 +M 攻"队列（缓释胶囊用）─────────────────────────
 // fireFromCards 在 onUse 之前调用：应用全部存量 buff + decrement
@@ -3143,29 +3139,24 @@ function _boneBlossomTier(skN, atkBoost, value, desc) {
   };
 }
 
-// 骷髅号角：召唤 N 骷髅 + 永久 +D 骷髅伤害（本局有效，存到 world._skeletonAtkBonus）。弃置 = 使用。
+// 骷髅号角：召唤 N 骷髅，并给"场上当前所有骷髅"（含此次召唤）+D 伤害。弃置 = 使用。
+// 注意：buff 只作用一次性、对当前场上骷髅；不影响未来召唤的骷髅。
 function _skeletonHornTier(skN, atkBoost, value) {
+  const apply = (world) => {
+    for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton');
+    for (const s of world.summons) {
+      if (s.alive && s.kind === 'skeleton') s.attack = (s.attack || 0) + atkBoost;
+    }
+  };
   return {
     cost: 1, value,
     desc: {
-      zh: `召唤${skN}个骷髅，使你的骷髅获得+${atkBoost}伤害。弃置此牌等同于使用。`,
-      en: `Summon ${skN} skeleton(s). Your skeletons gain +${atkBoost} damage. Discard = use.`,
+      zh: `召唤${skN}个骷髅，使你场上的骷髅获得+${atkBoost}伤害。弃置此牌等同于使用。`,
+      en: `Summon ${skN} skeleton(s). Skeletons on the field gain +${atkBoost} damage. Discard = use.`,
     },
     effects: () => [],
-    onUse(_, world) {
-      world._skeletonAtkBonus = (world._skeletonAtkBonus || 0) + atkBoost;
-      for (const s of world.summons) {
-        if (s.kind === 'skeleton') s.attack = (s.attack || 1) + atkBoost;
-      }
-      for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton');
-    },
-    onDiscard(card, world) {
-      world._skeletonAtkBonus = (world._skeletonAtkBonus || 0) + atkBoost;
-      for (const s of world.summons) {
-        if (s.kind === 'skeleton') s.attack = (s.attack || 1) + atkBoost;
-      }
-      for (let i = 0; i < skN; i++) spawnSummon(world, 'skeleton');
-    },
+    onUse(_, world) { apply(world); },
+    onDiscard(_, world) { apply(world); },
   };
 }
 
@@ -4830,7 +4821,6 @@ class BattleManager {
     this.world.combo.reset();
     this.world.addComboStacks(-999);    // 重置 stacks
     this.world._shotBuffs = [];         // 缓释胶囊 buff 清空
-    this.world._skeletonAtkBonus = 0;   // 骷髅号角永久 buff 清空
     this.world.summons = [];
     this.world.inventoryDiscount = 0;   // 背包减费跨关不继承
     Events.emit('inventoryDiscountChanged', 0);
