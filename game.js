@@ -870,6 +870,61 @@ function _drawEntityDecos(ctx, bullet) {
     ctx.stroke();
     ctx.restore();
   }
+
+  // 🧨 引信：球顶向上的导火索 + 闪烁火花。
+  // 导火索 = 浅褐色细线（略微抖动），顶端火花 = 飘动的小亮点。
+  // N 层引信 = 多根并排（轻微扇形展开），强化"多重引信"感。
+  const fuses = grouped.fuse || 0;
+  if (fuses > 0) {
+    const fuseLen = Math.max(10, r * 0.95);
+    const spread = fuses > 1 ? Math.min(Math.PI * 0.45, 0.32 * fuses) : 0;
+    for (let i = 0; i < fuses; i++) {
+      const baseAng = -Math.PI / 2 + (i - (fuses - 1) / 2) * (spread / Math.max(1, fuses - 1));
+      const wobble = Math.sin(t * 10 + i * 1.7) * 1.4;       // 细绳抖动
+      const tipFlicker = 0.7 + Math.sin(t * 18 + i * 2.3) * 0.3;
+      const tipDx = Math.cos(baseAng) * fuseLen + wobble * 0.4;
+      const tipDy = Math.sin(baseAng) * fuseLen + wobble * 0.2;
+      ctx.save();
+      // 浅棕导火索（细线，球面 → 火花尖端）
+      ctx.strokeStyle = '#8a5b2e';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(baseAng) * (r - 2), Math.sin(baseAng) * (r - 2));
+      // 中点带轻微抖动，呈"S 形" 火索
+      const midX = (Math.cos(baseAng) * (r + fuseLen * 0.5)) + wobble;
+      const midY = (Math.sin(baseAng) * (r + fuseLen * 0.5));
+      ctx.quadraticCurveTo(midX, midY, tipDx, tipDy);
+      ctx.stroke();
+      // 火花头：亮黄 + 周围橙红辉光
+      ctx.shadowColor = '#ffae00';
+      ctx.shadowBlur = 10 + tipFlicker * 6;
+      ctx.fillStyle = '#fff2a0';
+      ctx.beginPath();
+      ctx.arc(tipDx, tipDy, 2.6 + tipFlicker * 1.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(255,120,40,${0.6 * tipFlicker})`;
+      ctx.beginPath();
+      ctx.arc(tipDx, tipDy, 4.5 + tipFlicker * 1.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // 偶尔从火花头喷一颗向上小火星（不进粒子池太多，每帧 ~20% 概率）
+      if (bullet._world && Math.random() < 0.25) {
+        const sa = baseAng + (Math.random() - 0.5) * 1.0;
+        const sp = 40 + Math.random() * 50;
+        bullet._world.particles.push(new Particle({
+          x: bullet.x + tipDx,
+          y: bullet.y + tipDy,
+          vx: Math.cos(sa) * sp,
+          vy: Math.sin(sa) * sp - 20,
+          life: 0.32 + Math.random() * 0.2,
+          color: Math.random() < 0.5 ? '#ffd84a' : (Math.random() < 0.6 ? '#ff7030' : '#c93020'),
+          size: 1.4 + Math.random() * 0.7,
+        }));
+      }
+    }
+  }
 }
 
 // ─── 3. Enemy + 20 种敌人类型 + Intent 系统 ──────────────────────────
@@ -3053,7 +3108,7 @@ function _fuseTier(ent, fire, value, variant /* 'silver' | 'gold' | 'diamond' */
     effects: () => [
       new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.entityLayers += ent; }),
       new Effect(Phase.Spawned, 0, ctx => {
-        (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('wings');
+        (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('fuse');
         ctx.bullet._burnAura = true;
       }),
       new Effect(Phase.EntityTurn, 0, ctx => {
@@ -4572,11 +4627,21 @@ class BattleManager {
 
   endPlayerTurn() {
     if (this.state !== State.Battle || this.turn !== 'player') return;
-    // 在 _afterPlayerTurnComplete 把法力回满到 10 之前，把剩余水晶累计到背包打开折扣里
+    // 剩余法力 → 金币：每个 mana 出一颗金币 orb，飞向 HUD 金币条。
+    // 法力清零（_afterPlayerTurnComplete 之前），避免视觉上 mana 还满；玩家回合恢复时会重置。
     const leftover = Math.floor(this.world.player.mana || 0);
     if (leftover > 0) {
-      this.world.inventoryDiscount = Math.min(10, (this.world.inventoryDiscount || 0) + leftover);
-      Events.emit('inventoryDiscountChanged', this.world.inventoryDiscount);
+      const w = this.world;
+      const px = w.player.x, py = w.player.y - 6;
+      // 上限 30 颗，避免极端情况（缓释胶囊 + 没用的回合）一次塞 50 颗 orb 卡帧
+      const orbCount = Math.min(30, leftover);
+      const perOrb = Math.max(1, Math.ceil(leftover / orbCount));
+      for (let i = 0; i < orbCount; i++) {
+        w.particles.push(new GoldOrb(w, px + rand(-12, 12), py + rand(-8, 8), perOrb));
+      }
+      // 法力立刻清零（视觉与逻辑同步）；orb 飞到 HUD 时再加金币
+      w.player.mana = 0;
+      Events.emit('manaChanged', 0);
     }
     // 流程：玩家回合结束 → 火焰结算 → 有商店则开店（暂停一切活动）→ 商店退出后才走我方 / 敌方阶段
     this._tickFireDamage();
@@ -4664,19 +4729,13 @@ class BattleManager {
     }
 
     // 设置：场上无敌人时自动结束回合（金球也算敌人 → 在场时阻塞，让玩家可以慢慢打掉换金币）
-    // 触发时把剩余法力 1:1 转为金币（鼓励无敌人时直接跳过）
+    // mana → gold 由 endPlayerTurn 统一处理（任何方式结束回合都生效）
     if (this.autoEndOnNoEnemy && this.turn === 'player'
         && !this.world.enemies.some(e => e.alive)) {
       if (this._fieldClearForAutoEnd()) {
         this._autoEndNoEnemySettleTime = (this._autoEndNoEnemySettleTime || 0) + dt;
         if (this._autoEndNoEnemySettleTime > 0.5) {
           this._autoEndNoEnemySettleTime = 0;
-          const bonus = Math.floor(this.world.player.mana);
-          if (bonus > 0) {
-            this.world.gold += bonus;
-            Events.emit('goldChanged', this.world.gold);
-            toast(`+${bonus} 💰`, 0.8);
-          }
           this.endPlayerTurn();
           return;
         }
@@ -4718,9 +4777,12 @@ class BattleManager {
     if (this.world.player.hp <= 0) this.endBattle();
   }
 
-  // 自动结束回合是否可以触发：场上无子弹（实体子弹也视为"还在结算"，按设计不让自动切回合）
+  // 自动结束回合是否可以触发：只要场上没有"飞行中的非实体子弹"即可。
+  // 实体子弹（剑士、引信等）常驻在场上，但已经定型不再飞行 — 不阻塞自动结束。
   _fieldClearForAutoEnd() {
-    if (this.world.bullets.length > 0) return false;
+    for (const b of this.world.bullets) {
+      if (b.alive && !b.isEntity) return false;
+    }
     return true;
   }
 
