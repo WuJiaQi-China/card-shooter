@@ -393,6 +393,28 @@ class Bullet {
     }
     // 记录初速度作为追踪导弹的速度上限参考（maxSpeed = initial × 1.5）
     this._initialSpeed = this.speed;
+    // 追踪导弹：发射时锁定"瞄准延长线附近"的敌人。
+    // 算法：取与发射角度的 |Δθ| ≤ 60° 的所有候选，选 |Δθ| 最小者锁定。
+    // 这样玩家瞄哪打哪 — 即使旁边有更近的怪，也优先打自己瞄准的那只。
+    // 锁定目标死亡后才回落到 nearest（在 update() 中处理）。
+    if (this.tracking && w) {
+      const candidates = this.team === 'enemy'
+        ? [w.player, ...(w.summons || [])]
+        : (w.enemies || []);
+      let best = null, bestAbs = Math.PI / 3;   // ±60° cone
+      for (const e of candidates) {
+        if (!e) continue;
+        if (e.alive === false) continue;
+        if (e.hp != null && e.hp <= 0) continue;
+        if (e.spawnT && e.spawnT > 0) continue;     // 出场无敌期间不锁定
+        const ang = Math.atan2(e.y - this.y, e.x - this.x);
+        let d = ang - this.angle;
+        while (d >  Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        if (Math.abs(d) < bestAbs) { bestAbs = Math.abs(d); best = e; }
+      }
+      this._lockTarget = best;
+    }
   }
 
   update(dt, now, world) {
@@ -424,19 +446,27 @@ class Bullet {
     // 子弹一旦获得 buff 提速，转弯能力反而变差 → 哪怕瞄准也会被甩飞打圈错过。
     // 新模型：每帧把朝向直接朝目标转 ≤ trackTurnRate × dt 弧度；速度模长另由 trackAccel 控制。
     if (this.tracking) {
-      let nearest = null, minD = Infinity;
-      if (this.team === 'enemy') {
-        const allies = [world.player, ...world.summons];
-        for (const a of allies) {
-          if (!a || (a.hp != null && a.hp <= 0)) continue;
-          const d = Math.hypot(a.x - this.x, a.y - this.y);
-          if (d < minD) { minD = d; nearest = a; }
-        }
+      // 优先用 activate() 时锁定的目标（"瞄准谁追谁"）；死亡 / 离场后回落到 nearest。
+      let nearest = null;
+      const lk = this._lockTarget;
+      const lkAlive = lk && lk.alive !== false && !(lk.hp != null && lk.hp <= 0);
+      if (lkAlive) {
+        nearest = lk;
       } else {
-        for (const e of world.enemies) {
-          if (!e.alive) continue;
-          const d = Math.hypot(e.x - this.x, e.y - this.y);
-          if (d < minD) { minD = d; nearest = e; }
+        let minD = Infinity;
+        if (this.team === 'enemy') {
+          const allies = [world.player, ...world.summons];
+          for (const a of allies) {
+            if (!a || (a.hp != null && a.hp <= 0)) continue;
+            const d = Math.hypot(a.x - this.x, a.y - this.y);
+            if (d < minD) { minD = d; nearest = a; }
+          }
+        } else {
+          for (const e of world.enemies) {
+            if (!e.alive) continue;
+            const d = Math.hypot(e.x - this.x, e.y - this.y);
+            if (d < minD) { minD = d; nearest = e; }
+          }
         }
       }
       if (nearest) {
@@ -875,7 +905,7 @@ const ENEMY_TYPES = {
   goblin:    { name: '哥布林',   icon: '👹', maxHp: 4,  attack: 1, speed: 90, radius: 16, color: '#7a8a4a', shape: 'circle', xpReward: 2, value: 3,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成 1 伤害，自爆' }] },
-  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 3,  attack: 0, speed: 40, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 3, value: 5,
+  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 3,  attack: 0, speed: 40, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 3, value: 7,
                behavior: 'kiter', preferredRange: 260,
                intents: [{ kind: 'ranged', icon: '🏹', cooldown: 2, value: 2, desc: '2 回合后射 1 颗弹（2 伤）' }] },
   flier:     { name: '飞行兵',   icon: '🦇', maxHp: 5,  attack: 1, speed: 130, radius: 12, color: '#4adcd0', shape: 'triangle', xpReward: 3, value: 4, flies: true,
@@ -906,7 +936,7 @@ const ENEMY_TYPES = {
                intents: [{ kind: 'rangedMulti', icon: '🏹', cooldown: 3, value: 1, count: 3, desc: '3 回合后 3 颗扇形弹（1 伤×3）' }] },
 
   // —— 后期敌人（Tier 3）——
-  summoner:  { name: '召唤师',   icon: '👻', maxHp: 8,  attack: 0, speed: 0, radius: 18, color: '#702070', shape: 'rect', xpReward: 8, value: 9,
+  summoner:  { name: '召唤师',   icon: '👻', maxHp: 8,  attack: 0, speed: 0, radius: 18, color: '#702070', shape: 'rect', xpReward: 8, value: 12,
                behavior: 'kiter',
                intents: [{ kind: 'summon', icon: '👥', cooldown: 3, spawn: 'goblin', desc: '3 回合后召唤 1 哥布林' }] },
   buffer:    { name: '指挥官',   icon: '👑', maxHp: 10, attack: 1, speed: 45, radius: 16, color: '#c08000', shape: 'rect', xpReward: 7, value: 7,
@@ -924,7 +954,7 @@ const ENEMY_TYPES = {
                  { kind: 'selfbuff', icon: '⚔', cooldown: 1, value: 1, desc: '1 回合后 +1 攻击（叠加）' },
                  { kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成伤害' },
                ] },
-  splitter:  { name: '分裂者',   icon: '✂', maxHp: 8,  attack: 0, speed: 55, radius: 18, color: '#80c080', shape: 'circle', xpReward: 6, value: 6, onDeath: 'split',
+  splitter:  { name: '分裂者',   icon: '✂', maxHp: 8,  attack: 0, speed: 55, radius: 18, color: '#80c080', shape: 'circle', xpReward: 6, value: 8, onDeath: 'split',
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触 / 死亡分裂 2 个小型' }] },
 
@@ -4685,12 +4715,11 @@ class BattleManager {
     const m = [2, 2, 2, 3, 3, 3, 4, 4];
     return m[Math.min(7, Math.max(0, this.world.shopLevel - 1))];
   }
-  // 难度曲线平移 +6（玩家看到"第 1 波" = 原表"第 7 波"），同时把二次项系数减半
-  // → 30 回合后增长大幅放缓，避免后期敌人爆炸增长。
-  // 旧曲线 (0.1 quad)：w=30 → value 227；新曲线 (0.05 quad)：w=30 → value 162（-29%）。
-  // 早期几乎不变（w=0：24 vs 26），仅后期变温和。
+  // 难度曲线平移 +3（早期更柔和；旧版 +6 导致首波就 24 价值 ≈ 5–8 只怪，玩家 4 发/回合根本清不掉）。
+  // 新版 w=0 → 15、w=5 → 31、w=10 → 49、w=20 → 91、w=30 → 144。
+  // 前期大幅缓和（首波 -37%），中后期仅 -10~15%。0.05 二次项保留，避免后期爆炸增长。
   _waveValue(w) {
-    const shifted = w + 6;
+    const shifted = w + 3;
     return Math.floor(8 + 2.5 * shifted + 0.05 * shifted * shifted);
   }
 
