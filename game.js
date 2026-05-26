@@ -2575,49 +2575,47 @@ function fireArcaneMissileFromUnit(world, unit) {
 // mainCostMod：主卡牌额外消耗，被 fireFromCards + _comboTotalCost + updateUsableState 读取。
 const CANNON_DEFS = {
   chain: {
-    id: 'chain', name: '锁链炮台', desc: '每发射3次，获得1层连携。',
+    id: 'chain', name: '锁链炮台', desc: '每发射3次，获得1层连携并恢复2点法力值。',
     icon: '⛓', color: '#a08060',
     // 炮台模型配色：底座 / 描边 / 炮管
     baseColor: '#8a5a2c', strokeColor: '#3a200a', barrelColor: '#d8a878',
     onFire(self, world, tpl) {
       self._shotCount = ((self._shotCount || 0) + 1) % 3;
-      if (self._shotCount === 0) world.addComboStacks(1);
-    },
-  },
-  fire: {
-    id: 'fire', name: '火焰炮台', desc: '每发射2次，命中施加1层燃烧。',
-    icon: '🔥', color: '#ff7030',
-    baseColor: '#a02818', strokeColor: '#3a0a00', barrelColor: '#ff9040',
-    onFire(self, world, tpl) {
-      self._shotCount = ((self._shotCount || 0) + 1) % 2;
       if (self._shotCount === 0) {
-        tpl._fireOnHit = (tpl._fireOnHit || 0) + 1;
-        if (!tpl._fireHookAdded) {
-          tpl.addHook(_fireApplyHook);
-          tpl._fireHookAdded = true;
-        }
+        world.addComboStacks(1);
+        const p = world.player;
+        p.mana = Math.min(p.maxMana, p.mana + 2);
+        Events.emit('manaChanged', p.mana);
       }
     },
   },
+  rubber: {
+    id: 'rubber', name: '橡胶炮台', desc: '弹射+2，穿透+1。',
+    icon: '🟫', color: '#888',
+    baseColor: '#3a3a3a', strokeColor: '#101010', barrelColor: '#a0a0a0',
+    onFire(self, world, tpl) {
+      tpl.bound += 2;
+      tpl.penetrate += 1;
+    },
+  },
   power: {
-    id: 'power', name: '强能炮台', desc: '伤害+1，数量+1。主卡牌消耗+1。',
+    id: 'power', name: '强能炮台', desc: '波次+1，主卡牌消耗+1。',
     icon: '⚡', color: '#7eb1ff',
     baseColor: '#4a6fa5', strokeColor: '#1a2840', barrelColor: '#aed0ff',
     mainCostMod: 1,
     onFire(self, world, tpl) {
-      tpl.attack += 1;
-      tpl.bulletCount += 1;
+      tpl.waveCount += 1;
     },
   },
 };
 
 const CANNON_TR = {
-  chain: { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携。（连携发射也算）' },
-           en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack. (Chain-fires count.)' } },
-  fire:  { zh: { name: '火焰炮台', desc: '每发射2次，命中施加1层燃烧。（施加燃烧的发射也算）' },
-           en: { name: 'Fire Cannon', desc: 'Every 2 shots, the bullet applies 1 Fire on hit. (Fire-applying shots count.)' } },
-  power: { zh: { name: '强能炮台', desc: '伤害+1，数量+1。主卡牌消耗+1。' },
-           en: { name: 'Power Cannon', desc: 'Damage +1, Bullets +1. Main card cost +1.' } },
+  chain:  { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携并恢复2点法力值。（连携发射也算）' },
+            en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack and restore 2 mana. (Chain-fires count.)' } },
+  rubber: { zh: { name: '橡胶炮台', desc: '弹射+2，穿透+1。' },
+            en: { name: 'Rubber Cannon', desc: 'Bounce +2, Pierce +1.' } },
+  power:  { zh: { name: '强能炮台', desc: '波次+1，主卡牌消耗+1。' },
+            en: { name: 'Power Cannon', desc: 'Wave +1. Main card cost +1.' } },
 };
 
 class Cannon {
