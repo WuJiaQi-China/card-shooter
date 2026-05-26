@@ -636,29 +636,7 @@ class Bullet {
   //   - 与敌人碰撞 → 触发 HitEnemy 钩子 + 造成伤害 + 击退 + 扣 1 层（不消耗 penetrate）
   //   - 每个敌方回合开始前由 BattleManager._tickEntityBullets 触发 EntityTurn 钩子（挥剑、射蝙蝠等）
   _updateEntity(dt, now, world) {
-    // 骷髅 dash 拖尾在玩家回合也要衰减（让粒子尾迹自然淡出）
-    if (this._isSkeleton && this._dashTrail) {
-      for (const p of this._dashTrail) p.life -= dt;
-      this._dashTrail = this._dashTrail.filter(p => p.life > 0);
-    }
     if (world.battle.turn !== 'enemy') return;
-    // 骷髅 dash 动画：在碰撞检测前更新位置，让 dash 路径上经过的敌人都能被下方
-    // for-of 命中（每个 enemy 在 hitCooldown 内只命中 1 次，所以 dash 穿过多个敌人 = 每个 -1 层）
-    if (this._isSkeleton && this._dashInit && !this._dashResolved) {
-      const dashDur = 0.5;
-      const elapsed = now - this._dashStartT;
-      const target = this._dashTarget;
-      if (target && target.alive) {
-        const k = Math.min(1, elapsed / dashDur);
-        this.x = lerp(this._dashStartX, target.x, k);
-        this.y = lerp(this._dashStartY, target.y, k);
-        this._dashTrail = this._dashTrail || [];
-        this._dashTrail.push({ x: this.x, y: this.y, life: 0.25, max: 0.25 });
-        if (k >= 1) this._dashResolved = true;
-      } else if (elapsed >= dashDur) {
-        this._dashResolved = true;
-      }
-    }
     // 敌人碰撞：实体造成 attack 伤害 + 击退 + 扣 1 层（不消耗 penetrate）
     for (const e of world.enemies) {
       if (!e.alive) continue;
@@ -721,6 +699,23 @@ class Bullet {
 
   destroy() {
     if (!this.alive) return;
+    // 骷髅特殊：一次冲撞结束（弹射+穿透耗尽 + 撞墙 / lifetime）= 消耗 1 层实体化
+    //   层数 >0 → 回到待机态（isEntity=true / speed=0），等下个敌方回合再冲
+    //   层数 =0 → 真销毁（走下方 Destroyed 钩子）
+    if (this._isSkeleton && !this.isEntity) {
+      this.entityLayers--;
+      if (this.entityLayers > 0) {
+        this.isEntity = true;
+        this.speed = 0;
+        this.penetrate = 0;
+        this.bound = 0;
+        this.recentHits.clear();
+        this.trail.length = 0;
+        Events.emit('bulletEntity', this);
+        return;
+      }
+      // 层数=0 → fall through 走 Destroyed 钩子
+    }
     // 实体化拦截：若还有实体化层数且尚未进入实体态 → 转为实体（不真销毁、不触发 Destroyed）
     if (this.entityLayers > 0 && !this.isEntity) {
       this.isEntity = true;
@@ -736,21 +731,6 @@ class Bullet {
 
   draw(ctx) {
     if (!this.alive) return;
-    // 骷髅 dash 拖尾（白骨色 + 紫光）：画在主体之前，让骨身盖在 trail 之上
-    if (this._isSkeleton && this._dashTrail && this._dashTrail.length > 0) {
-      ctx.save();
-      for (const p of this._dashTrail) {
-        const k = p.life / p.max;
-        ctx.globalAlpha = k * 0.6;
-        ctx.fillStyle = '#dde3ec';
-        ctx.shadowColor = '#c97aff';
-        ctx.shadowBlur = 6;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, this.radius * (0.6 + 0.4 * k), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
     // 敌方子弹：红色；蝙蝠子弹：紫黑；玩家弹：黄色；奥弹：紫色；骷髅：紫白
     const color = this._batBullet ? '#5a1f7a'
                 : this.team === 'enemy' ? '#ff5050'
@@ -2466,11 +2446,37 @@ function spawnSummon(world, kind, opts = {}) {
 // 默认带一条 EntityTurn 钩子：挑随机敌人 → dash 撞击；其他卡牌的 hooks 通过
 // world._turnHookCards 在 spawn 时一并继承（attack/bound/penetrate/fireOnHit/挥剑/蝙蝠 等）。
 function spawnSkeleton(world, opts = {}) {
+  // 数量×波次 → 真的多召唤几个骷髅：
+  // 用一个"探针 bullet" 跑一次本回合用过卡的 PreActive，读出 bulletCount/waveCount。
+  // 然后按这个数循环调 _spawnOneSkeleton（每只独立结算 PreActive + Spawned）。
+  // opts.skipMultiply=true 跳过倍数（如 skeleton_lord EntityTurn 内部已经按 spawnN 循环）
+  let count = 1;
+  if (!opts.skipMultiply) {
+    const hookCards = world._turnHookCards || [];
+    if (hookCards.length > 0) {
+      const probe = new Bullet({
+        x: 0, y: 0, angle: 0, speed: 0, lifetime: 9999,
+        attack: 1, bound: 0, penetrate: 0,
+        bulletCount: 1, waveCount: 1, radius: 8,
+      });
+      for (const tc of hookCards) {
+        for (const h of tc.initializeEffects()) probe.addHook(h);
+      }
+      probe.triggerHooks(Phase.PreActive, { world });
+      count = Math.max(1, probe.bulletCount) * Math.max(1, probe.waveCount);
+    }
+  }
+  let last = null;
+  for (let i = 0; i < count; i++) last = _spawnOneSkeleton(world, opts);
+  return last;
+}
+
+function _spawnOneSkeleton(world, opts = {}) {
   const player = world.player;
   // 默认 spawn 在炮台前 180° 弧（上半圆）随机位置
   let x, y;
   if (opts.x != null && opts.y != null) {
-    x = opts.x; y = opts.y;
+    x = opts.x + rand(-8, 8); y = opts.y + rand(-8, 8);
   } else {
     const ang = rand(-Math.PI, 0);
     const dist = 70 + rand(0, 50);
@@ -2486,7 +2492,7 @@ function spawnSkeleton(world, opts = {}) {
     x, y, angle: 0, speed: 0, lifetime: 9999,
     attack: 1, bound: 0, penetrate: 0,
     bulletCount: 1, waveCount: 1, radius: r,
-    entityLayers: opts.entityLayers ?? 2,
+    entityLayers: opts.entityLayers ?? 1,
   });
   skel.team = 'ally';
   skel.kind = 'skeleton';
@@ -2494,20 +2500,25 @@ function spawnSkeleton(world, opts = {}) {
   // 用现成的 skull 装饰 → Bullet.draw 会画 💀 emoji 漂浮在球体上方
   skel._entityDecos = ['skull'];
 
-  // EntityTurn 钩子：每个实体回合挑一个随机敌人 → 启动 dash（动画与碰撞在 _updateEntity 中处理）
+  // EntityTurn 钩子：每个实体回合 → 瞄准随机敌人发起一次"冲撞"（速度型）
+  // 切到 isEntity=false 进入正常子弹飞行流程：穿透/弹射/撞墙等钩子全部沿用现成逻辑。
+  // 冲撞自然结束（弹射+穿透耗尽 + 撞墙 / lifetime / 命中）→ destroy() 里再扣 entityLayer。
   skel.addHook(new Effect(Phase.EntityTurn, 0, ctx => {
     const b = ctx.bullet, w = ctx.world;
     const alive = w.enemies.filter(e => e.alive && (e.spawnT == null || e.spawnT <= 0));
-    if (alive.length === 0) return;     // 无敌人 → 本回合不 dash（但 _tickEntityBullets 还会扣 1 层）
+    if (alive.length === 0) return;     // 无敌人 → 本回合不冲撞（destroy 内的层数 -1 也不触发）
     const t = alive[Math.floor(Math.random() * alive.length)];
-    b._dashInit = true;
-    b._dashStartT = performance.now() / 1000;
-    b._dashStartX = b.x;
-    b._dashStartY = b.y;
-    b._dashTarget = t;
-    b._dashResolved = false;
-    b._dashTrail = b._dashTrail || [];
-    b.recentHits.clear();   // 新一轮 dash → 旧的"刚命中过的敌人"清零，允许再次命中
+    b.angle = angleBetween(b.x, b.y, t.x, t.y);
+    b.speed = 420;
+    b.lifetime = 2.2;
+    b.born = performance.now() / 1000;
+    b.isEntity = false;          // 切到正常飞行
+    // 每次冲撞重置消耗型字段，让卡牌给的穿透/弹射每次都生效
+    b.penetrate = b._chargeBasePierce ?? 0;
+    b.bound = b._chargeBaseBound ?? 0;
+    b.recentHits.clear();
+    b._contactSet = new Set();
+    b.trail.length = 0;
   }));
 
   // Destroyed 钩子：对外发出 summonDied，让 bone_blossom / skeleton_lord 等沿用现有事件机制
@@ -2524,6 +2535,12 @@ function spawnSkeleton(world, opts = {}) {
   // 模板属性结算 + Spawned 装饰（与正常子弹同流程）
   skel.triggerHooks(Phase.PreActive, { world });
   skel.triggerHooks(Phase.Spawned, { world });
+  // PreActive 结算完，存下"每次冲撞要复用"的穿透/弹射基线
+  skel._chargeBasePierce = skel.penetrate;
+  skel._chargeBaseBound = skel.bound;
+  // 出场前先归零（实体待机状态不应该有飞行属性参与碰撞计数）
+  skel.penetrate = 0;
+  skel.bound = 0;
   // 立即激活并进入实体态（speed=0 → 不会有飞行阶段）
   skel.activate(performance.now() / 1000);
   skel.isEntity = true;
@@ -3014,13 +3031,49 @@ function handleDiscardForNecromancer(world) {
 }
 
 // ─── 奥弹自动发射（旧 Card_奥弹 等价实现）──────────────────────────
+// 数量+N / 波次+N（来自洗入时刻 snapshot 的卡牌）会真的让这颗奥弹分裂为多颗 / 多波，
+// 而不是去洗入更多奥弹卡。流程：
+//   1) 先用一个"探针 tpl bullet"跑一遍 PreActive，读出最终 bulletCount / waveCount。
+//   2) 按 waveCount 分波（每波间隔 120ms，复用 fireOneWave 节奏），每波 spawn bulletCount 颗。
+//   3) 每颗奥弹仍各自从炮台周围随机环形点 spawn（保留原本的发射手感）。
 function _autoFireArcaneMissile(world, card) {
   const player = world.player;
   const evo = world._arcaneEvo || {};
-  const fireOnce = () => {
-    // 从炮台周围环形偏移随机点 spawn（半径 24~38px）
-    // 初速方向：朝最近敌人 + 随机抖动（±35°）→ 命中可靠，但群发时有自然扩散感
-    // 然后由 tracking 走新版 homing-missile steering force 持续修正
+
+  // 构造"模板"奥弹：装上洗入时刻 snapshot 的钩子 + 奥术进化的 buff，跑一次 PreActive
+  // 之后从 tpl 读 bulletCount / waveCount / attack / bound / penetrate 等结算后属性
+  const makeTpl = () => {
+    const tpl = new Bullet({
+      x: player.x, y: player.y, angle: 0,
+      speed: 360, lifetime: 3.5,
+      attack: 1 + (card._arcBonus || 0) + (evo.dmg || 0),
+      bound: 0 + (evo.bound || 0), penetrate: 0 + (evo.pen || 0), radius: 6,
+      bulletCount: 1, waveCount: 1,
+    });
+    tpl.isArcane = true;
+    tpl.tracking = true;
+    if (evo.fire > 0) {
+      tpl._fireOnHit = (tpl._fireOnHit || 0) + evo.fire;
+      tpl.addHook(_fireApplyHook);
+    }
+    if (evo.freezeChance > 0) {
+      const chance = evo.freezeChance;
+      tpl.addHook(new Effect(Phase.OnHit, -1, ctx => {
+        if (Math.random() < chance) applyFreeze(ctx.enemy, 1);
+      }));
+    }
+    const hookCards = card._inheritedHooks || [];
+    if (hookCards.length > 0) {
+      for (const tc of hookCards) {
+        for (const h of tc.initializeEffects()) tpl.addHook(h);
+      }
+    }
+    tpl.triggerHooks(Phase.PreActive, { world });
+    return tpl;
+  };
+
+  // 单颗奥弹 spawn（从炮台周围随机环形点起飞）
+  const spawnOne = (tpl) => {
     const offA = Math.random() * Math.PI * 2;
     const offR = 24 + Math.random() * 14;
     const sx = player.x + Math.cos(offA) * offR;
@@ -3029,41 +3082,20 @@ function _autoFireArcaneMissile(world, card) {
     const baseAngle = target
       ? angleBetween(sx, sy, target.x, target.y)
       : (player.angle ?? -Math.PI / 2);
-    const initAngle = baseAngle + (Math.random() - 0.5) * (Math.PI / 2.6);  // ±35°
+    const initAngle = baseAngle + (Math.random() - 0.5) * (Math.PI / 2.6);
     const bullet = new Bullet({
-      x: sx, y: sy,
-      angle: initAngle,
-      speed: 360, lifetime: 3.5,
-      attack: 1 + (card._arcBonus || 0) + (evo.dmg || 0),
-      bound: 0 + (evo.bound || 0), penetrate: 0 + (evo.pen || 0), radius: 6,
+      x: sx, y: sy, angle: initAngle,
+      speed: tpl.speed, lifetime: tpl.lifetime,
+      attack: tpl.attack, bound: tpl.bound, penetrate: tpl.penetrate, radius: tpl.radius,
     });
     bullet.isArcane = true;
-    bullet.tracking = true;             // 走新版 homing-missile steering（trackAccel 默认 900）
-    // 奥术进化-火：命中施加 N 层燃烧
-    if (evo.fire > 0) {
-      bullet._fireOnHit = (bullet._fireOnHit || 0) + evo.fire;
-      bullet.addHook(_fireApplyHook);
-    }
-    // 奥术进化-冰：命中按概率施加 1 层冻结
-    if (evo.freezeChance > 0) {
-      const chance = evo.freezeChance;
-      bullet.addHook(new Effect(Phase.OnHit, -1, ctx => {
-        if (Math.random() < chance) applyFreeze(ctx.enemy, 1);
-      }));
-    }
-    // 继承洗入时刻 snapshot 的卡牌效果（固化在 card._inheritedHooks 上）。
-    // 这样后续回合再用别的 buff 不会回头叠加给已经洗入的奥弹。
-    const hookCards = card._inheritedHooks || [];
-    if (hookCards.length > 0) {
-      for (const tc of hookCards) {
-        for (const h of tc.initializeEffects()) bullet.addHook(h);
-      }
-      bullet.triggerHooks(Phase.PreActive, { world });
-    }
+    bullet.tracking = true;
+    bullet.copyHooksFrom(tpl);
+    if (tpl._fireOnHit) bullet._fireOnHit = tpl._fireOnHit;
+    bullet.triggerHooks(Phase.Spawned, { world });
     bullet.activate(performance.now() / 1000);
     world.bullets.push(bullet);
     if (player.notifyFired) player.notifyFired(world);
-    // 紫色发射小烟：从 spawn 点向外撒一圈
     for (let i = 0; i < 8; i++) {
       const a = Math.PI * 2 * Math.random();
       const sp = 50 + Math.random() * 80;
@@ -3074,8 +3106,20 @@ function _autoFireArcaneMissile(world, card) {
       }));
     }
   };
-  fireOnce();
-  if (card._arcDoubleFire) setTimeout(fireOnce, 100);
+
+  const fireSalvo = () => {
+    const tpl = makeTpl();
+    const waves = Math.max(1, tpl.waveCount);
+    const perWave = Math.max(1, tpl.bulletCount);
+    for (let w = 0; w < waves; w++) {
+      setTimeout(() => {
+        for (let i = 0; i < perWave; i++) spawnOne(tpl);
+      }, w * 120);
+    }
+  };
+
+  fireSalvo();
+  if (card._arcDoubleFire) setTimeout(fireSalvo, 100);
 }
 
 // ─── 卡 def 构造辅助 (按 family 群组 / 提取重复模式) ────────────────
@@ -5001,6 +5045,11 @@ class BattleManager {
       p.armor = p.armorPerTurn || 3;
       Events.emit('armorChanged', p.armor);
       this.world._turnHookCards = [];
+      // 回合开始缓冲：把 auto-end 计时器预置为负值，保证玩家至少有 ~1s 反应时间
+      // 即使开局水晶不足以发牌（如被时空法师抽光、所有牌都贵）也不会瞬间被 auto-end 跳过。
+      // 中途因发牌导致水晶不足 → else 分支已经把计时器清 0，仍走 0.25s 原速度，不影响节奏。
+      this._autoEndSettleTime = -0.75;
+      this._autoEndNoEnemySettleTime = -0.5;
     }
     // 进入敌方回合：三阶段串行（射击残余 → 我方 → 敌方）
     //   阶段 0（射击残余）：等场上所有非实体的我方子弹打完（撞墙 / 命中 / 寿命 / 变实体）。
@@ -5024,10 +5073,14 @@ class BattleManager {
     this._tickSummonOverTurns();
     this._tickFriendlyDecay();
     this._tickSummonFire();
-    // 实体效果异步播放（setTimeout，最长 ~810ms）→ 给 850ms 缓冲让所有效果完整结算再进敌人回合
+    // 实体效果异步播放（setTimeout，最长 ~810ms）→ 等到所有钩子 fire 完 + 钩子里 spawn 的友方子弹
+    // （蝙蝠追踪弹 lifetime 2.2s、引信扩散等）也落地，再进敌方阶段。
+    // _enemyPhaseDeferred=true 时 update 轮询：先等 minDelay（0.85s），然后等友方子弹清空，
+    // 最多再加 2s safety valve。
     const hasEntity = this.world.bullets.some(b => b.alive && b.isEntity);
     if (hasEntity) {
-      setTimeout(() => this._startEnemyPhase(), 850);
+      this._enemyPhaseDeferred = true;
+      this._enemyPhaseDeferT = 0;
     } else {
       this._startEnemyPhase();
     }
@@ -5080,7 +5133,11 @@ class BattleManager {
         .filter(h => h.phase === Phase.EntityTurn)
         .sort((x, y) => x.priority - y.priority);
       const n = entityHooks.length;
+      // 骷髅特殊：层数在 destroy() 里按"一次冲撞 -1"消耗，不在每回合开头自动 -1。
+      // 这里只触发它的 EntityTurn 钩子（= 设速度起冲）。
+      const isSkeleton = b._isSkeleton;
       if (n === 0) {
+        if (isSkeleton) continue;
         // 无 EntityTurn 钩子（纯坦克实体）→ 仅扣一层即可
         b.entityLayers--;
         if (b.entityLayers <= 0) {
@@ -5098,6 +5155,7 @@ class BattleManager {
           hook.execute({ bullet: ent, world: w, handled: false });
         }, i * staggerMs);
       }
+      if (isSkeleton) continue;        // 骷髅不在这里扣层
       // 所有 EntityTurn 钩子播完之后再扣 1 层（整颗实体每回合仅扣 1，不论多少个挥剑钩子）
       const lastFireMs = (n - 1) * staggerMs;
       setTimeout(() => {
@@ -5307,6 +5365,21 @@ class BattleManager {
     if (this._entityPhasePending && this.turn === 'enemy') {
       const hasFlying = this.world.bullets.some(b => b.alive && !b.isEntity && b.team !== 'enemy');
       if (!hasFlying) this._startEntityPhase();
+    }
+
+    // 阶段 1 → 阶段 2 过渡：等实体钩子全部 fire（≥0.85s）+ 它们 spawn 出来的友方子弹
+    //          （蝙蝠追踪弹 / 引信扩散弹等）落地后才启动敌方回合，避免敌人在我方子弹还在飞时就行动
+    if (this._enemyPhaseDeferred && this.turn === 'enemy') {
+      this._enemyPhaseDeferT += dt;
+      if (this._enemyPhaseDeferT >= 0.85) {
+        const hasFriendlyFlying = this.world.bullets.some(b =>
+          b.alive && !b.isEntity && b.team !== 'enemy');
+        if (!hasFriendlyFlying || this._enemyPhaseDeferT > 0.85 + 2.0) {
+          this._enemyPhaseDeferred = false;
+          this._enemyPhaseDeferT = 0;
+          this._startEnemyPhase();
+        }
+      }
     }
 
     // 怪物回合倒计时 → 行动结束后 0.75s 沉淀窗口（让挥剑、爆炸、AOE 等特效与扣血结算完成）

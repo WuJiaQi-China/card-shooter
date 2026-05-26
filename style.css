@@ -682,13 +682,14 @@ html, body {
 .card-cost.cost-up   { color: #ff4040 !important; text-shadow: 0 0 4px rgba(255, 60, 60, 0.85); }
 .card-cost.cost-down { color: #4ade50 !important; text-shadow: 0 0 4px rgba(74, 222, 80, 0.85); }
 
-/* 永久升级按钮区（满级商店后） */
+/* 永久升级按钮区（满级商店后）：2×2 网格，放在概率条下方 */
 .perm-upgrades {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   justify-content: center;
-  margin: 8px 0;
-  flex-wrap: wrap;
+  margin: 8px auto;
+  max-width: 280px;
 }
 .perm-upgrades.hidden { display: none; }
 .perm-upgrade-btn {
@@ -704,7 +705,6 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  min-width: 90px;
   box-shadow: 0 0 8px rgba(201, 122, 255, 0.4);
   transition: transform 0.1s, box-shadow 0.15s;
 }
