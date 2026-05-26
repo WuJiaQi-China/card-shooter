@@ -260,6 +260,40 @@ function currentKeywords() {
 }
 
 // 把 desc 文本里的关键词包裹为 <span class="kw kw-X">...</span>，并返回出现过的关键词列表
+// 自适应卡牌描述字体：当 .card-desc 文字溢出可视区域时，逐步缩小字号直至适配（或触底）。
+// 在 .card-desc 上读取 CSS 默认字号作为上限，最小 7px。
+function _fitCardDesc(el) {
+  if (!el) return;
+  // 清掉上一次的 inline font-size，重新从 CSS 默认开始
+  el.style.fontSize = '';
+  const cs = window.getComputedStyle(el);
+  const defaultPx = parseFloat(cs.fontSize) || 12;
+  let size = defaultPx;
+  const minSize = 7;
+  // 每步 -0.5px，直到没有溢出或触底
+  let guard = 30;
+  while (guard-- > 0 && size > minSize
+      && (el.scrollHeight > el.clientHeight + 0.5 || el.scrollWidth > el.clientWidth + 0.5)) {
+    size -= 0.5;
+    el.style.fontSize = size.toFixed(1) + 'px';
+  }
+}
+function _fitAllCardDescs(container) {
+  if (!container) return;
+  const descs = container.querySelectorAll('.card-desc');
+  descs.forEach(_fitCardDesc);
+}
+// 单帧防抖：多次连续调用合并成一次 RAF 扫描。任意 render 路径都可以触发。
+let _fitScheduled = false;
+function scheduleFitCardDescs() {
+  if (_fitScheduled) return;
+  _fitScheduled = true;
+  requestAnimationFrame(() => {
+    _fitScheduled = false;
+    _fitAllCardDescs(document);
+  });
+}
+
 function renderDescWithKeywords(desc) {
   let html = escapeHtml(desc);
   const seen = [];
@@ -4326,36 +4360,41 @@ const CARD_DATA = {
     },
   },
 
-  // ─── 奥术进化主卡：开局时移除自身，洗入 5 张衍生「奥术进化-力/穿/火/弹/冰」───
-  // 银：5 张全反面；金：随机 2 张正面；钻：5 张全正面。
-  // 主卡保留在 bag，下一关重新触发；本关使用过的衍生卡不保留到下一关。
+  // ─── 奥术进化主卡：使用时洗入 5 张衍生 + 自身变为「奥术强化」───
+  // "先使用，再替换" — onUse 触发洗牌 + 标记自身待替换；fireFromCards 在 toDiscard 之后扫描标记并就地替换。
+  //   非主卡：进弃牌堆后，原卡槽位被 arcaneboost 顶替（不是在手牌中追加）。
+  //   主卡：bag[0] 在原位被 arcaneboost 顶替。
+  // 银/金/钻 tier 对应替换后的 arcaneboost 同 tier。
   arcane_evolution: {
     emoji: '🌌',
     name: { zh: '奥术进化', en: 'Arcane Evolution' },
     tiers: {
       silver: {
-        cost: 1, value: 8, _arcEvoFaceUp: 0,
+        cost: 1, value: 8,
         desc: {
-          zh: '在对战开始时，从你的卡组中移除此牌，然后将5种奥术强化洗入你的手牌。',
-          en: 'At battle start, remove this card from your deck and shuffle 5 Arcane Boosts into your hand.',
+          zh: '将5种奥术进化衍生牌洗入你的手牌。用奥术强化替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
         },
         effects: () => [],
+        onUse(card, world) { _arcaneEvoOnUse(card, world); },
       },
       gold: {
-        cost: 1, value: 10, _arcEvoFaceUp: 2,
+        cost: 1, value: 10,
         desc: {
-          zh: '在对战开始时，从你的卡组中移除此牌，然后将5种奥术强化洗入你的手牌。将2张奥术强化翻为正面。',
-          en: 'At battle start, remove this card from your deck and shuffle 5 Arcane Boosts into your hand. Reveal 2 of them.',
+          zh: '将5种奥术进化衍生牌洗入你的手牌。用奥术强化替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
         },
         effects: () => [],
+        onUse(card, world) { _arcaneEvoOnUse(card, world); },
       },
       diamond: {
-        cost: 1, value: 13, _arcEvoFaceUp: 5,
+        cost: 1, value: 13,
         desc: {
-          zh: '在对战开始时，从你的卡组中移除此牌，然后将5种奥术强化洗入你的手牌。将它们翻为正面。',
-          en: 'At battle start, remove this card from your deck and shuffle 5 Arcane Boosts into your hand. Reveal all of them.',
+          zh: '将5种奥术进化衍生牌洗入你的手牌。用奥术强化替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
         },
         effects: () => [],
+        onUse(card, world) { _arcaneEvoOnUse(card, world); },
       },
     },
   },
@@ -4431,53 +4470,50 @@ const CARD_DATA = {
 // 5 张奥术进化衍生卡的 family id 列表（用于扫描清理 / 批量 spawn）
 const ARC_EVO_DERIVED_FAMILIES = ['arc_evo_power', 'arc_evo_pierce', 'arc_evo_fire', 'arc_evo_missile', 'arc_evo_ice'];
 
-// 战斗开始时调用：扫描手牌中所有奥术进化主卡 → 移除自身 + 推入 5 张衍生（按 tier 决定多少张正面）
-// "直接看到手牌更新，无插入动画"：批量修改 hand 数组 → 一次性 emit deckChanged
-function _processArcaneEvolution(world) {
+// 奥术进化使用时调用：洗入 5 张衍生 + 标记自身待替换为 arcaneboost。
+// "先使用，再替换" — onUse 只设置标记；fireFromCards 在 toDiscard 之后扫描标记并就地替换。
+function _arcaneEvoOnUse(card, world) {
+  // 洗入 5 张衍生（顺序：力 / 穿 / 火 / 弹 / 冰）
+  for (const f of ARC_EVO_DERIVED_FAMILIES) {
+    world.deck.shuffleIntoHand(mkCard(f, 'bronze'));
+  }
+  // 视觉：在炮台位置撒紫色粒子表示 "进化触发"
+  const p = world.player;
+  if (p) {
+    for (let i = 0; i < 18; i++) {
+      const a = Math.PI * 2 * Math.random();
+      const sp = 70 + Math.random() * 100;
+      world.particles.push(new Particle({
+        x: p.x, y: p.y - 30, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
+        life: 0.45 + Math.random() * 0.2, color: i % 2 ? '#c97aff' : '#aef0fb', size: 3,
+      }));
+    }
+  }
+  // 打上标记：fire 流程在所有 toDiscard 完成后会扫描 bag / discard，把标记的卡换成同 tier 的奥术强化
+  card._becomeArcaneboost = card.tier;
+}
+
+// 扫描 bag (主卡槽) + discard，把所有 _becomeArcaneboost 标记的卡就地替换为 arcaneboost。
+// 由 fireFromCards 在 toDiscard 之后调用。
+function _resolveArcaneEvoReplacements(world) {
   const deck = world.deck;
-  if (!deck || !deck.hand) return;
+  if (!deck) return;
   let changed = false;
-  // 先收集所有奥术进化卡（避免遍历时修改数组）
-  const evoCards = deck.hand.filter(c => c.familyId === 'arcane_evolution');
-  for (const evo of evoCards) {
-    const idx = deck.hand.indexOf(evo);
-    if (idx < 0) continue;
-    deck.hand.splice(idx, 1);
-    // 视觉：在炮台位置撒一下紫色粒子表示 "进化触发"
-    const w = world; const p = w.player;
-    if (p) {
-      for (let i = 0; i < 24; i++) {
-        const a = Math.PI * 2 * Math.random();
-        const sp = 80 + Math.random() * 120;
-        w.particles.push(new Particle({
-          x: p.x, y: p.y - 30, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
-          life: 0.55 + Math.random() * 0.2, color: i % 2 ? '#c97aff' : '#aef0fb', size: 3,
-        }));
-      }
-    }
-    // 生成 5 张衍生（按固定顺序：力 / 穿 / 火 / 弹 / 冰）
-    const derived = ARC_EVO_DERIVED_FAMILIES.map(f => mkCard(f, 'bronze'));
-    const faceUpN = evo._def?._arcEvoFaceUp ?? 0;
-    if (faceUpN > 0) {
-      // 随机挑 N 张标记 _foresightFaceUp（复用强制正面机制；_updateFaceUp 会保持它们正面）
-      const idxs = derived.map((_, i) => i);
-      for (let i = idxs.length - 1; i > 0; i--) {
-        const j = randInt(0, i);
-        [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
-      }
-      for (let i = 0; i < Math.min(faceUpN, derived.length); i++) {
-        derived[idxs[i]]._foresightFaceUp = true;
-      }
-    }
-    // 全部 push 到 hand（不带插入动画 — 直接修改数组）
-    for (const d of derived) deck.hand.push(d);
-    evo._foresightFaceUp = false;
+  // 主卡槽（bag[0]）— 用 deck.replaceAt 保持 face-up 状态
+  if (deck.bag[0] && deck.bag[0]._becomeArcaneboost) {
+    const tier = deck.bag[0]._becomeArcaneboost;
+    deck.replaceAt(0, mkCard('arcaneboost', tier));
     changed = true;
   }
-  if (changed) {
-    deck._updateFaceUp();
-    Events.emit('deckChanged');
+  // 弃牌堆：直接索引替换（弃牌堆里的卡 faceUp 已是 false，新卡也保持 false）
+  for (let i = 0; i < deck.discard.length; i++) {
+    const c = deck.discard[i];
+    if (c && c._becomeArcaneboost) {
+      deck.discard[i] = mkCard('arcaneboost', c._becomeArcaneboost);
+      changed = true;
+    }
   }
+  if (changed) Events.emit('deckChanged');
 }
 
 // 玩家回合开始时调用：奥术进化-弹 buff 生效 → 把 2 张反面奥弹翻为正面（自动触发发射）
@@ -5148,8 +5184,6 @@ class BattleManager {
     this.world.inventoryDiscount = 0;   // 背包减费跨关不继承
     Events.emit('inventoryDiscountChanged', 0);
     this.world.deck.resetForBattle();
-    // 奥术进化：扫描手牌触发主卡 → 移除自身 + 洗入 5 张衍生
-    _processArcaneEvolution(this.world);
     this.killCount = 0;
     this.waveIndex = 0;
     this.waveTimer = 0;
@@ -5497,8 +5531,6 @@ class BattleManager {
     // 关卡内"洗入手牌"等临时卡也清空（这些 hook 在 deck 上由未来的卡牌系统处理 —
     // 当前 resetForBattle 已经把 hand/discard 重洗、临时卡若标记 _stageScoped 也丢弃）
     w.deck.resetForBattle();
-    // 奥术进化：扫描手牌触发主卡 → 移除自身 + 洗入 5 张衍生
-    _processArcaneEvolution(w);
     // 立即 spawn 新关第 1 波（与 startBattle 行为一致）
     this._spawnPlannedWave();
     this.waveNumber++;
@@ -6532,6 +6564,9 @@ function fireFromCards(world, cards, side, opts = {}) {
       world.deck.toDiscard(c);
     }
   }
+  // 奥术进化：先使用（onUse 已洗入 5 张衍生），再替换 — 把 bag 主卡槽 / discard 中
+  // 标记 _becomeArcaneboost 的卡就地替换成同 tier 的 arcaneboost。
+  _resolveArcaneEvoReplacements(world);
 
   // 连击
   world.combo.onUse(side);
@@ -6994,6 +7029,12 @@ function setupUI(world) {
   Events.on('deckChanged', renderHand);
   // 换炮台 → 主卡显示费用变化（强能炮台 +1）需要重渲
   Events.on('cannonChanged', renderHand);
+  // 卡牌描述字体自适应：所有改卡场景统一在下一帧扫描所有 .card-desc，溢出则缩字号
+  Events.on('deckChanged', scheduleFitCardDescs);
+  Events.on('bagChanged', scheduleFitCardDescs);
+  Events.on('cannonChanged', scheduleFitCardDescs);
+  Events.on('stateChanged', scheduleFitCardDescs);
+  scheduleFitCardDescs();
   Events.on('comboChanged', n => {
     $combo.textContent = n;
     // bump 动画：先移除 → reflow → 加回去；分档：5 黄(默认) / 10 橙 / 15 红
@@ -7313,6 +7354,7 @@ function setupInventoryPanel(world) {
     for (let i = 0; i < world.deck.bag.length; i++) {
       $bag.appendChild(invSlotEl(world.deck.bag[i], i));
     }
+    scheduleFitCardDescs();
   }
 
   function invSlotEl(card, index) {
@@ -7826,6 +7868,7 @@ function setupLootPanel(world) {
       });
       $cands.appendChild(el);
     }
+    scheduleFitCardDescs();
   }
 
   // 实际购买 — 触发合成或落地到指定槽位（fallback 路径）
@@ -7907,6 +7950,7 @@ function setupLootPanel(world) {
         $bag.appendChild(bagSlotEl(world.deck.bag[i], i));
       }
     }
+    scheduleFitCardDescs();
   }
 
   function bagSlotEl(card, index) {
