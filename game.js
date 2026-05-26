@@ -4497,9 +4497,15 @@ const ARC_EVO_DERIVED_FAMILIES = ['arc_evo_power', 'arc_evo_pierce', 'arc_evo_fi
 // 奥术进化使用时调用：洗入 5 张衍生 + 标记自身待替换为 arcaneboost。
 // "先使用，再替换" — onUse 只设置标记；fireFromCards 在 toDiscard 之后扫描标记并就地替换。
 function _arcaneEvoOnUse(card, world) {
-  // 洗入 5 张衍生（顺序：力 / 穿 / 火 / 弹 / 冰）
+  // 洗入 5 张衍生（顺序：力 / 穿 / 火 / 弹 / 冰）。
+  // 衍生 def 只有 bronze 版本（效果固定），但把 rarity / tier 覆盖成主卡同 tier
+  // → 卡面边框 / 底色与主卡视觉一致（玩家一眼能看出"是哪级奥术进化产物"）。
+  const cardTier = card.tier || 'bronze';
   for (const f of ARC_EVO_DERIVED_FAMILIES) {
-    world.deck.shuffleIntoHand(mkCard(f, 'bronze'));
+    const d = mkCard(f, 'bronze');
+    d.tier = cardTier;
+    d.rarity = cardTier;
+    world.deck.shuffleIntoHand(d);
   }
   // 视觉：在炮台位置撒紫色粒子表示 "进化触发"
   const p = world.player;
