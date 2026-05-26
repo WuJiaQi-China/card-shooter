@@ -7554,7 +7554,9 @@ function main() {
   // 敌人被玩家击杀 → 爆出金币球（先散落周围再飞向条） + 计分
   // 使用 _spawnPlannedWave 时分配给敌人的 waveGoldDrop；fallback 用 xpReward 兜底（旧字段沿用）
   Events.on('enemyDied', enemy => {
-    const goldAmount = enemy.waveGoldDrop ?? Math.max(1, Math.ceil((enemy.xpReward || 2) / 5));
+    // 旧 xp 字段已删除，但 enemy.xpReward 仍作为"击杀分量"评估指标用于：震屏强度 + 计分。
+    const killValue = enemy.xpReward || 2;
+    const goldAmount = enemy.waveGoldDrop ?? Math.max(1, Math.ceil(killValue / 5));
     const orbCount = Math.min(5, Math.max(1, goldAmount));
     const perOrb = Math.max(1, Math.ceil(goldAmount / orbCount));
     for (let i = 0; i < orbCount; i++) {
@@ -7576,7 +7578,7 @@ function main() {
         color: enemy.color || '#ffd84a', size: 3,
       }));
     }
-    FX.shake(world, clamp(3 + xp * 0.4, 3, 8), 0.18);
+    FX.shake(world, clamp(3 + killValue * 0.4, 3, 8), 0.18);
     FX.hitStop(world, 0.05);
     // —— 强化死亡：溢出杀（amount > HP×2）或 boss 死 → 双层爆炸环 + 更长 hit-stop + 更猛震屏 ——
     const isBoss = enemy.typeKey === 'boss';
@@ -7594,8 +7596,8 @@ function main() {
       // boss 死特别加色散，标识"决定性时刻"
       if (isBoss) world.chromaT = Math.max(world.chromaT || 0, 0.4);
     }
-    // 计分：杀敌 = xp × 10（普通怪 20 分、boss 200 分）
-    world.score += xp * 10;
+    // 计分：杀敌 = xpReward × 10（普通怪 20 分、boss 200 分）
+    world.score += killValue * 10;
     Events.emit('scoreChanged', world.score);
     // 触发死亡特殊效果（如分裂）
     enemy.onDie?.(world);
