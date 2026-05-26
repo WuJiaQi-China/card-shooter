@@ -222,6 +222,7 @@ const KEYWORDS_DICT = {
     { word: '法力',  cls: 'other',   title: '法力',  desc: '使用 / 弃置卡牌的消耗资源。每个玩家回合开始回满。' },
     { word: '奥弹',  cls: 'arcane',  title: '奥弹',  desc: '追踪敌人的奥术飞弹。在手牌正面时立即自动触发，不消耗法力；可被「奥术强化」加成。' },
     { word: '燃烧',  cls: 'fire',    title: '燃烧',  desc: '可叠加层数的 debuff。敌方回合开始前每个燃烧敌人受 (燃烧层数) 伤害，然后层数 -1。' },
+    { word: '冻结',  cls: 'freeze',  title: '冻结',  desc: '可叠加层数的 debuff。被冻结的敌人变蓝、跳过当前敌方回合的行动，并受到双倍伤害；实体化子弹命中冻结敌人不扣实体化层数。每个敌方回合结束时层数 -1（结算顺序：先燃烧再冻结）。' },
     { word: '引爆',  cls: 'fire',    title: '引爆',  desc: '立刻让所有有燃烧的敌人受 (燃烧层数 × N) 伤害并清空。' },
     { word: '数量',  cls: 'bullet',  title: '数量',  desc: '一波内发射的子弹数量。数量+N = 每波多打 N 颗。多颗子弹自动均匀扇形展开。' },
     { word: '波次',  cls: 'bullet',  title: '波次',  desc: '单次发射会出几波。波次+N = 同方向多打 N 波，每波间隔 0.12s。' },
@@ -246,6 +247,7 @@ const KEYWORDS_DICT = {
     { word: 'Mana',      cls: 'other',   title: 'Mana',      desc: 'Resource for using / discarding cards. Refills at the start of each player turn.' },
     { word: 'Arcane Missile', cls: 'arcane', title: 'Arcane Missile', desc: 'A tracking arcane projectile. Auto-triggers the moment it is face-up in hand at no mana cost. Boosted by Arcane Boost.' },
     { word: 'Burn',      cls: 'fire',    title: 'Burn',      desc: 'Stackable debuff. At the start of each enemy turn, each burning enemy takes (stack) damage and then loses 1 stack.' },
+    { word: 'Freeze',    cls: 'freeze',  title: 'Freeze',    desc: 'Stackable debuff. Frozen enemies turn blue, skip their actions for the enemy turn, and take double damage. Entity bullets don’t lose layers when hitting frozen enemies. Freeze stack -1 at end of each enemy turn (burn resolves first, then freeze).' },
     { word: 'Detonate',  cls: 'fire',    title: 'Detonate',  desc: 'Immediately deal (stack × N) damage to all enemies with Burn and clear their stacks.' },
     { word: 'Bullets',   cls: 'bullet',  title: 'Bullets',   desc: 'Number of projectiles fired per wave. Bullets+N = N extra projectiles per wave, fanned automatically.' },
     { word: 'Wave',      cls: 'bullet',  title: 'Wave',      desc: 'How many waves a single shot fires. Wave+N = N extra waves in the same direction, 0.12s apart.' },
@@ -621,11 +623,14 @@ class Bullet {
         FX.damage(world, e.x, e.y - e.radius, this.attack);
         FX.shake(world, clamp(1 + this.attack * 0.4, 1, 5), 0.12);
       }
-      this.entityLayers--;
-      if (this.entityLayers <= 0) {
-        this.triggerHooks(Phase.Destroyed, { world });
-        this.alive = false;
-        return;
+      // 冻结的敌人：实体化子弹与之碰撞不扣层数（无视消耗）
+      if (!(e.freeze > 0)) {
+        this.entityLayers--;
+        if (this.entityLayers <= 0) {
+          this.triggerHooks(Phase.Destroyed, { world });
+          this.alive = false;
+          return;
+        }
       }
     }
   }
@@ -1125,6 +1130,9 @@ class Enemy {
     this.killedByPlayer = false;
     // 火焰流派 debuff：层数 — 敌方回合开始前结算 (damage = stacks, then stacks-1)
     this.fire = 0;
+    // 冻结流派 debuff：层数 — 每层 = 跳过下个敌方回合 1 次。敌方回合结算后 -1。
+    // 冻结的敌人受到双倍伤害；实体化子弹与冻结敌人碰撞不扣实体化层数。
+    this.freeze = 0;
     // 奖励金球标记（不死、爆金币）
     this._isReward = !!type._isReward;
     // 出场 portal：0.3s 紫色螺旋开场期间不可命中 / 不动 / intent 不递减
@@ -1133,6 +1141,8 @@ class Enemy {
 
   takeDamage(amount) {
     if (!this.alive) return false;
+    // 冻结的敌人受到双倍伤害
+    if (this.freeze > 0 && amount > 0) amount = amount * 2;
     // 奖励金球：不掉血、不死；斐波那契递减金币（GoldOrb 飞向金币条）
     if (this._isReward) {
       this.hitFlash = 0.15;
@@ -1256,6 +1266,8 @@ class Enemy {
   onTurnStart(world) {
     if (!this.alive) return;
     if (this.spawnT > 0) return;       // 出场期间不递减 intent
+    // 冻结：跳过本回合的 intent 推进 / 行动
+    if (this.freeze > 0) return;
     const intent = this.intents[this.intentIdx];
     // melee/rush 类型：cooldown 0 表示一直生效（移动阶段触发），不需要倒计时
     if (intent.cooldown === 0) return;
@@ -1288,6 +1300,8 @@ class Enemy {
     if (world.battle.turn !== 'enemy') return;
     // 我方阶段（实体效果播放中）：怪物也冻结，等阶段 1 结束才能动
     if (world.battle._enemyPhasePending) return;
+    // 被冻结：跳过本敌方回合的移动 / 接触
+    if (this.freeze > 0) return;
 
     const intent = this.intents[this.intentIdx];
     const isMelee = intent.kind === 'melee' || intent.kind === 'rush';
@@ -1511,8 +1525,10 @@ class Enemy {
       ctx.restore();
     }
     const flash = this.hitFlash > 0;
-    const color = flash ? '#ffffff' : this.color;
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    // 冻结：整体染蓝（覆盖原色，保留 hitFlash 的高亮）
+    const frozen = this.freeze > 0;
+    const color = flash ? '#ffffff' : (frozen ? '#5fb4ff' : this.color);
+    ctx.strokeStyle = frozen ? '#1f5fa8' : 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 2;
     ctx.fillStyle = color;
     if (this.shape === 'triangle') {
@@ -1555,6 +1571,18 @@ class Enemy {
       ctx.fillText('🔥' + this.fire, 0, -this.radius - 22);
       ctx.shadowBlur = 0;
     }
+    // 冻结层数显示（头顶；与火焰错开位置）
+    if (this.freeze > 0) {
+      ctx.fillStyle = '#7eb1ff';
+      ctx.shadowColor = '#aedcff';
+      ctx.shadowBlur = 6;
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const yOff = this.fire > 0 ? -this.radius - 36 : -this.radius - 22;
+      ctx.fillText('❄' + this.freeze, 0, yOff);
+      ctx.shadowBlur = 0;
+    }
     ctx.restore();
   }
 
@@ -1569,9 +1597,10 @@ class Enemy {
     const by = this.radius + 2;
     ctx.save();
     ctx.translate(bx, by);
-    // 圆形背景
-    ctx.fillStyle = 'rgba(15, 18, 24, 0.92)';
-    ctx.strokeStyle = '#ffa64a';
+    // 圆形背景；冻结时整体变蓝
+    const frozenBadge = this.freeze > 0;
+    ctx.fillStyle = frozenBadge ? 'rgba(20, 40, 80, 0.92)' : 'rgba(15, 18, 24, 0.92)';
+    ctx.strokeStyle = frozenBadge ? '#7eb1ff' : '#ffa64a';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.arc(0, 0, 11, 0, Math.PI * 2);
@@ -2018,6 +2047,8 @@ class Unit {
   }
   takeDamage(amount) {
     if (!this.alive) return false;
+    // 骷髅 dash 期间免疫敌人接触伤害（实体化层数只由 dash 完成时主动消耗 1 层）
+    if (this.kind === 'skeleton' && this._dashImmune) return false;
     const w = window.__game;
     if (this.shield > 0) {
       this.shield = Math.max(0, this.shield - 1);
@@ -2065,63 +2096,72 @@ class Summon extends Unit {
       this._dashTrail = this._dashTrail.filter(p => p.life > 0);
     }
     if (world.battle.turn !== 'enemy') return;
-    // === 骷髅：0.5s 内 dash 到随机敌人，撞击造成伤害然后自毁 ===
-    // 用 kind 而非 moves 判断：避免与标准近战逻辑冲突
-    // 改"最近敌人"为"随机敌人"：多个骷髅独立 roll → 自动分散到不同目标，
-    // 而不是全员冲同一个最近敌人 → 解决"5 个骷髅蜂拥扑一个目标全死光"的问题
+    // === 骷髅：速度 0 的实体化"子弹" ===
+    // 每个敌方回合 dash 随机敌人 → 撞击造成伤害（dash 全程免疫，敌人反击不扣层数）
+    // → 撞击后实体化层数 -1（hp -= 1）；hp = 0 时销毁
+    // _tickFriendlyDecay 跳过它（decayRate=0），唯一的衰减来源就是"撞击=消耗 1 层"
     if (this.kind === 'skeleton') {
       this._dashTrail = this._dashTrail || [];
-      // 首次进入敌方回合：随机挑一个目标 + 记录起点（金球 reward 也可作为目标）
       if (!this._dashInit) {
         const alive = world.enemies.filter(e =>
           e.alive && (e.spawnT == null || e.spawnT <= 0));
-        if (alive.length === 0) return;     // 无敌人 → 不 dash，等下次
+        if (alive.length === 0) return;     // 无敌人 → 等下回合
         const t = alive[Math.floor(Math.random() * alive.length)];
         this._dashInit = true;
+        this._dashImmune = true;            // dash 期间免疫敌人接触伤害
         this._dashStartT = performance.now() / 1000;
         this._dashStartX = this.x;
         this._dashStartY = this.y;
         this._dashTarget = t;
+        this._dashResolved = false;
       }
       const dashDur = 0.5;
       const elapsed = performance.now() / 1000 - this._dashStartT;
       const target = this._dashTarget;
-      // 目标死了 / 不在 → 继续 dash 到最后位置；到点自毁
-      if (target && target.alive) {
-        const k = Math.min(1, elapsed / dashDur);
-        // 追踪：每帧用敌人当前位置做终点
-        this.x = lerp(this._dashStartX, target.x, k);
-        this.y = lerp(this._dashStartY, target.y, k);
-        // 添加白色骨头 trail
-        this._dashTrail.push({ x: this.x, y: this.y, life: 0.25, max: 0.25 });
-        if (k >= 1) {
-          // 撞击：造成伤害 + 弹出伤害数字（Enemy.takeDamage 自身不会弹）+ 视觉碎裂
-          const dealt = target.takeDamage(this.attack);
-          if (dealt && world) FX.damage(world, target.x, target.y - target.radius, this.attack);
-          const w = world;
-          // 白色碎骨 + 紫色亡灵气浪
-          for (let i = 0; i < 14; i++) {
-            const a = Math.PI * 2 * Math.random();
-            const sp = 80 + Math.random() * 140;
-            w.particles.push(new Particle({
-              x: this.x, y: this.y,
-              vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
-              life: 0.45 + Math.random() * 0.2,
-              color: i % 3 === 0 ? '#dde3ec' : (i % 3 === 1 ? '#8a6bc0' : '#c97aff'),
-              size: 2.4,
-            }));
-          }
-          w.particles.push(new Particle({
-            x: this.x, y: this.y, life: 0.32, color: '#c97aff',
-            size: 18, type: 'ring',
+      const resolve = (didHit) => {
+        if (this._dashResolved) return;
+        this._dashResolved = true;
+        // 碎骨 / 紫色光环视觉
+        for (let i = 0; i < 14; i++) {
+          const a = Math.PI * 2 * Math.random();
+          const sp = 80 + Math.random() * 140;
+          world.particles.push(new Particle({
+            x: this.x, y: this.y,
+            vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+            life: 0.45 + Math.random() * 0.2,
+            color: i % 3 === 0 ? '#dde3ec' : (i % 3 === 1 ? '#8a6bc0' : '#c97aff'),
+            size: 2.4,
           }));
+        }
+        world.particles.push(new Particle({
+          x: this.x, y: this.y, life: 0.32, color: '#c97aff',
+          size: didHit ? 18 : 12, type: 'ring',
+        }));
+        // 撞击后扣 1 层（无论撞中没撞中，每回合 dash 就消耗 1 层）
+        this.hp -= 1;
+        if (this.hp <= 0) {
           this.alive = false;
           Events.emit('summonDied', this);
+        } else {
+          // 还活着 → 清 dash 状态，等下个敌方回合再 dash
+          this._dashInit = false;
+          this._dashImmune = false;
+          this._dashTarget = null;
+        }
+      };
+      if (target && target.alive) {
+        const k = Math.min(1, elapsed / dashDur);
+        this.x = lerp(this._dashStartX, target.x, k);
+        this.y = lerp(this._dashStartY, target.y, k);
+        this._dashTrail.push({ x: this.x, y: this.y, life: 0.25, max: 0.25 });
+        if (k >= 1) {
+          const dealt = target.takeDamage(this.attack);
+          if (dealt && world) FX.damage(world, target.x, target.y - target.radius, this.attack);
+          resolve(true);
         }
       } else if (elapsed >= dashDur) {
-        // 目标提前死亡 + 时间到 → 自毁（无伤害）
-        this.alive = false;
-        Events.emit('summonDied', this);
+        // 目标提前死亡 + 时间到 → 不造成伤害，但仍消耗 1 层
+        resolve(false);
       }
       return;
     }
@@ -2649,7 +2689,9 @@ function mkCard(familyId, tier) { return new Card(familyId, tier); }
 // 用于所有 UI 渲染（手牌 / 背包 / 商店）保证显示和实际扣费一致
 function effectiveCardCost(card, world, isMain) {
   if (!card) return 0;
-  let c = (card.cost || 0) - (card._costMod || 0);
+  // _battleCostOverride: 本场战斗内强制覆盖费用（如钻级终结技）。resetForBattle 清空。
+  const base = (card._battleCostOverride != null) ? card._battleCostOverride : (card.cost || 0);
+  let c = base - (card._costMod || 0);
   if (isMain) c += world?.cannon?.mainCostMod || 0;
   return Math.max(0, c);
 }
@@ -2784,6 +2826,25 @@ function applyAoe(world, source, opts = {}) {
 // 保留：applyAoe（上方，AOE 统一入口）、火焰共用工具（applyFire / detonateFire / _fireApplyHook）。
 // 实体化（entityLayers）配套见 Bullet + BattleManager._tickEntityBullets。
 
+function applyFreeze(enemy, stacks) {
+  if (!enemy || !enemy.alive) return;
+  if (stacks <= 0) return;
+  enemy.freeze = (enemy.freeze || 0) + stacks;
+  // 命中即时反馈：蓝色冰晶 + "+N ❄" 文字（区别于燃烧的橙色火星）
+  const w = window.__game;
+  if (w) {
+    for (let i = 0; i < 4 + stacks; i++) {
+      const a = Math.PI * 2 * Math.random();
+      const sp = 60 + Math.random() * 80;
+      w.particles.push(new Particle({
+        x: enemy.x, y: enemy.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        life: 0.4, color: '#7eb1ff', size: 3,
+      }));
+    }
+    w.particles.push(new FireText(enemy.x, enemy.y - enemy.radius - 5, '+' + stacks + '❄'));
+  }
+}
+
 function applyFire(enemy, stacks) {
   if (!enemy || !enemy.alive) return;
   enemy.fire = (enemy.fire || 0) + stacks;
@@ -2904,6 +2965,7 @@ function handleDiscardForNecromancer(world) {
 // ─── 奥弹自动发射（旧 Card_奥弹 等价实现）──────────────────────────
 function _autoFireArcaneMissile(world, card) {
   const player = world.player;
+  const evo = world._arcaneEvo || {};
   const fireOnce = () => {
     // 从炮台周围环形偏移随机点 spawn（半径 24~38px）
     // 初速方向：朝最近敌人 + 随机抖动（±35°）→ 命中可靠，但群发时有自然扩散感
@@ -2921,11 +2983,23 @@ function _autoFireArcaneMissile(world, card) {
       x: sx, y: sy,
       angle: initAngle,
       speed: 360, lifetime: 3.5,
-      attack: 1 + (card._arcBonus || 0),
-      bound: 0, penetrate: 0, radius: 6,
+      attack: 1 + (card._arcBonus || 0) + (evo.dmg || 0),
+      bound: 0, penetrate: 0 + (evo.pen || 0), radius: 6,
     });
     bullet.isArcane = true;
     bullet.tracking = true;             // 走新版 homing-missile steering（trackAccel 默认 900）
+    // 奥术进化-火：命中施加 N 层燃烧
+    if (evo.fire > 0) {
+      bullet._fireOnHit = (bullet._fireOnHit || 0) + evo.fire;
+      bullet.addHook(_fireApplyHook);
+    }
+    // 奥术进化-冰：命中按概率施加 1 层冻结
+    if (evo.freezeChance > 0) {
+      const chance = evo.freezeChance;
+      bullet.addHook(new Effect(Phase.OnHit, -1, ctx => {
+        if (Math.random() < chance) applyFreeze(ctx.enemy, 1);
+      }));
+    }
     bullet.activate(performance.now() / 1000);
     world.bullets.push(bullet);
     if (player.notifyFired) player.notifyFired(world);
@@ -3149,7 +3223,7 @@ function _skeletonHornTier(skN, atkBoost, value) {
     }
   };
   return {
-    cost: 1, value,
+    cost: 2, value,
     desc: {
       zh: `召唤${skN}个骷髅，使你场上的骷髅获得+${atkBoost}伤害。弃置此牌等同于使用。`,
       en: `Summon ${skN} skeleton(s). Skeletons on the field gain +${atkBoost} damage. Discard = use.`,
@@ -3338,8 +3412,9 @@ function _fuseTier(ent, fire, value, variant /* 'silver' | 'gold' | 'diamond' */
   };
 }
 
-function _shockwaveTier(extraBound, radiusMult, value, desc) {
-  // 范围伤害改为随机角度扇形：每次触发都现 roll 一次方向，halfAngle = 60° (总 120°)
+function _shockwaveTier(extraBound, radiusMult, halfAngle, value, desc) {
+  // 范围伤害 = 随机角度扇形：每次触发都现 roll 一次方向。
+  // 银：halfAngle = π/3 (120° total)；金/钻：halfAngle = π/2 (180° total)
   const _shockwaveCone = (ctx) => {
     applyAoe(ctx.world, ctx.bullet, {
       kind: 'cone',
@@ -3347,7 +3422,7 @@ function _shockwaveTier(extraBound, radiusMult, value, desc) {
       mult: AOE_MULT.arcaneExplode * radiusMult,
       target: 'enemies',
       dirAngle: Math.random() * Math.PI * 2,
-      halfAngle: Math.PI / 3,
+      halfAngle,
       color: '#ffd84a',
     });
   };
@@ -3619,6 +3694,43 @@ function _cryptTier(n, value) {
     effects: () => [],
     onUse(_, world) { for (let i = 0; i < n; i++) spawnSummon(world, 'skeleton'); },
     onDiscard(_, world) { for (let i = 0; i < n; i++) spawnSummon(world, 'skeleton'); },
+  };
+}
+
+// 终结技：基础 +atk；若本次射击正好用光法力 → 弹射+bound、穿透+pen。
+// 钻级 (diamondRefund=true)：否则本场战斗中此卡 cost = 1（_battleCostOverride，resetForBattle 清空）。
+function _finisherTier(atk, bound, pen, diamondRefund, value) {
+  const tail = diamondRefund
+    ? '否则，本场战斗中此卡牌费用为1点。'
+    : '';
+  const tailEn = diamondRefund
+    ? ' Otherwise, this card costs 1 for the rest of this battle.'
+    : '';
+  return {
+    cost: 2, value,
+    desc: {
+      zh: `伤害+${atk}。如果本次射击正好用光你的法力值，弹射+${bound}，穿透+${pen}。${tail}`,
+      en: `Damage+${atk}. If this shot ends your mana at exactly 0, Bounce+${bound}, Pierce+${pen}.${tailEn}`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => {
+        ctx.bullet.attack += atk;
+        const p = ctx.world?.player;
+        // 本次射击的所有 spend() 已在 PreActive 之前完成，所以 player.mana 反映"用完后"的值
+        if (p && p.mana === 0) {
+          ctx.bullet.bound += bound;
+          ctx.bullet.penetrate += pen;
+        }
+      }),
+    ],
+    onUse(card, world) {
+      if (!diamondRefund) return;
+      // 钻级 only: 如果未用光法力，给此卡设置本场战斗 cost=1（_battleCostOverride）
+      const p = world?.player;
+      if (p && p.mana > 0 && (card._battleCostOverride == null || card._battleCostOverride > 1)) {
+        card._battleCostOverride = 1;
+      }
+    },
   };
 }
 
@@ -3901,9 +4013,9 @@ const CARD_DATA = {
     emoji: '💥',
     name: { zh: '冲击波', en: 'Shockwave' },
     tiers: {
-      silver: _shockwaveTier(0, 1.0, 30, { zh: '碰撞时造成范围伤害。', en: 'On collision, deals AOE damage.' }),
-      gold: _shockwaveTier(0, 1.5, 39, { zh: '碰撞时造成大范围伤害。', en: 'On collision, deals large AOE damage.' }),
-      diamond: _shockwaveTier(1, 1.5, 50, { zh: '弹射+1。弹射和碰撞时造成大范围伤害。', en: 'Bounce+1. On bounce or collision, deals large AOE damage.' }),
+      silver: _shockwaveTier(0, 1.0, Math.PI / 3, 30, { zh: '碰撞时向随机方向造成120°的范围伤害。', en: 'On collision, deals a 120° AOE blast in a random direction.' }),
+      gold: _shockwaveTier(0, 1.5, Math.PI / 2, 39, { zh: '碰撞时向随机方向造成180°的范围伤害。', en: 'On collision, deals a 180° AOE blast in a random direction.' }),
+      diamond: _shockwaveTier(1, 1.5, Math.PI / 2, 50, { zh: '弹射+1。弹射和碰撞时向随机方向造成180°的范围伤害。', en: 'Bounce+1. On bounce or collision, deals a 180° AOE blast in a random direction.' }),
     },
   },
 
@@ -3921,9 +4033,9 @@ const CARD_DATA = {
     emoji: '🌸',
     name: { zh: '爆骨花', en: 'Bone Blossom' },
     tiers: {
-      silver: _boneBlossomTier(2, 0, 18, { zh: '召唤2个骷髅。展露：骷髅死亡时，造成AOE伤害。', en: 'Summon 2 Skeletons. Reveal: skeleton deaths deal AOE damage.' }),
-      gold: _boneBlossomTier(4, 0, 23, { zh: '召唤4个骷髅。展露：骷髅死亡时，造成AOE伤害。', en: 'Summon 4 Skeletons. Reveal: skeleton deaths deal AOE damage.' }),
-      diamond: _boneBlossomTier(4, 1, 30, { zh: '召唤4个骷髅。展露：骷髅伤害+1；骷髅死亡时，造成AOE伤害。', en: 'Summon 4 Skeletons. Reveal: skeletons +1 damage; skeleton deaths deal AOE damage.' }),
+      silver: _boneBlossomTier(2, 0, 18, { zh: '召唤2个骷髅。展露：骷髅死亡时，造成范围伤害。', en: 'Summon 2 Skeletons. Reveal: skeleton deaths deal area damage.' }),
+      gold: _boneBlossomTier(4, 0, 23, { zh: '召唤4个骷髅。展露：骷髅死亡时，造成范围伤害。', en: 'Summon 4 Skeletons. Reveal: skeleton deaths deal area damage.' }),
+      diamond: _boneBlossomTier(4, 1, 30, { zh: '召唤4个骷髅。展露：骷髅伤害+1；骷髅死亡时，造成范围伤害。', en: 'Summon 4 Skeletons. Reveal: skeletons +1 damage; skeleton deaths deal area damage.' }),
     },
   },
 
@@ -4128,10 +4240,10 @@ const CARD_DATA = {
     emoji: '📯',
     name: { zh: '骷髅号角', en: 'Skeleton Horn' },
     tiers: {
-      bronze: _skeletonHornTier(1, 1, 6),
-      silver: _skeletonHornTier(1, 1, 8),
-      gold: _skeletonHornTier(1, 2, 10),
-      diamond: _skeletonHornTier(2, 3, 13),
+      bronze: _skeletonHornTier(1, 1, 13),
+      silver: _skeletonHornTier(1, 1, 18),
+      gold: _skeletonHornTier(1, 2, 23),
+      diamond: _skeletonHornTier(2, 3, 30),
     },
   },
 
@@ -4143,6 +4255,17 @@ const CARD_DATA = {
       silver: _lighterTier(3, false, 8),
       gold: _lighterTier(4, false, 10),
       diamond: _lighterTier(5, true, 13),
+    },
+  },
+
+  finisher: {
+    emoji: '⚔',
+    name: { zh: '终结技', en: 'Finisher' },
+    tiers: {
+      bronze:  _finisherTier(2, 2, 1, false, 13),
+      silver:  _finisherTier(3, 3, 2, false, 18),
+      gold:    _finisherTier(4, 4, 3, false, 23),
+      diamond: _finisherTier(5, 4, 3, true,  30),
     },
   },
 
@@ -4187,7 +4310,180 @@ const CARD_DATA = {
       },
     },
   },
+
+  // ─── 奥术进化主卡：开局时移除自身，洗入 5 张衍生「奥术进化-力/穿/火/弹/冰」───
+  // 银：5 张全反面；金：随机 2 张正面；钻：5 张全正面。
+  // 主卡保留在 bag，下一关重新触发；本关使用过的衍生卡不保留到下一关。
+  arcane_evolution: {
+    emoji: '🌌',
+    name: { zh: '奥术进化', en: 'Arcane Evolution' },
+    tiers: {
+      silver: {
+        cost: 1, value: 8, _arcEvoFaceUp: 0,
+        desc: {
+          zh: '在对战开始时，从你的卡组中移除此牌，然后将5种奥术强化洗入你的手牌。',
+          en: 'At battle start, remove this card from your deck and shuffle 5 Arcane Boosts into your hand.',
+        },
+        effects: () => [],
+      },
+      gold: {
+        cost: 1, value: 10, _arcEvoFaceUp: 2,
+        desc: {
+          zh: '在对战开始时，从你的卡组中移除此牌，然后将5种奥术强化洗入你的手牌。将2张奥术强化翻为正面。',
+          en: 'At battle start, remove this card from your deck and shuffle 5 Arcane Boosts into your hand. Reveal 2 of them.',
+        },
+        effects: () => [],
+      },
+      diamond: {
+        cost: 1, value: 13, _arcEvoFaceUp: 5,
+        desc: {
+          zh: '在对战开始时，从你的卡组中移除此牌，然后将5种奥术强化洗入你的手牌。将它们翻为正面。',
+          en: 'At battle start, remove this card from your deck and shuffle 5 Arcane Boosts into your hand. Reveal all of them.',
+        },
+        effects: () => [],
+      },
+    },
+  },
+
+  // ─── 5 张奥术进化衍生卡（不入商店池 / 不在 bag）。使用后破碎 + 永久移除；弃置入弃牌堆。
+  arc_evo_power: {
+    emoji: '⚡',
+    name: { zh: '奥术进化-力', en: 'Arc.Evo · Power' },
+    excludedFromShop: true,
+    tiers: {
+      bronze: {
+        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        desc: { zh: '本局对战中，你的奥弹伤害+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Damage +1. Remove this card.' },
+        effects: () => [],
+        onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.dmg = (world._arcaneEvo.dmg || 0) + 1; },
+      },
+    },
+  },
+  arc_evo_pierce: {
+    emoji: '🎯',
+    name: { zh: '奥术进化-穿', en: 'Arc.Evo · Pierce' },
+    excludedFromShop: true,
+    tiers: {
+      bronze: {
+        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        desc: { zh: '本局对战中，你的奥弹穿透+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Pierce +1. Remove this card.' },
+        effects: () => [],
+        onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.pen = (world._arcaneEvo.pen || 0) + 1; },
+      },
+    },
+  },
+  arc_evo_fire: {
+    emoji: '🔥',
+    name: { zh: '奥术进化-火', en: 'Arc.Evo · Fire' },
+    excludedFromShop: true,
+    tiers: {
+      bronze: {
+        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        desc: { zh: '本局对战中，你的奥弹施加1层燃烧。移除此牌。', en: 'For this battle, your Arcane Missiles apply 1 Burn on hit. Remove this card.' },
+        effects: () => [],
+        onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.fire = (world._arcaneEvo.fire || 0) + 1; },
+      },
+    },
+  },
+  arc_evo_missile: {
+    emoji: '✷',
+    name: { zh: '奥术进化-弹', en: 'Arc.Evo · Missile' },
+    excludedFromShop: true,
+    tiers: {
+      bronze: {
+        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        desc: { zh: '本局对战中，每回合开始将2枚奥弹翻为正面。移除此牌。', en: 'For this battle, reveal 2 Arcane Missiles at the start of each turn. Remove this card.' },
+        effects: () => [],
+        onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.missileFlip = (world._arcaneEvo.missileFlip || 0) + 2; },
+      },
+    },
+  },
+  arc_evo_ice: {
+    emoji: '❄',
+    name: { zh: '奥术进化-冰', en: 'Arc.Evo · Ice' },
+    excludedFromShop: true,
+    tiers: {
+      bronze: {
+        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        desc: { zh: '本局对战中，你的奥弹有25%概率施加冻结。移除此牌。', en: 'For this battle, your Arcane Missiles have 25% chance to apply Freeze. Remove this card.' },
+        effects: () => [],
+        onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.freezeChance = (world._arcaneEvo.freezeChance || 0) + 0.25; },
+      },
+    },
+  },
 };
+
+// 5 张奥术进化衍生卡的 family id 列表（用于扫描清理 / 批量 spawn）
+const ARC_EVO_DERIVED_FAMILIES = ['arc_evo_power', 'arc_evo_pierce', 'arc_evo_fire', 'arc_evo_missile', 'arc_evo_ice'];
+
+// 战斗开始时调用：扫描手牌中所有奥术进化主卡 → 移除自身 + 推入 5 张衍生（按 tier 决定多少张正面）
+// "直接看到手牌更新，无插入动画"：批量修改 hand 数组 → 一次性 emit deckChanged
+function _processArcaneEvolution(world) {
+  const deck = world.deck;
+  if (!deck || !deck.hand) return;
+  let changed = false;
+  // 先收集所有奥术进化卡（避免遍历时修改数组）
+  const evoCards = deck.hand.filter(c => c.familyId === 'arcane_evolution');
+  for (const evo of evoCards) {
+    const idx = deck.hand.indexOf(evo);
+    if (idx < 0) continue;
+    deck.hand.splice(idx, 1);
+    // 视觉：在炮台位置撒一下紫色粒子表示 "进化触发"
+    const w = world; const p = w.player;
+    if (p) {
+      for (let i = 0; i < 24; i++) {
+        const a = Math.PI * 2 * Math.random();
+        const sp = 80 + Math.random() * 120;
+        w.particles.push(new Particle({
+          x: p.x, y: p.y - 30, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60,
+          life: 0.55 + Math.random() * 0.2, color: i % 2 ? '#c97aff' : '#aef0fb', size: 3,
+        }));
+      }
+    }
+    // 生成 5 张衍生（按固定顺序：力 / 穿 / 火 / 弹 / 冰）
+    const derived = ARC_EVO_DERIVED_FAMILIES.map(f => mkCard(f, 'bronze'));
+    const faceUpN = evo._def?._arcEvoFaceUp ?? 0;
+    if (faceUpN > 0) {
+      // 随机挑 N 张标记 _foresightFaceUp（复用强制正面机制；_updateFaceUp 会保持它们正面）
+      const idxs = derived.map((_, i) => i);
+      for (let i = idxs.length - 1; i > 0; i--) {
+        const j = randInt(0, i);
+        [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+      }
+      for (let i = 0; i < Math.min(faceUpN, derived.length); i++) {
+        derived[idxs[i]]._foresightFaceUp = true;
+      }
+    }
+    // 全部 push 到 hand（不带插入动画 — 直接修改数组）
+    for (const d of derived) deck.hand.push(d);
+    evo._foresightFaceUp = false;
+    changed = true;
+  }
+  if (changed) {
+    deck._updateFaceUp();
+    Events.emit('deckChanged');
+  }
+}
+
+// 玩家回合开始时调用：奥术进化-弹 buff 生效 → 把 2 张反面奥弹翻为正面（自动触发发射）
+function _tickArcaneEvoMissileFlip(world) {
+  const n = world?._arcaneEvo?.missileFlip || 0;
+  if (n <= 0) return;
+  const deck = world.deck;
+  if (!deck || !deck.hand) return;
+  const candidates = deck.hand.filter(c => c.familyId === 'arcane_missile' && !c.faceUp);
+  // Fisher-Yates 取前 n 张
+  const idxs = candidates.map((_, i) => i);
+  for (let i = idxs.length - 1; i > 0; i--) {
+    const j = randInt(0, i);
+    [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+  }
+  const take = Math.min(n, candidates.length);
+  for (let i = 0; i < take; i++) {
+    const c = candidates[idxs[i]];
+    deck._setFace(c, true);
+  }
+}
 
 // ─── 新手开局 picks 队列 ────────────────────────────────────────────
 // 顺序：3 张铜卡 3 选 1 → 1 张银卡 3 选 1 → 背包整理（可调主卡） → 开战
@@ -4384,6 +4680,7 @@ class CardDeck {
     // 先关闭所有可能开着的展露（防止重复订阅 / 旧主卡的事件残留）
     for (const c of this.bag) {
       c._foresightFaceUp = false;
+      c._battleCostOverride = null;     // 钻级终结技等"本场战斗 cost 覆盖"清空
       if (c.faceUp) { c.onConceal(); c.faceUp = false; }
     }
     this._setFace(this.bag[0], true);
@@ -4821,10 +5118,13 @@ class BattleManager {
     this.world.combo.reset();
     this.world.addComboStacks(-999);    // 重置 stacks
     this.world._shotBuffs = [];         // 缓释胶囊 buff 清空
+    this.world._arcaneEvo = {};         // 奥术进化本局 buff 清空
     this.world.summons = [];
     this.world.inventoryDiscount = 0;   // 背包减费跨关不继承
     Events.emit('inventoryDiscountChanged', 0);
     this.world.deck.resetForBattle();
+    // 奥术进化：扫描手牌触发主卡 → 移除自身 + 洗入 5 张衍生
+    _processArcaneEvolution(this.world);
     this.killCount = 0;
     this.waveIndex = 0;
     this.waveTimer = 0;
@@ -4924,6 +5224,8 @@ class BattleManager {
     this.world.player.mana = this.world.player.maxMana;
     this.setTurn('player');     // 重置护甲等
     this.enemyTurnTimer = 0;
+    // 奥术进化-弹 buff：每个玩家回合开始翻 N 张奥弹（触发自动发射）
+    _tickArcaneEvoMissileFlip(this.world);
   }
 
   // 战斗只在阵亡时结束（没有"胜利"概念 - 关卡是无限的，只通过升级触发 Loot）
@@ -4971,8 +5273,14 @@ class BattleManager {
           this._enemySettling = false;
           this._enemySettleTimer = 0;
           this._enemySettleExtra = 0;
+          // 敌方回合结束：先结算燃烧（在 endPlayerTurn 已结算），再结算冻结层数 -1
+          for (const e of this.world.enemies) {
+            if (e.alive && e.freeze > 0) e.freeze = Math.max(0, e.freeze - 1);
+          }
           // 敌方结算完成 → 直接进入玩家回合
           this.setTurn('player');
+          // 奥术进化-弹 buff：每个玩家回合开始翻 N 张奥弹（触发自动发射）
+          _tickArcaneEvoMissileFlip(this.world);
         }
       }
     }
@@ -5156,6 +5464,7 @@ class BattleManager {
     this.summonOverTurns = [];
     // 临时 buff 全部清空
     w._shotBuffs = [];
+    w._arcaneEvo = {};           // 奥术进化本局 buff 清空
     w.inventoryDiscount = 0;
     Events.emit('inventoryDiscountChanged', 0);
     w.combo.reset();
@@ -5163,6 +5472,8 @@ class BattleManager {
     // 关卡内"洗入手牌"等临时卡也清空（这些 hook 在 deck 上由未来的卡牌系统处理 —
     // 当前 resetForBattle 已经把 hand/discard 重洗、临时卡若标记 _stageScoped 也丢弃）
     w.deck.resetForBattle();
+    // 奥术进化：扫描手牌触发主卡 → 移除自身 + 洗入 5 张衍生
+    _processArcaneEvolution(w);
     // 立即 spawn 新关第 1 波（与 startBattle 行为一致）
     this._spawnPlannedWave();
     this.waveNumber++;
@@ -6183,11 +6494,17 @@ function fireFromCards(world, cards, side, opts = {}) {
 
   // 用过的卡入弃牌堆（主卡留在原位）
   // 标记 _lastAction → renderHand 用以播 use / buff 离场特效
+  // _def.destroyOnUse 的卡（奥术进化衍生）使用后破碎 + 永久移除，不入弃牌堆
   for (const c of cards) {
     const effects = c.initializeEffects?.() || [];
-    // 无 bullet hook 的卡视为 "纯效果" / buff（加倍奥弹 / 召唤 / 战吼 / 洗入 等）
-    c._lastAction = effects.length === 0 ? 'buff' : 'use';
-    world.deck.toDiscard(c);
+    if (c._def?.destroyOnUse) {
+      c._lastAction = 'shatter';
+      world.deck.destroyCard(c);
+    } else {
+      // 无 bullet hook 的卡视为 "纯效果" / buff（加倍奥弹 / 召唤 / 战吼 / 洗入 等）
+      c._lastAction = effects.length === 0 ? 'buff' : 'use';
+      world.deck.toDiscard(c);
+    }
   }
 
   // 连击
