@@ -226,7 +226,7 @@ const KEYWORDS_DICT = {
     { word: '引爆',  cls: 'fire',    title: '引爆',  desc: '立刻让所有有燃烧的敌人受 (燃烧层数 × N) 伤害并清空。' },
     { word: '数量',  cls: 'bullet',  title: '数量',  desc: '一波内发射的子弹数量。数量+N = 每波多打 N 颗。多颗子弹自动均匀扇形展开。' },
     { word: '波次',  cls: 'bullet',  title: '波次',  desc: '单次发射会出几波。波次+N = 同方向多打 N 波，每波间隔 0.12s。' },
-    { word: '骷髅',  cls: 'summon',  title: '骷髅',  desc: '召唤一个矮小的近战骷髅小兵（2 层实体化 / 1 攻）。每敌方回合自动冲向最近敌人撞击后自毁。' },
+    { word: '骷髅',  cls: 'summon',  title: '骷髅',  desc: '召唤一个矮小的近战骷髅小兵（1 攻）。每个敌方回合冲向一名随机敌人撞击一次。撞击免疫反击伤害，撞击后消耗 1 层实体化；归 0 时被摧毁。' },
     { word: '弃牌',  cls: 'discard', title: '弃牌',  desc: '把卡弃到弃牌堆触发效果（与「弃置」同义）。手牌空时弃牌堆全部洗回。' },
   ],
   en: [
@@ -251,7 +251,7 @@ const KEYWORDS_DICT = {
     { word: 'Detonate',  cls: 'fire',    title: 'Detonate',  desc: 'Immediately deal (stack × N) damage to all enemies with Burn and clear their stacks.' },
     { word: 'Bullets',   cls: 'bullet',  title: 'Bullets',   desc: 'Number of projectiles fired per wave. Bullets+N = N extra projectiles per wave, fanned automatically.' },
     { word: 'Wave',      cls: 'bullet',  title: 'Wave',      desc: 'How many waves a single shot fires. Wave+N = N extra waves in the same direction, 0.12s apart.' },
-    { word: 'Skeleton',  cls: 'summon',  title: 'Skeleton',  desc: 'Summons a tiny melee skeleton (2 Entity / 1 ATK). Charges the nearest enemy each enemy turn and self-destructs on impact.' },
+    { word: 'Skeleton',  cls: 'summon',  title: 'Skeleton',  desc: 'Summons a tiny melee skeleton (1 ATK). Each enemy turn it charges a random enemy once, immune to retaliation; loses 1 entity layer per charge; destroyed at 0.' },
   ],
 };
 
@@ -2102,10 +2102,12 @@ class Summon extends Unit {
     // _tickFriendlyDecay 跳过它（decayRate=0），唯一的衰减来源就是"撞击=消耗 1 层"
     if (this.kind === 'skeleton') {
       this._dashTrail = this._dashTrail || [];
+      // 本回合已经 dash 过：等 BattleManager._tickSkeletonNewTurn 清零标志
+      if (this._dashedThisTurn) return;
       if (!this._dashInit) {
         const alive = world.enemies.filter(e =>
           e.alive && (e.spawnT == null || e.spawnT <= 0));
-        if (alive.length === 0) return;     // 无敌人 → 等下回合
+        if (alive.length === 0) return;     // 无敌人 → 等下回合（不消耗实体化，不算 dash）
         const t = alive[Math.floor(Math.random() * alive.length)];
         this._dashInit = true;
         this._dashImmune = true;            // dash 期间免疫敌人接触伤害
@@ -2143,7 +2145,9 @@ class Summon extends Unit {
           this.alive = false;
           Events.emit('summonDied', this);
         } else {
-          // 还活着 → 清 dash 状态，等下个敌方回合再 dash
+          // 还活着 → 标记本回合已 dash，下个敌方回合开始时由
+          // BattleManager._tickSkeletonNewTurn 清零 _dashedThisTurn 才能再 dash
+          this._dashedThisTurn = true;
           this._dashInit = false;
           this._dashImmune = false;
           this._dashTarget = null;
@@ -2932,11 +2936,11 @@ function _nearestEnemyTo(world, x, y) {
 // 无自然衰减（decayRate=0）+ 无标准近战（moves=false，自带 dash 逻辑）
 // 场上无敌人时不消失，等到有敌人才 dash
 SUMMON_DEFS.skeleton = {
-  kind: 'skeleton', name: '骷髅', desc: '敌方回合 0.5s 冲撞最近敌人，1 攻击，撞后自毁（2 层实体化）',
+  kind: 'skeleton', name: '骷髅', desc: '每个敌方回合冲撞一名随机敌人，造成 1 伤害。',
   maxHp: 2, attack: 1, radius: 8, moves: false, speed: 0,
   canFire: false, decayRate: 0,
 };
-SUMMON_TR.skeleton = { name_en: 'Skeleton', desc_en: 'Melee skeleton (2 Entity / 1 ATK). Charges nearest enemy each enemy turn.' };
+SUMMON_TR.skeleton = { name_en: 'Skeleton', desc_en: 'Each enemy turn, charges a random enemy and deals 1 damage.' };
 
 // ─── 全局"下 N 次射击 +M 攻"队列（缓释胶囊用）─────────────────────────
 // fireFromCards 在 onUse 之前调用：应用全部存量 buff + decrement
@@ -4979,6 +4983,16 @@ class BattleManager {
     this._enemyPhasePending = false;
     this._tickWaveSpawn();
     this._tickEnemyIntents();
+    this._tickSkeletonNewTurn();
+  }
+
+  // 每个敌方回合开始：清零所有骷髅的 _dashedThisTurn 标志，让它们能开始新一轮 dash
+  _tickSkeletonNewTurn() {
+    const w = this.world;
+    if (!w.summons) return;
+    for (const s of w.summons) {
+      if (s.alive && s.kind === 'skeleton') s._dashedThisTurn = false;
+    }
   }
 
   // 火焰层数结算：每个有火焰的敌人受 stacks 伤害，然后 stacks-1（自然衰减）
