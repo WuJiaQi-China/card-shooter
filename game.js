@@ -3182,8 +3182,12 @@ function _boneBlossomTier(skN, atkBoost, value, desc) {
         if (!s || s.kind !== 'skeleton') return;
         const w = window.__game;
         if (!w) return;
-        applyAoe(w, { x: s.x, y: s.y, radius: 18 }, {
-          damage: 2, mult: AOE_MULT.arcaneExplode, target: 'enemies',
+        // 标准范围伤害：半径 = 骷髅半径 × 3（AOE_VOL_RATIO=6, 所以 mult=0.5 即 ×3）。
+        // 伤害 = 骷髅当前攻击（继承骷髅号角 / 爆骨花钻级等 buff）。
+        const skR = s.radius || 8;
+        const dmg = s.attack || 1;
+        applyAoe(w, { x: s.x, y: s.y, radius: skR }, {
+          damage: dmg, mult: 0.5, target: 'enemies',
         });
         for (let k = 0; k < 10; k++) {
           const a = Math.PI * 2 * Math.random();
@@ -8407,6 +8411,8 @@ function main() {
   window.__cards = CARD_DATA;
   window.__mkCard = mkCard;
   window.__events = Events;
+  window.__rollShop = rollShopCandidates;
+  window.__rollShopCard = _rollShopCard;
 }
 
 main();
