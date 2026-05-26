@@ -2096,6 +2096,17 @@ class Unit {
       this.hitFlash = 0.15;
       return true;
     }
+    // 骷髅按实体化子弹规则受击：每次命中固定 -1 层（不论伤害数值），归 0 时销毁
+    if (this.kind === 'skeleton') {
+      this.hp -= 1;
+      this.hitFlash = 0.15;
+      if (w) FX.damage(w, this.x, this.y - this.radius - 5, 1);
+      if (this.hp <= 0) {
+        this.alive = false;
+        Events.emit('summonDied', this);
+      }
+      return true;
+    }
     this.hp -= amount;
     this.hitFlash = 0.15;
     if (w) FX.damage(w, this.x, this.y - this.radius - 5, amount);
@@ -2137,27 +2148,12 @@ class Summon extends Unit {
       this._dashTrail = this._dashTrail.filter(p => p.life > 0);
     }
     if (world.battle.turn !== 'enemy') return;
-    // === 骷髅：速度 0 的实体化"子弹" ===
-    // 每个敌方回合 dash 随机敌人 → 撞击造成伤害（dash 全程免疫，敌人反击不扣层数）
-    // → 撞击后实体化层数 -1（hp -= 1）；hp = 0 时销毁
-    // _tickFriendlyDecay 跳过它（decayRate=0），唯一的衰减来源就是"撞击=消耗 1 层"
+    // === 骷髅：和实体化子弹一样，每回合在实体回合开始时由 BattleManager._tickSkeletons
+    // 初始化 dash（设置 _dashInit / _dashTarget / _dashStartT 等）。这里只负责动画插值 +
+    // 撞击结算 + 实体化层数消耗；不做任何 "本帧自动开 dash" 的逻辑。
     if (this.kind === 'skeleton') {
       this._dashTrail = this._dashTrail || [];
-      // 本回合已经 dash 过：等 BattleManager._tickSkeletonNewTurn 清零标志
-      if (this._dashedThisTurn) return;
-      if (!this._dashInit) {
-        const alive = world.enemies.filter(e =>
-          e.alive && (e.spawnT == null || e.spawnT <= 0));
-        if (alive.length === 0) return;     // 无敌人 → 等下回合（不消耗实体化，不算 dash）
-        const t = alive[Math.floor(Math.random() * alive.length)];
-        this._dashInit = true;
-        this._dashImmune = true;            // dash 期间免疫敌人接触伤害
-        this._dashStartT = performance.now() / 1000;
-        this._dashStartX = this.x;
-        this._dashStartY = this.y;
-        this._dashTarget = t;
-        this._dashResolved = false;
-      }
+      if (!this._dashInit || this._dashResolved) return;
       const dashDur = 0.5;
       const elapsed = performance.now() / 1000 - this._dashStartT;
       const target = this._dashTarget;
@@ -2180,17 +2176,15 @@ class Summon extends Unit {
           x: this.x, y: this.y, life: 0.32, color: '#c97aff',
           size: didHit ? 18 : 12, type: 'ring',
         }));
-        // 撞击后扣 1 层（无论撞中没撞中，每回合 dash 就消耗 1 层）
+        // 撞击 = 消耗 1 层实体化；hp 归 0 时死亡
         this.hp -= 1;
+        this._dashImmune = false;
         if (this.hp <= 0) {
           this.alive = false;
           Events.emit('summonDied', this);
         } else {
-          // 还活着 → 标记本回合已 dash，下个敌方回合开始时由
-          // BattleManager._tickSkeletonNewTurn 清零 _dashedThisTurn 才能再 dash
-          this._dashedThisTurn = true;
+          // 还活着 → 清掉本次 dash 状态，等下一次 _tickSkeletons 在新的实体回合重新初始化
           this._dashInit = false;
-          this._dashImmune = false;
           this._dashTarget = null;
         }
       };
@@ -5009,6 +5003,7 @@ class BattleManager {
   _startEntityPhase() {
     this._entityPhasePending = false;
     this._tickEntityBullets();
+    this._tickSkeletons();
     this._tickSummonOverTurns();
     this._tickFriendlyDecay();
     this._tickSummonFire();
@@ -5026,15 +5021,29 @@ class BattleManager {
     this._enemyPhasePending = false;
     this._tickWaveSpawn();
     this._tickEnemyIntents();
-    this._tickSkeletonNewTurn();
   }
 
-  // 每个敌方回合开始：清零所有骷髅的 _dashedThisTurn 标志，让它们能开始新一轮 dash
-  _tickSkeletonNewTurn() {
+  // 实体回合中调用：和实体化子弹一样，每个 alive 骷髅在这里挑随机敌人 + 启动 dash。
+  // 之后由 Summon.update 负责动画与撞击结算（每回合 1 次，绝不重入）。
+  _tickSkeletons() {
     const w = this.world;
     if (!w.summons) return;
     for (const s of w.summons) {
-      if (s.alive && s.kind === 'skeleton') s._dashedThisTurn = false;
+      if (!s.alive || s.kind !== 'skeleton') continue;
+      // 上一次 dash 没结算完（理论上不该发生，0.5s dashDur + 850ms 实体阶段缓冲足以收尾）
+      // → 跳过本回合的初始化，让动画自然走完
+      if (s._dashInit && !s._dashResolved) continue;
+      const alive = w.enemies.filter(e =>
+        e.alive && (e.spawnT == null || e.spawnT <= 0));
+      if (alive.length === 0) continue;     // 场上无敌 → 跳过本回合（不消耗实体化）
+      const t = alive[Math.floor(Math.random() * alive.length)];
+      s._dashInit = true;
+      s._dashImmune = true;                 // dash 全程免疫敌人接触伤害
+      s._dashResolved = false;
+      s._dashStartT = performance.now() / 1000;
+      s._dashStartX = s.x;
+      s._dashStartY = s.y;
+      s._dashTarget = t;
     }
   }
 
