@@ -4794,12 +4794,12 @@ class BattleManager {
     return true;
   }
 
-  // 难度曲线：线性 15 + 1.1×(w-1)。
-  // w=1 → 15、w=10 → 24、w=20 → 35、w=30 → 47、w=50 → 69、w=100 → 124。
+  // 难度曲线：线性 30 + 2.2×(w-1)（在前版 15+1.1n 上 ×2，前版偏简单）。
+  // w=1 → 30、w=10 → 49、w=20 → 71、w=30 → 93、w=50 → 137、w=100 → 247。
   // 二次项删掉避免后期爆炸，玩家每回合最多 4 发的输出节奏匹配。
   _waveValue(w) {
     const n = Math.max(1, w);
-    return Math.floor(15 + 1.1 * (n - 1));
+    return Math.floor(30 + 2.2 * (n - 1));
   }
 
   // 背包式随机填充：把 targetValue 分配给敌人种类（贪心 + 随机）
@@ -4859,10 +4859,17 @@ class BattleManager {
       this._planNextWave();
     } else if (this.stageTurn >= maxTurns) {
       // 第 20 回合及之后：不刷新波次，不计入难度。
-      // 场上清空 → 出金球奖励回合 → 下一个 enemy-turn 自动 endStage。
-      // 若怪还在 → 继续 21、22 回合等，等玩家清完。
+      // 金球奖励有 1 回合宽限期 — 只在 stageTurn ∈ [20, 21] 清空才奖励
+      // (= 玩家在第 19 / 20 回合清完最后一波)。
+      // 超过宽限（stageTurn ≥ 22）才清空 → 跳过金球，直接 endStage 进商店。
       const alive = w.enemies.filter(e => e.alive).length;
-      if (alive === 0) this._spawnRewardTurn();
+      if (alive === 0) {
+        if (this.stageTurn <= maxTurns + 1) {
+          this._spawnRewardTurn();
+        } else {
+          this._endStage();
+        }
+      }
     }
     // 中间空场（非 stage 末尾、非时间表）：什么也不做。等下一个时间表点刷新。
   }
