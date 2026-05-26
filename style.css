@@ -20,6 +20,8 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* 发现弹窗用 absolute 定位、anchor 到 game-root；需要 relative 当 containing block */
+  position: relative;
 }
 
 /* 左右 rail 用 fixed 锚定 canvas 边缘 + 10px 空隙；垂直居中于视口
@@ -280,6 +282,8 @@ html, body {
 .kw-pop.kw-combo  .kw-title { color: #ef7878; }
 .kw-pop.kw-shuffle .kw-title { color: #7eb1ff; }
 .kw-pop.kw-discard .kw-title { color: #b89060; }
+.kw-pop.kw-discover .kw-title { color: #ffd84a; }
+.kw-pop.kw-temporary .kw-title { color: #b8a8c8; }
 .kw-pop.kw-other  .kw-title { color: #5bd45b; }
 .kw-pop.kw-entity .kw-title { color: #7eb1ff; }
 .kw-pop.kw-armor  .kw-title { color: #9aa8b8; }
@@ -297,6 +301,8 @@ html, body {
 .kw.kw-combo   { color: #ef7878; }
 .kw.kw-shuffle { color: #7eb1ff; }
 .kw.kw-discard { color: #b89060; }
+.kw.kw-discover { color: #ffd84a; }
+.kw.kw-temporary { color: #b8a8c8; }
 .kw.kw-other   { color: #5bd45b; }
 .kw.kw-fire    { color: #ff7030; }
 .kw.kw-entity  { color: #7eb1ff; }
@@ -340,11 +346,10 @@ html, body {
   filter: drop-shadow(0 0 12px currentColor);
 }
 
-/* HUD 语言切换按钮 */
+/* HUD 语言切换按钮（兼容旧选择器；按钮已移到 #settings-panel 内） */
 .hud-block.hud-lang {
   display: flex;
   align-items: center;
-  margin-left: auto;     /* 推到 HUD 最右 */
 }
 .lang-btn {
   background: #2a3340;
@@ -363,6 +368,140 @@ html, body {
   transform: translateY(-1px);
 }
 .lang-btn:active { transform: translateY(0); }
+
+/* HUD 设置按钮（齿轮）：推到 HUD 最右；点击展开 #settings-panel */
+.hud-block.hud-settings {
+  display: flex;
+  align-items: center;
+  margin-left: auto;     /* 推到 HUD 最右 */
+  min-width: auto;
+}
+.settings-btn {
+  background: #2a3340;
+  border: 1px solid #4a5868;
+  color: #d6dbe2;
+  width: 30px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.2s, color 0.15s;
+}
+.settings-btn:hover {
+  background: #3a4452;
+  border-color: #7eb1ff;
+  color: #f1f4f8;
+  transform: rotate(30deg);
+}
+.settings-btn.active {
+  background: #3a4452;
+  border-color: #7eb1ff;
+  color: #7eb1ff;
+  transform: rotate(60deg);
+}
+
+/* 设置面板：贴在 HUD 右下，绝对定位浮层 */
+.settings-panel {
+  position: absolute;
+  top: 46px;
+  right: 8px;
+  background: rgba(20, 26, 34, 0.97);
+  border: 1px solid #4a5868;
+  border-radius: 8px;
+  padding: 10px 14px 12px;
+  min-width: 280px;
+  color: #d6dbe2;
+  font-size: 12px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: settings-pop-in 0.16s ease forwards;
+}
+.settings-panel.hidden { display: none; }
+@keyframes settings-pop-in {
+  0%   { opacity: 0; transform: translateY(-6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #2a3340;
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+.settings-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f1f4f8;
+  letter-spacing: 1px;
+}
+.settings-close {
+  background: transparent;
+  border: none;
+  color: #6f7986;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.settings-close:hover { color: #ef7878; }
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+}
+.settings-row-vol { gap: 8px; }
+.settings-label {
+  color: #b0b8c2;
+  font-size: 11px;
+  min-width: 50px;
+}
+.settings-toggle-btn {
+  background: #2a3340;
+  border: 1px solid #4a5868;
+  color: #d6dbe2;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.settings-toggle-btn:hover { background: #3a4452; border-color: #7eb1ff; }
+.settings-slider {
+  flex: 1;
+  accent-color: #7eb1ff;
+  cursor: pointer;
+}
+.settings-val {
+  color: #f1f4f8;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.settings-checkrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #b0b8c2;
+  font-size: 11px;
+  line-height: 1.3;
+  flex: 1;
+}
+.settings-checkrow input { cursor: pointer; flex-shrink: 0; }
+.settings-sep {
+  border-top: 1px solid #2a3340;
+  margin: 2px 0;
+}
 
 #hand-mid .card-slot {
   position: absolute;
@@ -681,6 +820,110 @@ html, body {
 /* 消耗值变化着色（强能炮台 +1 / 减费卡牌 -N 等）。覆盖各 tier 的 cost 默认 color，但保留 background。 */
 .card-cost.cost-up   { color: #ff4040 !important; text-shadow: 0 0 4px rgba(255, 60, 60, 0.85); }
 .card-cost.cost-down { color: #4ade50 !important; text-shadow: 0 0 4px rgba(74, 222, 80, 0.85); }
+
+/* 背包槽 锁定 / 剔除 动作按钮（右上角小图标）。商店与背包整理面板共用。 */
+.bag-slot { position: relative; }
+.bag-slot-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 3;
+  pointer-events: auto;
+}
+.bag-slot-act {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+  user-select: none;
+}
+.bag-slot-act:hover { background: rgba(0, 0, 0, 0.85); border-color: rgba(255, 255, 255, 0.55); }
+.bag-slot-act:active { transform: scale(0.92); }
+.bag-slot-lock.active {
+  background: rgba(255, 200, 60, 0.55);
+  border-color: #ffd84a;
+  box-shadow: 0 0 8px rgba(255, 216, 74, 0.55);
+}
+.bag-slot-remove.confirm {
+  background: rgba(220, 50, 50, 0.85);
+  border-color: #ff7070;
+  box-shadow: 0 0 10px rgba(255, 90, 90, 0.7);
+  animation: bag-remove-pulse 0.6s ease-in-out infinite;
+}
+.bag-slot-remove.disabled {
+  opacity: 0.25;
+  pointer-events: none;
+}
+@keyframes bag-remove-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 90, 90, 0.55); }
+  50% { box-shadow: 0 0 14px rgba(255, 90, 90, 0.95); }
+}
+.bag-slot.bag-slot-locked {
+  outline: 2px solid rgba(255, 216, 74, 0.55);
+  outline-offset: -2px;
+  box-shadow: 0 0 10px rgba(255, 216, 74, 0.25);
+}
+
+/* 商店候选操作按钮：左上角竖排（锁定 + 剔除）。与 .card-cost（右上）错开。
+ * 锁定时整张卡描边发光，让玩家清楚哪些卡刷新会保留。 */
+.shop-cand-actions {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 3;
+  pointer-events: auto;
+}
+.shop-cand-act {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+  user-select: none;
+}
+.shop-cand-act:hover { background: rgba(0, 0, 0, 0.85); border-color: rgba(255, 255, 255, 0.55); }
+.shop-cand-act:active { transform: scale(0.92); }
+.shop-cand-lock.active {
+  background: rgba(255, 200, 60, 0.6);
+  border-color: #ffd84a;
+  box-shadow: 0 0 8px rgba(255, 216, 74, 0.6);
+}
+.shop-cand-remove.confirm {
+  background: rgba(220, 50, 50, 0.85);
+  border-color: #ff7070;
+  box-shadow: 0 0 10px rgba(255, 90, 90, 0.7);
+  animation: bag-remove-pulse 0.6s ease-in-out infinite;
+}
+.modal-card.shop-cand-locked {
+  outline: 2px solid rgba(255, 216, 74, 0.65);
+  outline-offset: -2px;
+  box-shadow: 0 0 14px rgba(255, 216, 74, 0.45);
+}
 
 /* 永久升级按钮区（满级商店后）：2×2 网格，放在概率条下方 */
 .perm-upgrades {
@@ -1708,4 +1951,71 @@ kbd {
   0%   { transform: translate(-50%, 0)    scale(0.75); opacity: 0; }
   20%  { transform: translate(-50%, -10px) scale(1.2);  opacity: 1; }
   100% { transform: translate(-50%, -38px) scale(1.0);  opacity: 0; }
+}
+
+/* ─── 发现 (Discover) 弹窗 ──────────────────────────────────────────────
+ * absolute 锚定到 #game-root；用 bottom: var(--hand-area-h) 给手牌区让位。
+ * 半透明背景 + 居中 3 张候选卡。手牌 / 主卡 / HUD 都不会被覆盖（手牌在弹窗下方区域）。
+ *
+ * 指针事件策略：背景 pointer-events: none → 鼠标 hover 能穿透到 canvas（看敌人 tooltip）
+ * 和 HUD；仅候选卡区域接收点击。"不能使用"由 doFire/doDiscard/endPlayerTurn/open
+ * 等代码侧的 _discoverPending 守卫保证，不靠覆盖层物理拦截。 */
+.modal-discover {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--hand-area-h, 320px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(8, 10, 14, 0.55);    /* 比之前略透一点，方便看到敌人 */
+  backdrop-filter: blur(2px);
+  z-index: 25;
+  pointer-events: none;                   /* 背景不吃事件 → hover 穿透 */
+  animation: discover-fade-in 0.18s ease-out;
+}
+.modal-discover.hidden { display: none; }
+
+@keyframes discover-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.discover-title {
+  color: #c97aff;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  text-shadow:
+    0 0 14px rgba(201, 122, 255, 0.7),
+    0 0 28px rgba(201, 122, 255, 0.3);
+  pointer-events: auto;        /* 标题虽然不可点，但保留 auto 让 hover 高亮（若以后加） */
+}
+.discover-sub {
+  color: #aef0fb;
+  font-size: 13px;
+  letter-spacing: 2px;
+  opacity: 0.85;
+  pointer-events: auto;
+}
+.discover-cards {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 22px;
+  justify-content: center;
+  pointer-events: auto;        /* 仅候选卡区域接收事件 */
+}
+.discover-cards .modal-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.discover-cards .modal-card:hover {
+  transform: translateY(-6px) scale(1.03);
+  filter: brightness(1.12);
+}
+.discover-cards .modal-card:active {
+  transform: translateY(-2px) scale(0.99);
 }

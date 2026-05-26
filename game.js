@@ -27,6 +27,797 @@ function setLang(code) {
   Events.emit('langChanged', code);
 }
 
+// ─── 音效（WebAudio 程序化合成）─────────────────────────────────────
+// 无音频资源 → 用 OscillatorNode 程序化合成。每个事件一个 voice 函数。
+// SFX.master = 主音量 (0..1)，SFX.muted = 是否静音；持久化在 localStorage。
+// 由于浏览器策略，AudioContext 必须在用户首次交互后才能 resume。
+const SFX = {
+  ctx: null,
+  master: 0.6,
+  muted: false,
+  _readied: false,
+  _lastTimes: new Map(), // 节流：相同 key 在 minGapMs 内只触发一次
+};
+try {
+  const m = localStorage.getItem('cs_sfx_master');
+  if (m != null) SFX.master = clamp(parseFloat(m) || 0.6, 0, 1);
+  SFX.muted = localStorage.getItem('cs_sfx_muted') === '1';
+} catch (e) {}
+
+function _ensureSfx() {
+  if (SFX.ctx) {
+    if (SFX.ctx.state === 'suspended') SFX.ctx.resume().catch(() => {});
+    return SFX.ctx;
+  }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  try {
+    SFX.ctx = new AC();
+    // 浏览器手势策略：首次播放前必须 resume
+    if (SFX.ctx.state === 'suspended') SFX.ctx.resume().catch(() => {});
+  } catch (e) { return null; }
+  return SFX.ctx;
+}
+
+// 一次用户手势后 unlock：把 SFX.ctx resume 起来 + 加载 MP3 采样 + 启动 BGM（如果开启）
+function _unlockSfxOnGesture() {
+  if (SFX._readied) return;
+  SFX._readied = true;
+  const ctx = _ensureSfx();
+  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+  _preloadSfxSamples();
+  if (BGM.enabled) startBgm();
+}
+// 把所有可能的"用户手势"事件都用上：mousedown / touchstart / click 一旦发生立即 unlock
+['pointerdown', 'mousedown', 'touchstart', 'click', 'keydown', 'wheel'].forEach(ev => {
+  window.addEventListener(ev, _unlockSfxOnGesture, { once: true, capture: true });
+});
+
+// ─── MP3 采样加载 + 自动去除首尾静音 ─────────────────────────────────
+// 内存里保存 AudioBuffer，事件触发时 spawn BufferSourceNode 播放（可同时叠放 / 不抢占）
+const SFX_SAMPLES = {};   // name → AudioBuffer (已裁剪静音)
+
+// 在 AudioBuffer 中找"有效音频"区间 —— 自动跳过前后静音段
+// 较紧的阈值 + 极小的 head buffer，让响应延迟最低
+function _trimSilence(buffer, thresh = 0.04) {
+  const sr = buffer.sampleRate;
+  const ch0 = buffer.getChannelData(0);
+  const total = ch0.length;
+  let start = 0;
+  while (start < total && Math.abs(ch0[start]) < thresh) start++;
+  let end = total - 1;
+  while (end > start && Math.abs(ch0[end]) < thresh) end--;
+  // 极小 head buffer（1ms），避免砍掉 attack；tail 保留 20ms 自然衰减
+  start = Math.max(0, start - Math.floor(sr * 0.001));
+  end   = Math.min(total - 1, end + Math.floor(sr * 0.020));
+  const newLen = Math.max(1, end - start + 1);
+  if (newLen >= total - sr * 0.001) return buffer;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const tmp = new Ctx();
+  const out = tmp.createBuffer(buffer.numberOfChannels, newLen, sr);
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const src = buffer.getChannelData(c);
+    const dst = out.getChannelData(c);
+    for (let i = 0; i < newLen; i++) dst[i] = src[start + i];
+  }
+  tmp.close && tmp.close();
+  return out;
+}
+
+async function _loadSample(name, url) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const arr = await resp.arrayBuffer();
+    const ctx = _ensureSfx();
+    if (!ctx) return;
+    const decoded = await new Promise((res, rej) => {
+      // Safari 旧版要回调形式
+      const p = ctx.decodeAudioData(arr, res, rej);
+      if (p && p.then) p.then(res, rej);
+    });
+    SFX_SAMPLES[name] = _trimSilence(decoded);
+  } catch (e) { /* 加载失败 → 回落到程序化合成 */ }
+}
+
+// 播放采样（带主音量 + 可选 gain 倍数 + 可选最大时长截断）。
+// maxDur：限制播放时长，多次发射时避免长尾互相 smear；并在结尾加 5ms 短淡出避免咔哒
+function playSample(name, gainMul = 1, maxDur = null) {
+  if (SFX.muted) return false;
+  const buf = SFX_SAMPLES[name];
+  if (!buf) return false;
+  const ctx = _ensureSfx();
+  if (!ctx) return false;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const g = ctx.createGain();
+  const peak = SFX.master * gainMul;
+  const now = ctx.currentTime;
+  g.gain.setValueAtTime(peak, now);
+  src.connect(g);
+  g.connect(ctx.destination);
+  src.start(now);
+  if (maxDur != null && maxDur > 0 && maxDur < buf.duration) {
+    // 在 maxDur 末尾做 5ms 线性淡出，防止突然截断的 click
+    const fadeStart = now + Math.max(0, maxDur - 0.005);
+    g.gain.setValueAtTime(peak, fadeStart);
+    g.gain.linearRampToValueAtTime(0.0001, now + maxDur);
+    src.stop(now + maxDur + 0.005);
+  }
+  return true;
+}
+
+// 启动时（手势 unlock 后）异步加载所有采样
+function _preloadSfxSamples() {
+  _loadSample('shot', 'audio/shot.mp3');
+  _loadSample('arcane', 'audio/arcane.mp3');
+}
+
+// ─── 音频生命周期管理 ───────────────────────────────────────────────
+// 解决两个问题：
+//   1) 页面卸载 / 标签关闭后，AudioContext 与已排程音符可能继续在浏览器后台播放
+//   2) 切到后台标签时，BGM 调度器仍在跑（浪费 CPU + 用户听不到也不想要）
+function _teardownAudio() {
+  // 立即停止 BGM 调度（防止再排程未来音符）
+  try { stopBgm(); } catch (e) {}
+  // 关闭 AudioContext —— close() 会立即取消所有 scheduled buffer 并释放资源
+  if (BGM.ctx && BGM.ctx.state !== 'closed') {
+    try { BGM.ctx.close().catch(() => {}); } catch (e) {}
+    BGM.ctx = null;
+  }
+  if (SFX.ctx && SFX.ctx.state !== 'closed') {
+    try { SFX.ctx.close().catch(() => {}); } catch (e) {}
+    SFX.ctx = null;
+  }
+  SFX._readied = false;
+}
+// pagehide 比 beforeunload 在移动端 / iOS Safari 上更可靠；同时挂两个保险
+window.addEventListener('pagehide', _teardownAudio);
+window.addEventListener('beforeunload', _teardownAudio);
+
+// 页面隐藏（切标签 / 最小化）→ 暂停 BGM；回来再启动 —— 节流 + 静默
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    try { stopBgm(); } catch (e) {}
+  } else {
+    if (BGM.enabled && SFX._readied) {
+      try { startBgm(); } catch (e) {}
+    }
+  }
+});
+
+function setSfxMaster(v) {
+  SFX.master = clamp(v, 0, 1);
+  try { localStorage.setItem('cs_sfx_master', String(SFX.master)); } catch (e) {}
+  Events.emit('sfxChanged');
+}
+function setSfxMuted(b) {
+  SFX.muted = !!b;
+  try { localStorage.setItem('cs_sfx_muted', SFX.muted ? '1' : '0'); } catch (e) {}
+  Events.emit('sfxChanged');
+}
+
+// 单音：osc + gain envelope。type/freq/dur/peak/sweep 控制音色。
+function _tone(o) {
+  if (SFX.muted) return;
+  const ctx = _ensureSfx();
+  if (!ctx) return;
+  const t0 = ctx.currentTime + (o.delay || 0);
+  const g = ctx.createGain();
+  const peak = (o.peak ?? 0.25) * SFX.master;
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(peak, t0 + (o.attack ?? 0.005));
+  const dur = o.dur ?? 0.15;
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  const osc = ctx.createOscillator();
+  osc.type = o.type || 'sine';
+  osc.frequency.setValueAtTime(o.freq, t0);
+  if (o.sweepTo != null) {
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.sweepTo), t0 + dur);
+  }
+  // 可选低通滤波（让噪音更柔和）
+  let last = osc;
+  if (o.lpf) {
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(o.lpf, t0);
+    last.connect(f);
+    last = f;
+  }
+  last.connect(g);
+  g.connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+
+// 噪音爆破（爆炸 / 击中等）
+function _noise(o) {
+  if (SFX.muted) return;
+  const ctx = _ensureSfx();
+  if (!ctx) return;
+  const dur = o.dur ?? 0.12;
+  const t0 = ctx.currentTime + (o.delay || 0);
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(sr * dur)), sr);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const f = ctx.createBiquadFilter();
+  f.type = o.bp ? 'bandpass' : 'lowpass';
+  f.frequency.setValueAtTime(o.lpf ?? 1200, t0);
+  if (o.lpfTo != null) f.frequency.exponentialRampToValueAtTime(Math.max(60, o.lpfTo), t0 + dur);
+  const g = ctx.createGain();
+  const peak = (o.peak ?? 0.2) * SFX.master;
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(peak, t0 + (o.attack ?? 0.004));
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f); f.connect(g); g.connect(ctx.destination);
+  src.start(t0);
+  src.stop(t0 + dur + 0.02);
+}
+
+// 节流：同 key 在 ms 内最多触发一次（避免 AOE / 多颗子弹时音轨爆掉）
+function _throttle(key, ms) {
+  const now = performance.now();
+  const last = SFX._lastTimes.get(key) || 0;
+  if (now - last < ms) return false;
+  SFX._lastTimes.set(key, now);
+  return true;
+}
+
+// 各事件的音色定义（每个名字是一段合成音）
+// 整体方向：偏 triangle / sine 主导 → 更清脆透亮；少用 sawtooth / square 的粗砺感
+const SfxFx = {
+  // 开炮：经典程序化大炮 = 极短点火 crack + 亚低频 kick + 滤波噪音尾（仿 Worms / Tanks 类）
+  // 参考：真实火炮 SFX 由 50-100 Hz 基频 + 短瞬态 + 0.3-0.5s 噪音衰减组成；
+  //       重点在 noise 而不是 osc 音色 —— 锯齿太"电子"，纯噪音 + 滤波最有"轰"感
+  fire()        {
+    // 1) 点火 crack：极短宽带噪音（高低通，<25ms）—— 给前沿"砰"的清脆开端
+    _noise({ dur: 0.025, peak: 0.45, lpf: 6000, lpfTo: 2500, attack: 0.0003 });
+    // 2) 亚低频 kick：sine 100→25 Hz，0.35s 衰减 —— 主体"轰"
+    _tone({ type: 'sine', freq: 100, sweepTo: 25, dur: 0.35, peak: 0.40, attack: 0.001 });
+    // 3) 中频噪音轰鸣：低通从 2000 Hz 扫到 60 Hz，给"烟雾扩散"的体感
+    _noise({ dur: 0.45, peak: 0.30, lpf: 2000, lpfTo: 60, attack: 0.002, delay: 0.005 });
+    // 4) 中-低 sawtooth 加点"金属管腔"颗粒（短，不抢主体）
+    _tone({ type: 'sawtooth', freq: 220, sweepTo: 50, dur: 0.16, peak: 0.26, attack: 0.001, delay: 0.005 });
+  },
+  // 连携开炮：双倍质量 —— 更深 + 更长尾 + 第二层 sub-bass 余震
+  fireCombo()   {
+    _noise({ dur: 0.030, peak: 0.50, lpf: 6500, lpfTo: 2200, attack: 0.0003 });
+    _tone({ type: 'sine', freq: 90, sweepTo: 22, dur: 0.50, peak: 0.44, attack: 0.001 });
+    _noise({ dur: 0.65, peak: 0.34, lpf: 2200, lpfTo: 50, attack: 0.002, delay: 0.005 });
+    _tone({ type: 'sawtooth', freq: 200, sweepTo: 42, dur: 0.22, peak: 0.30, attack: 0.001, delay: 0.005 });
+    // 余震：更深的二段 sub-bass
+    _tone({ type: 'sine', freq: 70, sweepTo: 18, dur: 0.40, peak: 0.28, attack: 0.001, delay: 0.08 });
+  },
+  // 弹射（撞墙反弹）：清脆的"丁"金属弹球响 —— 再次加大音量 ~1.5× + 中低频体感层
+  bounce()      {
+    _noise({ dur: 0.020, peak: 0.60, lpf: 5500, attack: 0.0003 });
+    _tone({ type: 'triangle', freq: 1980, sweepTo: 1320, dur: 0.14, peak: 0.54, attack: 0.0006 });
+    _tone({ type: 'sine',     freq: 3960, dur: 0.10, peak: 0.30, attack: 0.0008 });
+    // 加一层中低频 "thunk" 体感（660→330 Hz），让"丁"有"重量"
+    _tone({ type: 'triangle', freq: 660,  sweepTo: 330, dur: 0.08, peak: 0.28, attack: 0.0008 });
+  },
+  // 射击：优先用 AK47 采样（截断到 180ms 避免连发 smear）；未加载时回退到程序化合成
+  shotFire()    {
+    if (playSample('shot', 1.0, 0.18)) return;
+    // —— 回退：写实枪械开火 ——
+    _noise({ dur: 0.012, peak: 0.70, lpf: 8000, attack: 0.0001 });
+    _noise({ dur: 0.10,  peak: 0.55, lpf: 3500, lpfTo: 200, attack: 0.0003 });
+    _tone({ type: 'sine', freq: 80, sweepTo: 30, dur: 0.12, peak: 0.40, attack: 0.0008 });
+    _noise({ dur: 0.06,  peak: 0.30, lpf: 800, lpfTo: 150, attack: 0.0005, delay: 0.003 });
+  },
+  // 连携：同一份枪声采样、略微更响（1.18×）+ 同样截断。
+  // 不再内部双击 —— 多波次时每波各自播放一次，听感才能与"波数"对应
+  shotCombo()   {
+    if (playSample('shot', 1.18, 0.18)) return;
+    _noise({ dur: 0.015, peak: 0.80, lpf: 8000, attack: 0.0001 });
+    _noise({ dur: 0.14,  peak: 0.60, lpf: 3500, lpfTo: 150, attack: 0.0003 });
+    _tone({ type: 'sine', freq: 70, sweepTo: 25, dur: 0.16, peak: 0.45, attack: 0.0008 });
+    _noise({ dur: 0.08,  peak: 0.32, lpf: 700, lpfTo: 120, attack: 0.0005, delay: 0.003 });
+  },
+  // 金球被击中：高频闪亮的硬币 chime（多层 sine + 短噪音 click）
+  coinHit()     {
+    _noise({ dur: 0.012, peak: 0.20, lpf: 6000, attack: 0.0003 });
+    _tone({ type: 'sine', freq: 2640, dur: 0.18, peak: 0.26, attack: 0.001 });
+    _tone({ type: 'sine', freq: 3520, dur: 0.20, peak: 0.20, attack: 0.001, delay: 0.005 });
+    _tone({ type: 'sine', freq: 5280, dur: 0.10, peak: 0.10, attack: 0.001, delay: 0.012 });
+  },
+  // 商店选卡：莎啦啦的硬币串铃（多枚硬币散落 / 碰撞 —— 6 个错峰高频 ting）
+  coinCascade() {
+    const freqs = [2200, 2960, 3520, 2640, 4180, 3140];
+    const peaks = [0.22, 0.20, 0.18, 0.16, 0.14, 0.12];
+    const delays = [0, 0.04, 0.08, 0.12, 0.17, 0.22];
+    for (let i = 0; i < freqs.length; i++) {
+      _tone({ type: 'sine', freq: freqs[i], dur: 0.08, peak: peaks[i], attack: 0.0008, delay: delays[i] });
+    }
+    // 整体顶上的金属"洒落"噪音
+    _noise({ dur: 0.25, peak: 0.12, lpf: 7000, lpfTo: 2000, attack: 0.0005 });
+  },
+  // 购买确认：饱满的"ka-ching" —— 厚实低频 + 明亮 bell
+  purchase()    {
+    // Bell 头部
+    _noise({ dur: 0.012, peak: 0.22, lpf: 5500, attack: 0.0003 });
+    _tone({ type: 'sine', freq: 1320, dur: 0.22, peak: 0.28, attack: 0.001 });
+    _tone({ type: 'sine', freq: 1980, dur: 0.20, peak: 0.22, attack: 0.001, delay: 0.005 });
+    // 加厚低频"重量感"
+    _tone({ type: 'triangle', freq: 220, sweepTo: 110, dur: 0.20, peak: 0.30, attack: 0.001 });
+    // 尾音 chime（"ching"）
+    _tone({ type: 'sine', freq: 2640, dur: 0.30, peak: 0.20, attack: 0.001, delay: 0.06 });
+    _tone({ type: 'sine', freq: 3520, dur: 0.25, peak: 0.14, attack: 0.001, delay: 0.10 });
+  },
+  // 奥术飞弹发射：优先用"魔法粒子咻一声"采样；未加载时回退到程序化合成
+  arcaneSwoosh() {
+    if (playSample('arcane', 0.9)) return;
+    _tone({ type: 'sine', freq: 3520, sweepTo: 1100, dur: 0.18, peak: 0.20, attack: 0.001 });
+    _tone({ type: 'triangle', freq: 1760, sweepTo: 660, dur: 0.16, peak: 0.14, attack: 0.001, delay: 0.005 });
+    _noise({ dur: 0.16, peak: 0.10, bp: true, lpf: 3500, attack: 0.001 });
+  },
+  // 子弹摧毁（撞墙耗尽 / 寿命到期等）：再次大幅加大音量（~2.5×）+ 加宽频谱让"噗"穿透感更强
+  bulletDestroy() {
+    // 主体噪音：更高 peak + 略长，覆盖更宽频段
+    _noise({ dur: 0.10, peak: 0.65, lpf: 2200, lpfTo: 200, attack: 0.0003 });
+    // 中频 thump 主体（480→120 Hz）—— 给"撞击"实感
+    _tone({ type: 'sine', freq: 480, sweepTo: 120, dur: 0.10, peak: 0.55, attack: 0.0008 });
+    // 低频 body —— 增强"重量"
+    _tone({ type: 'triangle', freq: 220, sweepTo: 70, dur: 0.12, peak: 0.42, attack: 0.0008, delay: 0.003 });
+    // 第二层高频 click（更明显的 attack）
+    _noise({ dur: 0.020, peak: 0.40, lpf: 4500, attack: 0.0001 });
+  },
+  // 回合结束 = 栓动步枪上膛 "喀-拉" ——"喀"(拉栓) + 滑轨 scrape + "拉"(推弹 lock-in) + 金属余震
+  gunCock()     {
+    // "喀" —— 拉栓：高频金属脆响 + 短噪音
+    _noise({ dur: 0.022, peak: 0.42, bp: true, lpf: 4500, attack: 0.0002 });
+    _tone({ type: 'triangle', freq: 2640, sweepTo: 1760, dur: 0.022, peak: 0.26, attack: 0.0005 });
+    _tone({ type: 'square',   freq: 3300, dur: 0.014, peak: 0.14, attack: 0.0005 });
+    // 滑轨 scrape：弹簧 / 弹壳被推动的中频噪音（在两声 click 之间）
+    _noise({ dur: 0.08, peak: 0.14, bp: true, lpf: 2200, lpfTo: 1200, attack: 0.004, delay: 0.04 });
+    // "拉" —— 推弹入膛：厚实 lock-in 声（更低 + 更长 + sawtooth 给金属顿挫）
+    _noise({ dur: 0.030, peak: 0.46, bp: true, lpf: 3000, attack: 0.0002, delay: 0.16 });
+    _tone({ type: 'triangle', freq: 1980, sweepTo: 1100, dur: 0.030, peak: 0.30, attack: 0.0005, delay: 0.16 });
+    _tone({ type: 'sawtooth', freq: 900, sweepTo: 440, dur: 0.022, peak: 0.20, attack: 0.0005, delay: 0.16 });
+    // 金属余震
+    _tone({ type: 'sine', freq: 1400, dur: 0.10, peak: 0.10, delay: 0.18 });
+    _tone({ type: 'sine', freq: 2640, dur: 0.06, peak: 0.06, delay: 0.18 });
+  },
+  // 召唤召唤物：闪亮上升 sine 扫频 + 高频 shimmer
+  summonSpawn() {
+    _tone({ type: 'sine', freq: 440, sweepTo: 1760, dur: 0.20, peak: 0.24, attack: 0.005 });
+    _tone({ type: 'triangle', freq: 880, sweepTo: 2640, dur: 0.18, peak: 0.16, attack: 0.005, delay: 0.04 });
+    _tone({ type: 'sine', freq: 3520, dur: 0.10, peak: 0.10, attack: 0.001, delay: 0.10 });
+  },
+  // 召唤物攻击：轻快"嗖"
+  summonAttack() {
+    _tone({ type: 'triangle', freq: 1320, sweepTo: 660, dur: 0.06, peak: 0.16, attack: 0.001 });
+    _tone({ type: 'sine',     freq: 2640, sweepTo: 880, dur: 0.04, peak: 0.10, attack: 0.001, delay: 0.01 });
+    _noise({ dur: 0.04, peak: 0.08, bp: true, lpf: 2200, attack: 0.001 });
+  },
+  // 召唤物死亡：水晶碎裂 —— 高频 swept down + 噪音衰减
+  summonDie()   {
+    _tone({ type: 'triangle', freq: 1760, sweepTo: 220, dur: 0.22, peak: 0.22, attack: 0.001 });
+    _noise({ dur: 0.18, peak: 0.18, lpf: 2400, lpfTo: 300, attack: 0.001 });
+    _tone({ type: 'sine',     freq: 3520, dur: 0.06, peak: 0.10, delay: 0.01 });
+  },
+  // 命中：随伤害值变化。整体频率上移 —— 主体在中-高频，给"清脆透亮"的击中感
+  //   amount=1 → 高频"叮"（1320→700 Hz）   amount~5 → 中-高频脆响   amount≥10 → 加一层 sub-bass 给"重感"
+  hit(amount = 2) {
+    const a = Math.max(1, amount | 0);
+    const k = Math.min(1, Math.max(0, (a - 1) / 9));
+    // 主体音：整体上移一个八度 ——
+    const fStart = lerp(1320, 700, k);
+    const fEnd   = lerp(620,  320, k);
+    const dur    = lerp(0.07, 0.15, k);
+    const peakA  = lerp(0.30, 0.42, k);
+    _tone({ type: 'triangle', freq: fStart, sweepTo: fEnd, dur, peak: peakA, attack: 0.0006 });
+    // 高频 click 噪音：保持高 lpf 给"脆"感
+    _noise({
+      dur:  lerp(0.022, 0.08, k),
+      peak: lerp(0.20, 0.28, k),
+      lpf:  lerp(4500, 2800, k),
+      lpfTo: lerp(1500, 700, k),
+      attack: 0.0003,
+    });
+    // 高伤额外加一层 sub-bass thump（≥6 伤明显，给"重击"的力道）
+    if (k >= 0.5) {
+      _tone({ type: 'sine', freq: 110, sweepTo: 45, dur: lerp(0.10, 0.25, k), peak: lerp(0.16, 0.30, k), attack: 0.001, delay: 0.003 });
+    }
+    // 极重击（≥10 伤）：低频长尾
+    if (k >= 0.95) {
+      _noise({ dur: 0.22, peak: 0.16, lpf: 500, lpfTo: 80, attack: 0.001, delay: 0.02 });
+    }
+  },
+  // 怪物死亡："啵"—— 气泡爆破（低→高短促 sine sweep + 中频噪音 pop）
+  enemyDie()    {
+    _tone({ type: 'sine', freq: 80, sweepTo: 720, dur: 0.08, peak: 0.32, attack: 0.0008 });
+    _noise({ dur: 0.05, peak: 0.18, bp: true, lpf: 1500, attack: 0.0005 });
+    _tone({ type: 'sine', freq: 1100, dur: 0.05, peak: 0.12, delay: 0.05 });
+  },
+  bossDie()     {
+    _noise({ dur: 0.55, peak: 0.36, lpf: 1800, lpfTo: 80 });
+    _tone({ type: 'sawtooth', freq: 220, sweepTo: 55, dur: 0.55, peak: 0.22 });
+    _tone({ type: 'triangle', freq: 110, sweepTo: 40, dur: 0.6, peak: 0.18, delay: 0.05 });
+    _tone({ type: 'sine',     freq: 1320, sweepTo: 220, dur: 0.18, peak: 0.16, delay: 0.04 });
+  },
+  damage()      {
+    _tone({ type: 'sawtooth', freq: 220, sweepTo: 80, dur: 0.16, peak: 0.28 });
+    _noise({ dur: 0.10, peak: 0.18, lpf: 1200, lpfTo: 200 });
+  },
+  armorBlock()  {
+    _tone({ type: 'triangle', freq: 1320, sweepTo: 990, dur: 0.08, peak: 0.18 });
+    _tone({ type: 'sine',     freq: 2640, dur: 0.05, peak: 0.10 });
+  },
+  discard()     {
+    _tone({ type: 'triangle', freq: 660, sweepTo: 990, dur: 0.08, peak: 0.16 });
+    _tone({ type: 'sine',     freq: 1320, dur: 0.05, peak: 0.10, delay: 0.02 });
+  },
+  shuffleIn()   {
+    _tone({ type: 'triangle', freq: 660,  dur: 0.05, peak: 0.14 });
+    _tone({ type: 'triangle', freq: 990,  dur: 0.05, peak: 0.14, delay: 0.04 });
+    _tone({ type: 'sine',     freq: 1760, dur: 0.05, peak: 0.10, delay: 0.06 });
+  },
+  gold()        {
+    _tone({ type: 'sine', freq: 1320, dur: 0.06, peak: 0.18 });
+    _tone({ type: 'sine', freq: 1980, dur: 0.10, peak: 0.18, delay: 0.04 });
+    _tone({ type: 'sine', freq: 2640, dur: 0.06, peak: 0.10, delay: 0.06 });
+  },
+  levelUp()     {
+    _tone({ type: 'triangle', freq: 523,  dur: 0.10, peak: 0.22 });
+    _tone({ type: 'triangle', freq: 659,  dur: 0.10, peak: 0.22, delay: 0.09 });
+    _tone({ type: 'triangle', freq: 784,  dur: 0.10, peak: 0.22, delay: 0.18 });
+    _tone({ type: 'sine',     freq: 1568, dur: 0.18, peak: 0.18, delay: 0.20 });
+  },
+  // 关卡通关：更长 / 更明显的胜利号角（音阶上升 + 尾音长 + 双音叠加）
+  stageClear()  {
+    // 上升音阶 C-E-G-C (523-659-784-1047)
+    _tone({ type: 'triangle', freq: 523,  dur: 0.12, peak: 0.30 });
+    _tone({ type: 'sine',     freq: 1047, dur: 0.10, peak: 0.18 });
+    _tone({ type: 'triangle', freq: 659,  dur: 0.12, peak: 0.30, delay: 0.10 });
+    _tone({ type: 'sine',     freq: 1318, dur: 0.10, peak: 0.18, delay: 0.10 });
+    _tone({ type: 'triangle', freq: 784,  dur: 0.12, peak: 0.30, delay: 0.20 });
+    _tone({ type: 'sine',     freq: 1568, dur: 0.10, peak: 0.18, delay: 0.20 });
+    // 最后一拍：长 chord（高 C + 高八度），最厚最响
+    _tone({ type: 'triangle', freq: 1047, dur: 0.55, peak: 0.34, delay: 0.30 });
+    _tone({ type: 'triangle', freq: 1568, dur: 0.55, peak: 0.26, delay: 0.30 });
+    _tone({ type: 'sine',     freq: 2093, dur: 0.55, peak: 0.20, delay: 0.30 });
+    // 闪耀 shimmer
+    _tone({ type: 'sine', freq: 3136, dur: 0.30, peak: 0.10, delay: 0.34 });
+    _tone({ type: 'sine', freq: 4186, dur: 0.20, peak: 0.08, delay: 0.40 });
+  },
+  // 进入商店：温暖的店铃 chime（中高频 sine 三连音 + bell shimmer）
+  shopEnter()   {
+    _tone({ type: 'sine', freq: 1318, dur: 0.10, peak: 0.30, attack: 0.001 });
+    _tone({ type: 'sine', freq: 1976, dur: 0.18, peak: 0.26, attack: 0.001, delay: 0.06 });
+    _tone({ type: 'sine', freq: 2637, dur: 0.12, peak: 0.18, attack: 0.001, delay: 0.13 });
+    _tone({ type: 'sine', freq: 3951, dur: 0.18, peak: 0.10, attack: 0.001, delay: 0.18 });
+  },
+  // 进入奖励关卡：明亮上升 arpeggio "★" —— C 大调三和弦 + 八度尾音 + shimmer 闪耀
+  rewardEnter() {
+    _tone({ type: 'triangle', freq: 523,  dur: 0.10, peak: 0.30 });
+    _tone({ type: 'triangle', freq: 659,  dur: 0.10, peak: 0.30, delay: 0.08 });
+    _tone({ type: 'triangle', freq: 784,  dur: 0.10, peak: 0.30, delay: 0.16 });
+    _tone({ type: 'triangle', freq: 1047, dur: 0.20, peak: 0.34, delay: 0.24 });
+    _tone({ type: 'sine',     freq: 2093, dur: 0.16, peak: 0.18, delay: 0.26 });
+    _noise({ dur: 0.10, peak: 0.10, bp: true, lpf: 5000, attack: 0.002, delay: 0.28 });
+  },
+  // 关卡开始：开场战号 —— 战鼓 + 进军号 "ta-ta-TAAA"（G–C–G 升音）
+  stageStart()  {
+    // 战鼓: 亚低频砸击 + 噪音
+    _tone({ type: 'sine', freq: 70, sweepTo: 28, dur: 0.45, peak: 0.36, attack: 0.001 });
+    _noise({ dur: 0.12, peak: 0.18, lpf: 600, lpfTo: 120, attack: 0.002 });
+    // 战号 "ta": 短 G 音
+    _tone({ type: 'sawtooth', freq: 392, dur: 0.13, peak: 0.24, attack: 0.005, delay: 0.22 });
+    _tone({ type: 'triangle', freq: 392, dur: 0.13, peak: 0.20, attack: 0.005, delay: 0.22 });
+    // 战号 "ta": 短 C 音
+    _tone({ type: 'sawtooth', freq: 523, dur: 0.13, peak: 0.26, attack: 0.005, delay: 0.36 });
+    _tone({ type: 'triangle', freq: 523, dur: 0.13, peak: 0.22, attack: 0.005, delay: 0.36 });
+    // 战号 "TAAA": 长 G 高音（铜管厚实感）
+    _tone({ type: 'sawtooth', freq: 784, dur: 0.45, peak: 0.32, attack: 0.005, delay: 0.50 });
+    _tone({ type: 'triangle', freq: 784, dur: 0.45, peak: 0.24, attack: 0.005, delay: 0.50 });
+    _tone({ type: 'sine',     freq: 1568, dur: 0.35, peak: 0.16, delay: 0.52 });
+  },
+  death()       {
+    _tone({ type: 'sawtooth', freq: 220, sweepTo: 55, dur: 0.50, peak: 0.30 });
+    _tone({ type: 'sawtooth', freq: 165, sweepTo: 40, dur: 0.65, peak: 0.24, delay: 0.10 });
+    _noise({ dur: 0.6, peak: 0.18, lpf: 600, lpfTo: 80 });
+  },
+  turnPlayer()  {
+    _tone({ type: 'sine',     freq: 880,  dur: 0.06, peak: 0.14 });
+    _tone({ type: 'triangle', freq: 1320, dur: 0.06, peak: 0.10, delay: 0.04 });
+  },
+  turnEnemy()   {
+    _tone({ type: 'sine',     freq: 440, dur: 0.08, peak: 0.14 });
+    _tone({ type: 'triangle', freq: 330, dur: 0.08, peak: 0.10, delay: 0.04 });
+  },
+  comboStack()  {
+    _tone({ type: 'triangle', freq: 1320, dur: 0.04, peak: 0.16 });
+    _tone({ type: 'sine',     freq: 1980, dur: 0.05, peak: 0.16, delay: 0.03 });
+    _tone({ type: 'sine',     freq: 2640, dur: 0.04, peak: 0.12, delay: 0.06 });
+  },
+  cannonPick()  {
+    _tone({ type: 'triangle', freq: 660, sweepTo: 990, dur: 0.10, peak: 0.20 });
+    _tone({ type: 'sine',     freq: 1320, sweepTo: 1760, dur: 0.14, peak: 0.16, delay: 0.06 });
+  },
+  noMana()      {
+    _tone({ type: 'triangle', freq: 260, sweepTo: 180, dur: 0.10, peak: 0.18 });
+    _tone({ type: 'sine',     freq: 520, sweepTo: 360, dur: 0.10, peak: 0.10, delay: 0.02 });
+  },
+  uiClick()     {
+    _tone({ type: 'triangle', freq: 1320, sweepTo: 1760, dur: 0.04, peak: 0.14 });
+    _tone({ type: 'sine',     freq: 2640, dur: 0.03, peak: 0.08 });
+  },
+  uiOpen()      {
+    _tone({ type: 'triangle', freq: 660,  dur: 0.06, peak: 0.16 });
+    _tone({ type: 'triangle', freq: 990,  dur: 0.06, peak: 0.16, delay: 0.05 });
+    _tone({ type: 'sine',     freq: 1760, dur: 0.05, peak: 0.10, delay: 0.06 });
+  },
+  uiClose()     {
+    _tone({ type: 'triangle', freq: 990,  dur: 0.06, peak: 0.16 });
+    _tone({ type: 'triangle', freq: 660,  dur: 0.06, peak: 0.16, delay: 0.05 });
+    _tone({ type: 'sine',     freq: 1320, dur: 0.05, peak: 0.08, delay: 0.04 });
+  },
+  // 卡牌悬浮：非常轻的 tick，避免持续滑过卡时刺耳
+  cardHover()   {
+    _tone({ type: 'sine', freq: 1760, dur: 0.03, peak: 0.08, attack: 0.001 });
+  },
+  // 卡牌选择 / 点击：双音脆响
+  cardSelect()  {
+    _tone({ type: 'triangle', freq: 880,  dur: 0.05, peak: 0.16 });
+    _tone({ type: 'sine',     freq: 1760, dur: 0.06, peak: 0.14, delay: 0.03 });
+    _tone({ type: 'sine',     freq: 2640, dur: 0.04, peak: 0.10, delay: 0.05 });
+  },
+};
+
+// 玩家可触发的播放入口（带节流）。第三参 arg 透传给 voice 函数（如 hit 按伤害值变化）
+function playSfx(name, throttleMs, arg) {
+  const fn = SfxFx[name];
+  if (!fn) return;
+  if (throttleMs && !_throttle(name, throttleMs)) return;
+  try { fn(arg); } catch (e) {}
+}
+
+// ─── BGM（程序化生成的背景音乐）────────────────────────────────────
+// 100 BPM 的 4 小节循环：A 小调 → A 小调 → F → G 进行，含 bass + lead + kick + hi-hat
+// 用 WebAudio API（OscillatorNode / BufferSource / BiquadFilter / GainNode）程序生成
+const BGM = {
+  ctx: null,
+  master: 0.35,
+  muted: false,
+  enabled: true,            // 默认开（玩家可在设置中关）
+  track: 'combat',          // 当前曲目：combat / shop / reward
+  _gainNode: null,
+  _started: false,
+  _scheduledUntil: 0,
+  _loopTimer: null,
+};
+function setBgmTrack(name) {
+  if (!BGM_TRACKS[name] || BGM.track === name) return;
+  BGM.track = name;
+  // 下一次 loop 调度时会自动取新 track 的 pattern（无需重启）
+}
+try {
+  const m = localStorage.getItem('cs_bgm_master');
+  if (m != null) BGM.master = clamp(parseFloat(m) || 0.35, 0, 1);
+  const e = localStorage.getItem('cs_bgm_enabled');
+  if (e != null) BGM.enabled = e === '1';
+} catch (e) {}
+
+function _bgmTone(when, freq, dur, type, peakGain, lpf) {
+  const ctx = BGM.ctx;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(peakGain, when + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  const osc = ctx.createOscillator();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, when);
+  let last = osc;
+  if (lpf) {
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(lpf, when);
+    last.connect(f); last = f;
+  }
+  last.connect(g);
+  g.connect(BGM._gainNode);
+  osc.start(when);
+  osc.stop(when + dur + 0.02);
+}
+function _bgmKick(when) {
+  const ctx = BGM.ctx;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(0.50, when + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.18);
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(120, when);
+  osc.frequency.exponentialRampToValueAtTime(40, when + 0.18);
+  osc.connect(g); g.connect(BGM._gainNode);
+  osc.start(when);
+  osc.stop(when + 0.20);
+}
+function _bgmHat(when, peakGain) {
+  const ctx = BGM.ctx;
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(sr * 0.05)), sr);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const f = ctx.createBiquadFilter();
+  f.type = 'highpass';
+  f.frequency.setValueAtTime(7000, when);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(peakGain, when + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.045);
+  src.connect(f); f.connect(g); g.connect(BGM._gainNode);
+  src.start(when);
+  src.stop(when + 0.06);
+}
+
+// BGM 曲目库：combat（战斗）/ shop（商店）/ reward（奖励关卡）
+//   每首曲目 = { bpm, bassFreqs[4 bars], bassType, bassLpf, lead[4 bars × 16 notes], drums(bool), pad(bool) }
+const BGM_TRACKS = {
+  combat: {
+    bpm: 100,
+    bassFreqs: [110, 110, 87.31, 98],    // Am Am F G (小调暗潮)
+    bassType: 'sawtooth', bassLpf: 700,
+    drums: true,        // 鼓点（受 intensity 调控）
+    pad: false,
+    lead: [
+      [440, 0, 523, 0, 440, 0, 392, 440, 523, 0, 659, 523, 440, 0, 392, 523],
+      [440, 0, 523, 0, 440, 0, 392, 440, 659, 0, 523, 440, 392, 0, 440, 523],
+      [349, 0, 440, 0, 349, 0, 523, 440, 698, 0, 523, 440, 349, 0, 392, 440],
+      [392, 0, 523, 0, 392, 0, 440, 523, 659, 0, 523, 440, 392, 0, 440, 523],
+    ],
+  },
+  shop: {
+    bpm: 72,
+    bassFreqs: [130.81, 196, 174.61, 196],   // C3 G3 F3 G3 (C 大调舒缓 + 长尾)
+    bassType: 'sine', bassLpf: 500,
+    drums: false,
+    pad: true,          // 持续 pad 给"商店"的氛围
+    // 长 quarter / half 音符旋律 (大调，悠扬)
+    lead: [
+      [523, 0, 0, 0, 659, 0, 0, 0, 783, 0, 0, 0, 659, 0, 0, 0],
+      [659, 0, 0, 0, 587, 0, 0, 0, 523, 0, 0, 0, 392, 0, 0, 0],
+      [698, 0, 0, 0, 587, 0, 0, 0, 523, 0, 0, 0, 392, 0, 0, 0],
+      [392, 0, 523, 0, 587, 0, 659, 0, 783, 0, 659, 0, 523, 0, 0, 0],
+    ],
+  },
+  reward: {
+    bpm: 124,
+    bassFreqs: [261.63, 196, 261.63, 196],   // C3 G2 (跳跃感)
+    bassType: 'square', bassLpf: 1100,
+    drums: true,        // 节奏感强
+    pad: false,
+    // C 大调五声音阶上下，跳跃 / 庆祝感
+    lead: [
+      [523, 659, 783, 1047, 783, 659, 523, 659, 523, 659, 783, 1047, 783, 659, 523, 0],
+      [392, 523, 659, 783, 659, 523, 392, 523, 392, 523, 659, 783, 659, 523, 392, 0],
+      [523, 659, 783, 1047, 1318, 1047, 783, 659, 523, 659, 783, 1047, 1318, 1047, 783, 659],
+      [392, 523, 659, 523, 392, 523, 659, 783, 1047, 783, 659, 523, 659, 783, 659, 523],
+    ],
+  },
+};
+
+// 战斗 intensity：根据场上活敌人数 → 0..1（决定鼓点 / hat / lead 密度）
+function _bgmCombatIntensity() {
+  const g = window.__game;
+  if (!g || !g.enemies) return 0.3;
+  const live = g.enemies.filter(e => e && e.alive && !e._isReward).length;
+  return clamp(live / 6, 0, 1);     // 6+ 敌人 = 满强度
+}
+
+// 调度一次 4 小节循环（用 BGM.track 当前指定的曲目）
+function _bgmScheduleLoop(t0) {
+  const track = BGM_TRACKS[BGM.track] || BGM_TRACKS.combat;
+  const beat = 60 / track.bpm;
+  const bar = beat * 4;
+  const isCombat = BGM.track === 'combat';
+  // 战斗强度（0..1）只在战斗曲生效；其它曲目固定
+  const intensity = isCombat ? _bgmCombatIntensity() : 1.0;
+  for (let b = 0; b < 4; b++) {
+    const bs = t0 + b * bar;
+    // bass：beat 1 + beat 3
+    _bgmTone(bs + 0 * beat, track.bassFreqs[b], beat * 0.5, track.bassType, 0.28, track.bassLpf);
+    _bgmTone(bs + 2 * beat, track.bassFreqs[b], beat * 0.5, track.bassType, 0.28, track.bassLpf);
+    // Pad（仅商店曲）：每小节 1 个长低 triangle，给"漂浮"感
+    if (track.pad) {
+      _bgmTone(bs, track.bassFreqs[b] * 2, bar * 0.95, 'triangle', 0.10, 600);
+    }
+    // 鼓点：战斗按 intensity 调控；reward 固定满拍
+    if (track.drums) {
+      if (isCombat) {
+        // intensity > 0.3 → beat 1 kick；> 0.6 → 1 + 3；> 0.85 → 加入 backbeat 2 + 4
+        if (intensity > 0.3) _bgmKick(bs + 0 * beat);
+        if (intensity > 0.6) _bgmKick(bs + 2 * beat);
+        if (intensity > 0.85) {
+          _bgmKick(bs + 1 * beat);
+          _bgmKick(bs + 3 * beat);
+        }
+        // hat 密度：低强度 0/拍，高强度 2/拍（8 分）
+        const hatPerBeat = intensity < 0.2 ? 0 : (intensity < 0.6 ? 1 : 2);
+        if (hatPerBeat > 0) {
+          for (let i = 0; i < 4 * hatPerBeat; i++) {
+            _bgmHat(bs + i * beat / hatPerBeat, i % 2 === 0 ? 0.04 : 0.06);
+          }
+        }
+      } else {
+        // reward：固定鼓点 1+3 + 满拍 hat
+        _bgmKick(bs + 0 * beat);
+        _bgmKick(bs + 2 * beat);
+        for (let i = 0; i < 8; i++) {
+          _bgmHat(bs + i * beat / 2, i % 2 === 0 ? 0.05 : 0.08);
+        }
+      }
+    }
+    // lead 16 分音符
+    for (let i = 0; i < 16; i++) {
+      const f = track.lead[b][i];
+      if (f > 0) {
+        // 战斗高强度时 lead peak 略高（更急促）；低强度时压低音量
+        const leadPeak = isCombat ? lerp(0.10, 0.18, intensity) : 0.16;
+        const leadDur = isCombat ? lerp(beat * 0.45, beat * 0.30, intensity) : beat * 0.40;
+        _bgmTone(bs + i * beat / 4, f, leadDur, 'triangle', leadPeak, 0);
+      }
+    }
+  }
+  return t0 + 4 * bar;
+}
+function _bgmScheduler() {
+  if (!BGM._started) return;
+  const ctx = BGM.ctx;
+  // 提前 1.5s 排程 → 减少 timer 抖动
+  while (BGM._scheduledUntil < ctx.currentTime + 1.5) {
+    BGM._scheduledUntil = _bgmScheduleLoop(Math.max(BGM._scheduledUntil, ctx.currentTime + 0.05));
+  }
+  BGM._loopTimer = setTimeout(_bgmScheduler, 400);
+}
+function startBgm() {
+  if (BGM._started) return;
+  const ctx = _ensureSfx();
+  if (!ctx) return;
+  BGM.ctx = ctx;
+  BGM._gainNode = ctx.createGain();
+  BGM._gainNode.gain.setValueAtTime(BGM.muted ? 0 : BGM.master, ctx.currentTime);
+  BGM._gainNode.connect(ctx.destination);
+  BGM._started = true;
+  BGM._scheduledUntil = ctx.currentTime + 0.1;
+  _bgmScheduler();
+}
+function stopBgm() {
+  if (!BGM._started) return;
+  BGM._started = false;
+  if (BGM._loopTimer) { clearTimeout(BGM._loopTimer); BGM._loopTimer = null; }
+  if (BGM._gainNode) {
+    try { BGM._gainNode.gain.cancelScheduledValues(BGM.ctx.currentTime); } catch (e) {}
+    try {
+      BGM._gainNode.gain.setTargetAtTime(0, BGM.ctx.currentTime, 0.05);
+    } catch (e) {}
+    const node = BGM._gainNode;
+    setTimeout(() => { try { node.disconnect(); } catch (e) {} }, 300);
+    BGM._gainNode = null;
+  }
+}
+function setBgmEnabled(b) {
+  BGM.enabled = !!b;
+  try { localStorage.setItem('cs_bgm_enabled', BGM.enabled ? '1' : '0'); } catch (e) {}
+  if (BGM.enabled) startBgm();
+  else stopBgm();
+  Events.emit('bgmChanged');
+}
+function setBgmMaster(v) {
+  BGM.master = clamp(v, 0, 1);
+  try { localStorage.setItem('cs_bgm_master', String(BGM.master)); } catch (e) {}
+  if (BGM._gainNode && !BGM.muted) {
+    BGM._gainNode.gain.setTargetAtTime(BGM.master, BGM.ctx.currentTime, 0.03);
+  }
+  Events.emit('bgmChanged');
+}
+
 // UI / toast 字符串字典。{n} / {name} 等占位符用 t(key, vars) 替换。
 const I18N = {
   zh: {
@@ -82,6 +873,17 @@ const I18N = {
     et_fire_per: '每 {cd} 敌方回合射 ({atk} 伤)', et_melee: '近战',
     set_main_toast: '「{name}」成为主卡', is_main: '已是主卡',
     bag_need_mana: '需要 {n} 法力打开背包',
+    slot_locked_replace: '该槽位已锁定，先解锁再替换',
+    slot_main_no_remove: '主卡不可剔除',
+    slot_min_keep: '至少保留 1 张非主卡',
+    slot_locked_remove: '该卡已锁定，先解锁再剔除',
+    slot_remove_confirm: '再点 ✕ 确认剔除',
+    slot_removed_toast: '已剔除「{name}」（本局不再出现）',
+    slot_lock_tip: '点击锁定（防被替换 / 剔除）',
+    slot_unlock_tip: '已锁定，点击解锁',
+    slot_remove_tip: '剔除该卡（本局不再出现）',
+    shop_lock_tip: '锁定此候选（刷新时保留）',
+    shop_unlock_tip: '已锁定，点击解锁',
     enter_to_start: '按 Enter 开战', enter_to_restart: '阵亡。按 Enter 重开',
     enter_hint: '鼠标瞄准 · 左键/右键发射 · 滚轮弃牌 · Space 结束回合',
     no_mana: '法力不足', empty_hand: '手牌空', need_two: '需要左右两张牌',
@@ -97,6 +899,13 @@ const I18N = {
     cannon_select_sub: '选择后无法更改（本局有效）',
     cannon_hud_label: '炮台',
     lang_btn: 'EN',
+    settings_title: '设置',
+    settings_lang: '语言',
+    settings_volume: '音量',
+    settings_mute: '静音',
+    settings_bgm: '背景音乐',
+    settings_bgm_on: '启用背景音乐',
+    settings_btn_tip: '设置',
   },
   en: {
     page_title: 'Card Shooter · Web Replica',
@@ -150,6 +959,17 @@ const I18N = {
     et_decay_none: 'none', et_decay_per: '-{n}/turn',
     et_fire_per: 'Fires every {cd} enemy turn(s) ({atk} dmg)', et_melee: 'Melee',
     set_main_toast: '"{name}" is now the main card', is_main: 'Already the main card',
+    slot_locked_replace: 'Slot is locked — unlock before replacing',
+    slot_main_no_remove: "Main card can't be removed",
+    slot_min_keep: 'Keep at least 1 non-main card',
+    slot_locked_remove: 'Card is locked — unlock before removing',
+    slot_remove_confirm: 'Click ✕ again to confirm',
+    slot_removed_toast: 'Removed "{name}" (gone for this run)',
+    slot_lock_tip: 'Click to lock (prevents replace / remove)',
+    slot_unlock_tip: 'Locked — click to unlock',
+    slot_remove_tip: 'Remove this card (gone for this run)',
+    shop_lock_tip: 'Lock this candidate (kept on refresh)',
+    shop_unlock_tip: 'Locked — click to unlock',
     bag_need_mana: 'Need {n} mana to open the bag',
     enter_to_start: 'Press Enter to start', enter_to_restart: 'Defeated. Press Enter to restart',
     enter_hint: 'Mouse aim · LMB/RMB fire · Wheel discard · Space ends turn',
@@ -166,6 +986,13 @@ const I18N = {
     cannon_select_sub: 'Locked in for this run',
     cannon_hud_label: 'Cannon',
     lang_btn: '中文',
+    settings_title: 'Settings',
+    settings_lang: 'Language',
+    settings_volume: 'Volume',
+    settings_mute: 'Mute',
+    settings_bgm: 'Music',
+    settings_bgm_on: 'Enable Music',
+    settings_btn_tip: 'Settings',
   },
 };
 
@@ -206,6 +1033,8 @@ function applyI18nDom() {
 const KEYWORDS_DICT = {
   zh: [
     { word: '展露',  cls: 'reveal',  title: '展露',  desc: '当卡牌为正面时（边缘卡 / 主卡），发射子弹会触发展露效果。卡牌自身被使用时也会触发。' },
+    { word: '发现',  cls: 'discover', title: '发现',  desc: '从 3 张候选中选 1 张。选择面板弹出时可以查看场上情况但不能操作；选择后效果立即触发并继续发射流程。' },
+    { word: '临时',  cls: 'temporary', title: '临时', desc: '在使用或者弃置后从卡组中移除（一次性卡牌，不会回到弃牌堆 / 重新洗回）。' },
     { word: '连击',  cls: 'combo',   title: '连击',  desc: '连续在同一侧使用卡牌累计连击数。换侧 / 弃牌 / 战斗起止清零。' },
     { word: '连携',  cls: 'combo',   title: '连携',  desc: '按 F 同时使用左 + 右 + 主卡（三张卡的法力消耗叠加）。' },
     { word: '洗入',  cls: 'shuffle', title: '洗入',  desc: '向手牌的随机位置洗入一张卡牌（落在边缘则立即展露）。' },
@@ -222,7 +1051,7 @@ const KEYWORDS_DICT = {
     { word: '法力',  cls: 'other',   title: '法力',  desc: '使用 / 弃置卡牌的消耗资源。每个玩家回合开始回满。' },
     { word: '奥弹',  cls: 'arcane',  title: '奥弹',  desc: '追踪敌人的奥术飞弹。在手牌正面时立即自动触发，不消耗法力；可被「奥术强化」加成。' },
     { word: '燃烧',  cls: 'fire',    title: '燃烧',  desc: '可叠加层数的 debuff。敌方回合开始前每个燃烧敌人受 (燃烧层数) 伤害，然后层数 -1。' },
-    { word: '冻结',  cls: 'freeze',  title: '冻结',  desc: '可叠加层数的 debuff。被冻结的敌人变蓝、跳过当前敌方回合的行动，并受到双倍伤害；实体化子弹命中冻结敌人不扣实体化层数。每个敌方回合结束时层数 -1（结算顺序：先燃烧再冻结）。' },
+    { word: '冻结',  cls: 'freeze',  title: '冻结',  desc: '可叠加层数的 debuff。被冻结的敌人变蓝、跳过当前敌方回合的行动；实体化子弹命中冻结敌人不扣实体化层数。每个敌方回合结束时层数 -1（结算顺序：先燃烧再冻结）。' },
     { word: '引爆',  cls: 'fire',    title: '引爆',  desc: '立刻让所有有燃烧的敌人受 (燃烧层数 × N) 伤害并清空。' },
     { word: '数量',  cls: 'bullet',  title: '数量',  desc: '一波内发射的子弹数量。数量+N = 每波多打 N 颗。多颗子弹自动均匀扇形展开。' },
     { word: '波次',  cls: 'bullet',  title: '波次',  desc: '单次发射会出几波。波次+N = 同方向多打 N 波，每波间隔 0.12s。' },
@@ -231,6 +1060,8 @@ const KEYWORDS_DICT = {
   ],
   en: [
     { word: 'Reveal',    cls: 'reveal',  title: 'Reveal',    desc: 'While a card is face-up (edge card / main), firing any bullet triggers its Reveal effect. Using the card itself also triggers its Reveal effect.' },
+    { word: 'Discover',   cls: 'discover', title: 'Discover',  desc: 'Pick 1 of 3 candidates. While the picker is open you can inspect the board but cannot use cards; on pick the effect resolves and the shot continues.' },
+    { word: 'Temporary',  cls: 'temporary', title: 'Temporary', desc: 'Removed from the deck after use or discard (one-shot card — never returns to discard pile or reshuffles back).' },
     { word: 'Combo',     cls: 'combo',   title: 'Combo',     desc: 'Use cards on the same side in a row to build Combo. Switching side / discarding / battle start-end resets it.' },
     { word: 'Chain',     cls: 'combo',   title: 'Chain',     desc: 'Press F to fire Left + Right + Main together (mana costs of all three add up).' },
     { word: 'Shuffle in', cls: 'shuffle', title: 'Shuffle in', desc: 'Insert a card into your hand at a random position (reveals immediately if it lands at an edge).' },
@@ -247,7 +1078,7 @@ const KEYWORDS_DICT = {
     { word: 'Mana',      cls: 'other',   title: 'Mana',      desc: 'Resource for using / discarding cards. Refills at the start of each player turn.' },
     { word: 'Arcane Missile', cls: 'arcane', title: 'Arcane Missile', desc: 'A tracking arcane projectile. Auto-triggers the moment it is face-up in hand at no mana cost. Boosted by Arcane Boost.' },
     { word: 'Burn',      cls: 'fire',    title: 'Burn',      desc: 'Stackable debuff. At the start of each enemy turn, each burning enemy takes (stack) damage and then loses 1 stack.' },
-    { word: 'Freeze',    cls: 'freeze',  title: 'Freeze',    desc: 'Stackable debuff. Frozen enemies turn blue, skip their actions for the enemy turn, and take double damage. Entity bullets don’t lose layers when hitting frozen enemies. Freeze stack -1 at end of each enemy turn (burn resolves first, then freeze).' },
+    { word: 'Freeze',    cls: 'freeze',  title: 'Freeze',    desc: 'Stackable debuff. Frozen enemies turn blue and skip their actions for the enemy turn. Entity bullets don’t lose layers when hitting frozen enemies. Freeze stack -1 at end of each enemy turn (burn resolves first, then freeze).' },
     { word: 'Detonate',  cls: 'fire',    title: 'Detonate',  desc: 'Immediately deal (stack × N) damage to all enemies with Burn and clear their stacks.' },
     { word: 'Bullets',   cls: 'bullet',  title: 'Bullets',   desc: 'Number of projectiles fired per wave. Bullets+N = N extra projectiles per wave, fanned automatically.' },
     { word: 'Wave',      cls: 'bullet',  title: 'Wave',      desc: 'How many waves a single shot fires. Wave+N = N extra waves in the same direction, 0.12s apart.' },
@@ -393,11 +1224,11 @@ class Bullet {
     this.hooks = [];
     this.alive = false;     // 是否激活（飞行中）
     this.born = 0;
-    this.recentHits = new Map();   // enemyID -> last hit time（仅实体子弹用）
-    this.hitCooldown = 0.1;        // 同上
-    // 当前接触中的敌人 ID 集合 → 飞行子弹专用：穿过一颗敌人时只在"进入接触"瞬间触发 1 次命中
-    // 离开后再次进入才会再次触发；避免子弹在敌人体积内每帧反复命中
-    this._contactSet = new Set();
+    this.recentHits = new Map();   // enemyID -> last hit time（实体 + 飞行子弹共用）
+    this.hitCooldown = 0.1;        // 实体子弹的 (bullet, enemy) 重命中冷却
+    // 飞行子弹的 (bullet, enemy) 重命中冷却：穿过敌人时若仍在体积内，每过这么久再触发 1 次命中
+    // （旧版用 _contactSet 完全屏蔽"在体积内"的重复命中，慢速 / 追踪弹卡在敌人体积里就完全无伤害）
+    this.pierceHitCooldown = 0.5;
     // 拖尾历史：最多保留 6 个最近位置 → draw 时画淡化尾迹（juice）
     this.trail = [];
 
@@ -536,6 +1367,46 @@ class Bullet {
           const accel = this.trackAccel || 600;
           this.speed = Math.min(maxSpeed, this.speed + accel * dt);
         }
+      } else if (this.isArcane && this.team !== 'enemy') {
+        // 奥弹无敌人时：绕着场地中点转圈（而不是直接飞墙撞死）
+        // 算法：朝当前半径的切线方向飞 + 径向修正（远了往里偏、近了往外偏），形成稳定圆轨。
+        const cx = (world.w || 900) / 2;
+        const cy = (world.h || 560) / 2;
+        const dx = this.x - cx, dy = this.y - cy;
+        const r = Math.hypot(dx, dy);
+        if (r > 1) {
+          if (this._orbitDir == null) {
+            // 首次进入轨道：按当前飞行方向相对中点的旋向，选最自然的转向（顺/逆时针）
+            const cross = Math.cos(this.angle) * dy - Math.sin(this.angle) * dx;
+            this._orbitDir = cross >= 0 ? 1 : -1;
+          }
+          const rotDir = this._orbitDir;
+          // 单位切线方向（rotDir = +1 逆时针 / -1 顺时针）
+          const tx = -dy / r * rotDir;
+          const ty =  dx / r * rotDir;
+          // 期望半径 = 场地短边 30%；偏离时朝中心 / 朝外做线性修正
+          const desiredR = Math.min(world.w || 900, world.h || 560) * 0.30;
+          const radialErr = clamp((r - desiredR) / desiredR, -1, 1);
+          const correct = radialErr * 0.5;     // 0.5 = 切线 / 径向权重
+          const aimX = tx - (dx / r) * correct;
+          const aimY = ty - (dy / r) * correct;
+          const targetAngle = Math.atan2(aimY, aimX);
+          let diff = targetAngle - this.angle;
+          while (diff > Math.PI)  diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const maxTurn = (this.trackTurnRate || 7) * dt;
+          this.angle += clamp(diff, -maxTurn, maxTurn);
+          // 速度保持现状，仅轻微加速（避免越绕越快）
+          const initSpeed = this._initialSpeed || this.speed;
+          const targetSpeed = initSpeed;
+          const accel = (this.trackAccel || 600) * 0.4;
+          if (this.speed < targetSpeed) this.speed = Math.min(targetSpeed, this.speed + accel * dt);
+          else if (this.speed > targetSpeed) this.speed = Math.max(targetSpeed, this.speed - accel * dt);
+        }
+      } else {
+        // 非奥弹追踪弹（如蝙蝠弹）无目标：保留原行为（直飞）
+        // 同时清空奥弹轨道方向标记，下次有敌人时不残留状态
+        this._orbitDir = null;
       }
     }
     // 记录拖尾位置（每帧 push 一次，保留最近 6 个）
@@ -545,7 +1416,7 @@ class Bullet {
     this.x += Math.cos(this.angle) * this.speed * dt;
     this.y += Math.sin(this.angle) * this.speed * dt;
 
-    if (now - this.born >= this.lifetime) { this.destroy(); return; }
+    if (now - this.born >= this.lifetime) { Events.emit('bulletDestroyed', this); this.destroy(); return; }
 
     // 墙（梯形）—— 顶 / 底 / 两条斜边
     const tb = trapBounds(world, this.y);
@@ -586,24 +1457,23 @@ class Bullet {
         break;
       }
     } else {
-      // 接触状态化命中：本帧实际重叠的敌人集合记为 newContacts。
-      // 只有"上一帧不在接触、本帧首次接触"的敌人才会触发命中（OnHit + HitEnemy + 默认伤害）。
-      // 穿过敌人时，子弹在敌人体积内的多帧不会重复命中；只有完全离开后再次进入才会重触发。
-      const newContacts = new Set();
+      // 接触命中：(bullet, enemy) pair 0.5s 内置冷却 → 同一敌人停留在体积内每过 0.5s 再次触发命中。
+      // 子弹在敌人体积内时不会每帧反复命中（共享 recentHits 计时），但也不会被"未离开"完全屏蔽，
+      // 慢速 / 追踪弹卡在敌人身上仍能持续造成伤害。
       for (const e of world.enemies) {
         if (!e.alive) continue;
         if (e.spawnT > 0) continue;       // 出场 portal 期间不可命中
         const dx = e.x - this.x, dy = e.y - this.y;
         if (dx*dx + dy*dy > (e.radius + this.radius) ** 2) continue;
-        newContacts.add(e.id);
-        if (this._contactSet.has(e.id)) continue;     // 仍在接触中 → 不重复触发
+        const last = this.recentHits.get(e.id);
+        if (last != null && now - last < this.pierceHitCooldown) continue;
+        this.recentHits.set(e.id, now);
         // OnHit 先 → HitEnemy 后（让 debuff 类钩子先生效，让 fuelcell 读取最新 fire）
         this.triggerHooks(Phase.OnHit, { enemy: e, world });
         const handled = this.triggerHooks(Phase.HitEnemy, { enemy: e, world });
         if (!handled) this._defaultHitEnemy(e, world);
         if (!this.alive) break;
       }
-      this._contactSet = newContacts;
     }
   }
 
@@ -684,6 +1554,7 @@ class Bullet {
   _defaultHitWall(normal, world) {
     if (this.bound > 0) {
       this.bound--;
+      Events.emit('bulletBounce', this);
       const vx = Math.cos(this.angle), vy = Math.sin(this.angle);
       const dot = vx * normal.x + vy * normal.y;
       const rx = vx - 2 * dot * normal.x;
@@ -693,6 +1564,7 @@ class Bullet {
       if (world) FX.wall(world, this.x, this.y);
     } else {
       if (world) FX.wall(world, this.x, this.y);
+      Events.emit('bulletDestroyed', this);
       this.destroy();
     }
   }
@@ -1148,6 +2020,7 @@ let _enemyId = 0;
 class Enemy {
   constructor(x, y, typeKey = 'goblin', world = null) {
     this.id = ++_enemyId;
+    this.world = world;             // 反向引用，applyKnockback 等需要 trapBounds 钳位
     this.x = x; this.y = y;
     this.typeKey = typeKey;
     const type = ENEMY_TYPES[typeKey] || ENEMY_TYPES.goblin;
@@ -1193,11 +2066,11 @@ class Enemy {
 
   takeDamage(amount) {
     if (!this.alive) return false;
-    // 冻结的敌人受到双倍伤害
-    if (this.freeze > 0 && amount > 0) amount = amount * 2;
     // 奖励金球：不掉血、不死；斐波那契递减金币（GoldOrb 飞向金币条）
     if (this._isReward) {
       this.hitFlash = 0.15;
+      // 金币 chime：清脆的硬币 ting（每次被击中都响，与是否掉金无关）
+      playSfx('coinHit', 40);
       const w = window.__game;
       if (w) {
         // 斐波那契金币阈值：每累计 n 点伤害掉 1 金币；n = 5, 8, 13, 21, 34, 55, 89, ...
@@ -1248,6 +2121,9 @@ class Enemy {
     this.hp -= amount;
     this.hitFlash = 0.15;
     this.knockback.t = 0.1;
+    // 命中音：节流（多颗子弹同帧打到同一只怪只响一次）
+    // 与开火音对调 —— 命中改用 fire（大炮 boom），高伤改用 fireCombo（更重）
+    if (amount > 0) playSfx(amount >= 5 ? 'fireCombo' : 'fire', 40);
     // 挤压：被打时刻立即放大；伤害越高放大越大（≤0 也轻微弹一下，作为打击感反馈）
     const punch = 1 + clamp(0.08 + amount * 0.04, 0.05, 0.45);
     if (punch > this.hitScale) this.hitScale = punch;
@@ -1304,6 +2180,13 @@ class Enemy {
     // 立即位移（视觉冲击）+ 设减速窗口（移动 *0.2 持续 ~0.18s）
     this.x += px;
     this.y += py;
+    // 钳位回梯形内：避免被击退到墙外。Y 先 clamp（梯形宽度依赖 y），再按当前 y 钳 X。
+    const w = this.world;
+    if (w) {
+      this.y = clamp(this.y, this.radius, w.h - this.radius);
+      const tb = trapBounds(w, this.y);
+      this.x = clamp(this.x, tb.leftX + this.radius, tb.rightX - this.radius);
+    }
     this.knockback.t = Math.max(this.knockback.t, 0.18);
   }
 
@@ -1472,7 +2355,9 @@ class Enemy {
       }
       this.x += vx * dt;
       this.y += vy * dt;
-      // 梯形内活动
+      // 梯形内活动：先钳 Y，再按当前 y 钳 X（梯形宽度随 y 变化）
+      if (this.y < this.radius)             this.y = this.radius;
+      if (this.y > world.h - this.radius)   this.y = world.h - this.radius;
       const tb = trapBounds(world, this.y);
       if (this.x < tb.leftX + this.radius)  this.x = tb.leftX + this.radius;
       if (this.x > tb.rightX - this.radius) this.x = tb.rightX - this.radius;
@@ -1876,6 +2761,7 @@ class PlayerCannon {
     if (amount > 0) {
       // 仍有未挡住的伤害 → HP 扣减，弹出红/橙数字（amount）
       this.hp -= amount;
+      playSfx('damage', 60);
       if (w) {
         FX.damage(w, this.x, this.y - this.radius - 8, amount, totalBlocked);
         FX.shake(w, clamp(3 + amount * 0.8, 3, 10), 0.2);
@@ -1885,6 +2771,7 @@ class PlayerCannon {
       if (this.hp <= 0) { this.hp = 0; Events.emit('playerDied'); }
     } else if (totalBlocked > 0) {
       // 全部被格挡 → 弹出蓝色 "🛡 N"（避免与 0 伤害"哑弹"混淆）
+      playSfx('armorBlock', 60);
       if (w) {
         FX.damage(w, this.x, this.y - this.radius - 8, 0, totalBlocked);
         FX.shake(w, clamp(2 + totalBlocked * 0.3, 2, 5), 0.15);
@@ -2186,10 +3073,11 @@ class Summon extends Unit {
     const target = nearestEnemy(world, this);
     if (!target) return;
     if (this.isArcaneFire) {
-      // 奥弹炮台：射追踪奥弹（应用本回合 arcaneBuffs）
+      // 奥弹炮台：射追踪奥弹（应用本回合 arcaneBuffs）—— fireArcaneMissileFromUnit 内部播放 arcaneSwoosh
       fireArcaneMissileFromUnit(world, this);
       return;
     }
+    playSfx('summonAttack', 30);
     // 召唤物继承玩家流派 buff：与 fireFromCards 相同流程
     // 1) 用 summon 自身属性建模板（attack/speed/bound）
     // 2) 追加主卡 hooks（永久 buff，如凝视：每次发射 +1 子弹）
@@ -2407,19 +3295,9 @@ function spawnSummon(world, kind, opts = {}) {
     sp.attack = (sp.attack || 0) + 2;
     sp._noDecay = true;
   }
-  // 骷髅继承本回合用过的卡牌效果：跑一遍 dummy bullet PreActive，把 attack 增量加到撞击伤害上。
-  // 这样玩家本回合用了 boost1 / 凝视 / 注铅 等 attack +N 的卡，召唤出的骷髅撞击也会更猛。
-  if (sp.kind === 'skeleton' && world._turnHookCards && world._turnHookCards.length > 0) {
-    const dummy = new Bullet({
-      x: 0, y: 0, angle: 0, speed: 0, lifetime: 0,
-      attack: 0, bound: 0, penetrate: 0, bulletCount: 1, waveCount: 1, radius: 8,
-    });
-    for (const tc of world._turnHookCards) {
-      for (const h of tc.initializeEffects()) dummy.addHook(h);
-    }
-    dummy.triggerHooks(Phase.PreActive, { world });
-    if (dummy.attack > 0) sp.attack = (sp.attack || 0) + dummy.attack;
-  }
+  // 注：旧版 spawnSummon 里曾给 kind='skeleton' 的 Summon 继承本回合 hooks，但骷髅早已迁
+  //   到 Bullet（spawnSkeleton），SUMMON_DEFS 里也没有 'skeleton' 这个 kind，所以这段已经
+  //   是死代码。新版统一不让骷髅 / 奥弹继承本回合 hooks（强度过高），故彻底移除。
   // 默认 spawn 在炮台前 180° 弧（上半圆）的随机位置
   if (opts.x == null || opts.y == null) {
     const ang = rand(-Math.PI, 0);          // -π..0 = 上半圆（炮台前方 180°）
@@ -2438,37 +3316,20 @@ function spawnSummon(world, kind, opts = {}) {
   return sp;
 }
 
-// 骷髅 = 速度 0、实体化层数默认 2 的友方"实体化子弹"。
+// 骷髅 = 速度 0、实体化层数默认 1 的友方"实体化子弹"。
 // 不放在 world.summons，而是直接进 world.bullets（享受完整 Bullet 生命周期：
 //   - 敌方子弹按距离命中实体（每次 -1 层）
 //   - 实体回合开始触发 EntityTurn 钩子（含 dash） + -1 层
 //   - 层数 0 → 触发 Destroyed + 死亡）
-// 默认带一条 EntityTurn 钩子：挑随机敌人 → dash 撞击；其他卡牌的 hooks 通过
-// world._turnHookCards 在 spawn 时一并继承（attack/bound/penetrate/fireOnHit/挥剑/蝙蝠 等）。
+// 默认带一条 EntityTurn 钩子：挑随机敌人 → dash 撞击。
+// 关键设计：召唤的骷髅 **不会** 继承本回合用过的卡牌（_turnHookCards）。
+//   只有"明确说会 buff 骷髅"的效果（如骷髅号角 / 爆骨花展露 / 叫魂钻 / 墓穴 attackBonus）
+//   才会改它属性 — 通过显式地遍历 world.bullets 或监听 summonSpawned 事件来实现。
+//   opts.attackBonus 是给"使用就 +N 攻"型卡（墓穴银/金）的显式入口。
 function spawnSkeleton(world, opts = {}) {
-  // 数量×波次 → 真的多召唤几个骷髅：
-  // 用一个"探针 bullet" 跑一次本回合用过卡的 PreActive，读出 bulletCount/waveCount。
-  // 然后按这个数循环调 _spawnOneSkeleton（每只独立结算 PreActive + Spawned）。
-  // opts.skipMultiply=true 跳过倍数（如 skeleton_lord EntityTurn 内部已经按 spawnN 循环）
-  let count = 1;
-  if (!opts.skipMultiply) {
-    const hookCards = world._turnHookCards || [];
-    if (hookCards.length > 0) {
-      const probe = new Bullet({
-        x: 0, y: 0, angle: 0, speed: 0, lifetime: 9999,
-        attack: 1, bound: 0, penetrate: 0,
-        bulletCount: 1, waveCount: 1, radius: 8,
-      });
-      for (const tc of hookCards) {
-        for (const h of tc.initializeEffects()) probe.addHook(h);
-      }
-      probe.triggerHooks(Phase.PreActive, { world });
-      count = Math.max(1, probe.bulletCount) * Math.max(1, probe.waveCount);
-    }
-  }
-  let last = null;
-  for (let i = 0; i < count; i++) last = _spawnOneSkeleton(world, opts);
-  return last;
+  const skel = _spawnOneSkeleton(world, opts);
+  if (opts.attackBonus && skel) skel.attack = (skel.attack || 0) + opts.attackBonus;
+  return skel;
 }
 
 function _spawnOneSkeleton(world, opts = {}) {
@@ -2517,7 +3378,6 @@ function _spawnOneSkeleton(world, opts = {}) {
     b.penetrate = b._chargeBasePierce ?? 0;
     b.bound = b._chargeBaseBound ?? 0;
     b.recentHits.clear();
-    b._contactSet = new Set();
     b.trail.length = 0;
   }));
 
@@ -2526,16 +3386,14 @@ function _spawnOneSkeleton(world, opts = {}) {
     Events.emit('summonDied', ctx.bullet);
   }));
 
-  // 继承本回合用过的卡牌效果（PreActive + Spawned 等），让骷髅吃完整 buff
-  if (world._turnHookCards && world._turnHookCards.length > 0) {
-    for (const tc of world._turnHookCards) {
-      for (const h of tc.initializeEffects()) skel.addHook(h);
-    }
-  }
-  // 模板属性结算 + Spawned 装饰（与正常子弹同流程）
+  // 注意：骷髅 **不再继承** world._turnHookCards 中的 hooks。
+  //   旧版让 boost1 / 凝视 / 注铅 等 PreActive 钩子顺带 buff 骷髅 → 过强 + 与"骷髅领主等
+  //   self-aura 不能继承"的修复方案打架。现在骷髅只吃显式 buff（骷髅号角 / 爆骨花展露 /
+  //   叫魂钻 / 墓穴 attackBonus），通过遍历 world.bullets 或监听 summonSpawned 实现。
+  // PreActive / Spawned 仍然触发一次（用于设置基线），但因为没有外部 hook，不会有副作用。
   skel.triggerHooks(Phase.PreActive, { world });
   skel.triggerHooks(Phase.Spawned, { world });
-  // PreActive 结算完，存下"每次冲撞要复用"的穿透/弹射基线
+  // PreActive 结算完，存下"每次冲撞要复用"的穿透/弹射基线（默认全 0，未来若有显式 buff 会反映）
   skel._chargeBasePierce = skel.penetrate;
   skel._chargeBaseBound = skel.bound;
   // 出场前先归零（实体待机状态不应该有飞行属性参与碰撞计数）
@@ -2591,6 +3449,7 @@ function fireArcaneMissileFromUnit(world, unit) {
   if (buffs.doubleDamage) attack *= 2;
   const target = nearestEnemy(world, unit);
   if (!target) return;
+  playSfx('arcaneSwoosh', 40);
   const bullet = new Bullet({
     x: unit.x, y: unit.y,
     angle: angleBetween(unit.x, unit.y, target.x, target.y),
@@ -2618,7 +3477,7 @@ function fireArcaneMissileFromUnit(world, unit) {
 // mainCostMod：主卡牌额外消耗，被 fireFromCards + _comboTotalCost + updateUsableState 读取。
 const CANNON_DEFS = {
   chain: {
-    id: 'chain', name: '锁链炮台', desc: '每发射3次，获得1层连携并恢复2点法力值。',
+    id: 'chain', name: '锁链炮台', desc: '每发射3次，获得1层连携。',
     icon: '⛓', color: '#a08060',
     // 炮台模型配色：底座 / 描边 / 炮管
     baseColor: '#8a5a2c', strokeColor: '#3a200a', barrelColor: '#d8a878',
@@ -2626,9 +3485,6 @@ const CANNON_DEFS = {
       self._shotCount = ((self._shotCount || 0) + 1) % 3;
       if (self._shotCount === 0) {
         world.addComboStacks(1);
-        const p = world.player;
-        p.mana = Math.min(p.maxMana, p.mana + 2);
-        Events.emit('manaChanged', p.mana);
       }
     },
   },
@@ -2653,8 +3509,8 @@ const CANNON_DEFS = {
 };
 
 const CANNON_TR = {
-  chain:  { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携并恢复2点法力值。（连携发射也算）' },
-            en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack and restore 2 mana. (Chain-fires count.)' } },
+  chain:  { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携。（连携发射也算）' },
+            en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack. (Chain-fires count.)' } },
   rubber: { zh: { name: '橡胶炮台', desc: '弹射+2，穿透+1。' },
             en: { name: 'Rubber Cannon', desc: 'Bounce +2, Pierce +1.' } },
   power:  { zh: { name: '强能炮台', desc: '波次+1，主卡牌消耗+1。' },
@@ -2781,6 +3637,67 @@ function applyCostColor(el, baseCost, effective) {
   el.classList.remove('cost-up', 'cost-down');
   if (effective > baseCost) el.classList.add('cost-up');
   else if (effective < baseCost) el.classList.add('cost-down');
+}
+
+// 给背包槽（商店面板 + 整理面板共用）右上角加 锁定 / 剔除 两个动作按钮。
+// 调用方负责传 onChange（用户操作后重渲该面板的回调）。
+// 主卡（index 0）只能锁定，不能剔除；剔除按二次点击确认（防误触）。
+function attachBagSlotActions(el, card, index, world, onChange) {
+  if (!card) return;
+  if (card.locked) el.classList.add('bag-slot-locked');
+  const actions = document.createElement('div');
+  actions.className = 'bag-slot-actions';
+  // 锁定按钮
+  const lockBtn = document.createElement('button');
+  lockBtn.type = 'button';
+  lockBtn.className = 'bag-slot-act bag-slot-lock' + (card.locked ? ' active' : '');
+  lockBtn.textContent = card.locked ? '🔒' : '🔓';
+  lockBtn.title = t(card.locked ? 'slot_unlock_tip' : 'slot_lock_tip');
+  lockBtn.addEventListener('mousedown', e => { e.stopPropagation(); });
+  lockBtn.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
+  lockBtn.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    card.locked = !card.locked;
+    onChange?.();
+  });
+  actions.appendChild(lockBtn);
+  // 剔除按钮（主卡禁用）
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'bag-slot-act bag-slot-remove';
+  removeBtn.textContent = '✕';
+  removeBtn.title = t('slot_remove_tip');
+  if (index === 0) removeBtn.classList.add('disabled');
+  removeBtn.addEventListener('mousedown', e => { e.stopPropagation(); });
+  removeBtn.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
+  removeBtn.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (index === 0) { toast(t('slot_main_no_remove'), 0.8); return; }
+    if (world.deck.bag.length <= 2) { toast(t('slot_min_keep'), 0.9); return; }
+    if (card.locked) { toast(t('slot_locked_remove'), 0.9); return; }
+    if (!removeBtn._confirming) {
+      removeBtn._confirming = true;
+      removeBtn.classList.add('confirm');
+      removeBtn._timer = setTimeout(() => {
+        removeBtn._confirming = false;
+        removeBtn.classList.remove('confirm');
+      }, 2000);
+      toast(t('slot_remove_confirm'), 1.2);
+      return;
+    }
+    clearTimeout(removeBtn._timer);
+    const removed = world.deck.removeAt(index);
+    if (removed) {
+      world.removedFamilyIds = world.removedFamilyIds || new Set();
+      world.removedFamilyIds.add(removed.familyId);
+      toast(t('slot_removed_toast', { name: removed.name }), 1.2);
+    }
+    onChange?.();
+  });
+  actions.appendChild(removeBtn);
+  el.appendChild(actions);
 }
 
 // ─── 旧卡组已清空 —— 新卡设计阶段（仅保留下方示例 + 引擎工具函数） ────────
@@ -3036,9 +3953,33 @@ function handleDiscardForNecromancer(world) {
 //   1) 先用一个"探针 tpl bullet"跑一遍 PreActive，读出最终 bulletCount / waveCount。
 //   2) 按 waveCount 分波（每波间隔 120ms，复用 fireOneWave 节奏），每波 spawn bulletCount 颗。
 //   3) 每颗奥弹仍各自从炮台周围随机环形点 spawn（保留原本的发射手感）。
+// 奥弹自动发射队列：多张奥弹同时被洗面 → 依次入队 + 间隔触发，让每发都有自己的"嗖"音效
+// gap = 110ms：足够听清独立音效，又不会感觉拖泥带水（5 张奥弹 ≈ 0.5s 完成）
+const _arcaneFireQueue = [];
+let _arcaneFireBusy = false;
+function _enqueueArcaneFire(world, card) {
+  _arcaneFireQueue.push({ world, card });
+  if (!_arcaneFireBusy) _drainArcaneFireQueue();
+}
+function _drainArcaneFireQueue() {
+  if (_arcaneFireQueue.length === 0) { _arcaneFireBusy = false; return; }
+  _arcaneFireBusy = true;
+  const { world, card } = _arcaneFireQueue.shift();
+  // 出队时再次校验：卡可能在等待中被弃 / 概念 / 销毁
+  if (world && world.deck.hand.includes(card) && card.faceUp) {
+    _autoFireArcaneMissile(world, card);
+    card._lastAction = 'buff';
+    world.deck.destroyCard(card);
+  } else if (card) {
+    card._firing = false;
+  }
+  setTimeout(_drainArcaneFireQueue, 110);
+}
+
 function _autoFireArcaneMissile(world, card) {
   const player = world.player;
   const evo = world._arcaneEvo || {};
+  playSfx('arcaneSwoosh', 0);   // 队列已保证时间差，这里不再节流
 
   // 构造"模板"奥弹：装上洗入时刻 snapshot 的钩子 + 奥术进化的 buff，跑一次 PreActive
   // 之后从 tpl 读 bulletCount / waveCount / attack / bound / penetrate 等结算后属性
@@ -3062,10 +4003,22 @@ function _autoFireArcaneMissile(world, card) {
         if (Math.random() < chance) applyFreeze(ctx.enemy, 1);
       }));
     }
-    const hookCards = card._inheritedHooks || [];
-    if (hookCards.length > 0) {
-      for (const tc of hookCards) {
-        for (const h of tc.initializeEffects()) tpl.addHook(h);
+    // 注：旧版会把 card._inheritedHooks（洗入时刻 snapshot 的本回合用卡）当作 hook 全部
+    //   塞到 tpl 上 → 让 boost1 / 凝视 等顺带 buff 奥弹。已移除：奥弹只吃显式 buff —
+    //   _arcBonus（奥术强化）、world._arcaneEvo（奥术进化衍生）、_contCastBuffs（持续施法）。
+    // 持续施法洗入的奥弹自带随机强化（buff 函数数组），在 PreActive 之后注入到模板
+    if (card._contCastBuffs) {
+      for (const fn of card._contCastBuffs) fn(tpl);
+      // freezeChance 由 _contCastBuffs 设置 → 注册一次冻结钩子
+      if (tpl._freezeChance && tpl._freezeChance > 0) {
+        const chance = tpl._freezeChance;
+        tpl.addHook(new Effect(Phase.OnHit, -1, ctx => {
+          if (Math.random() < chance) applyFreeze(ctx.enemy, 1);
+        }));
+      }
+      if (tpl._fireOnHit && tpl._fireOnHit > 0 && !tpl._fireHookAdded) {
+        tpl.addHook(_fireApplyHook);
+        tpl._fireHookAdded = true;
       }
     }
     tpl.triggerHooks(Phase.PreActive, { world });
@@ -3193,12 +4146,19 @@ function _necromancerTier(ent, value) {
       en: `Entity+${ent}, greatly reduced speed. Each turn attacks the nearest enemy. When you discard, summon 1 Skeleton.`,
     },
     effects: () => [
-      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.entityLayers += ent; ctx.bullet.speed *= 0.4; }),
+      // 所有钩子在 ctx.bullet._isSkeleton 时早退：召唤的骷髅继承本回合用过的卡牌效果，
+      // 但不应继承"亡灵法师自身"的光环（避免无限传染 / 弃牌爆炸）。
+      new Effect(Phase.PreActive, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
+        ctx.bullet.entityLayers += ent; ctx.bullet.speed *= 0.4;
+      }),
       new Effect(Phase.Spawned, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
         (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('skull');
         ctx.bullet._isNecromancer = true;
       }),
       new Effect(Phase.EntityTurn, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
         const b = ctx.bullet, w = ctx.world;
         const target = _nearestEnemyTo(w, b.x, b.y);
         if (!target) return;
@@ -3234,9 +4194,15 @@ function _skeletonLordTier(spawnN, value) {
       zh: `实体化+2。在场时，每个死亡的骷髅会为此单位提供1层实体化。每回合召唤${spawnN}个骷髅。`,
       en: `Entity+2. While alive, each dead skeleton grants +1 Entity layer. Each turn, summons ${spawnN} skeleton(s).`,
     },
+    // 所有钩子在 ctx.bullet._isSkeleton 时早退：召唤的骷髅会继承本回合"别的"卡的 buff，
+    // 但不能继承骷髅领主自身的光环 — 否则每只骷髅每回合也会再召唤 N 只 → 无限繁殖。
     effects: () => [
-      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.entityLayers += 2; }),
+      new Effect(Phase.PreActive, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
+        ctx.bullet.entityLayers += 2;
+      }),
       new Effect(Phase.Spawned, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
         const b = ctx.bullet;
         (b._entityDecos = b._entityDecos || []).push('skull');
         if (b._skLordHandler) return;
@@ -3248,6 +4214,7 @@ function _skeletonLordTier(spawnN, value) {
         Events.on('summonDied', b._skLordHandler);
       }),
       new Effect(Phase.EntityTurn, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
         const b = ctx.bullet, w = ctx.world;
         for (let i = 0; i < spawnN; i++) {
           spawnSkeleton(w, { x: b.x + rand(-22, 22), y: b.y + rand(-22, 22) });
@@ -3262,6 +4229,7 @@ function _skeletonLordTier(spawnN, value) {
         }
       }),
       new Effect(Phase.Destroyed, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
         const b = ctx.bullet;
         if (b._skLordHandler) {
           Events.off('summonDied', b._skLordHandler);
@@ -3272,12 +4240,12 @@ function _skeletonLordTier(spawnN, value) {
   };
 }
 
-// 爆骨花：召唤 N 个骷髅；展露状态下，骷髅死亡时造成 AOE 伤害（+可选骷髅攻击+1）
-function _boneBlossomTier(skN, atkBoost, value, desc) {
+// 爆骨花：召唤 1 个骷髅；展露状态下，骷髅死亡时向随机方向造成圆锥范围伤害（+可选骷髅攻击+1）
+function _boneBlossomTier(atkBoost, halfAngle, value, desc) {
   return {
-    cost: 2, value, hasRevealFx: true, desc,
+    cost: 3, value, hasRevealFx: true, desc,
     effects: () => [],
-    onUse(card, world) { for (let i = 0; i < skN; i++) spawnSkeleton(world); },
+    onUse(_, world) { spawnSkeleton(world); },
     onReveal(card) {
       if (card._bbHandler) return;
       card._bbHandler = (s) => {
@@ -3285,12 +4253,12 @@ function _boneBlossomTier(skN, atkBoost, value, desc) {
         if (!s || s.kind !== 'skeleton') return;
         const w = window.__game;
         if (!w) return;
-        // 标准范围伤害：半径 = 骷髅半径 × 3（AOE_VOL_RATIO=6, 所以 mult=0.5 即 ×3）。
-        // 伤害 = 骷髅当前攻击（继承骷髅号角 / 爆骨花钻级等 buff）。
-        const skR = s.radius || 8;
+        // 圆锥范围伤害：随机方向 halfAngle 张角；伤害 = 骷髅当前攻击（继承骷髅号角等 buff）。
         const dmg = s.attack || 1;
-        applyAoe(w, { x: s.x, y: s.y, radius: skR }, {
-          damage: dmg, mult: 0.5, target: 'enemies',
+        applyAoe(w, { x: s.x, y: s.y, radius: s.radius || 8 }, {
+          kind: 'cone', damage: dmg, mult: 0.5, target: 'enemies',
+          dirAngle: Math.random() * Math.PI * 2, halfAngle,
+          color: '#c97aff',
         });
         for (let k = 0; k < 10; k++) {
           const a = Math.PI * 2 * Math.random();
@@ -3331,7 +4299,7 @@ function _skeletonHornTier(skN, atkBoost, value) {
     }
   };
   return {
-    cost: 2, value,
+    cost: 1, value,
     desc: {
       zh: `召唤${skN}个骷髅，使你场上的骷髅获得+${atkBoost}伤害。弃置此牌等同于使用。`,
       en: `Summon ${skN} skeleton(s). Skeletons on the field gain +${atkBoost} damage. Discard = use.`,
@@ -3546,30 +4514,27 @@ function _shockwaveTier(extraBound, radiusMult, halfAngle, value, desc) {
   };
 }
 
-function _arcaneboostTier(boost, doubleTrigger, value) {
-  const descZh = doubleTrigger
-    ? `洗入1张奥弹。你手牌中的奥弹伤害+${boost}，且额外触发一次。`
-    : `洗入1张奥弹。你手牌中的奥弹伤害+${boost}。`;
-  const descEn = doubleTrigger
-    ? `Shuffle in 1 Arcane Missile. Arcane Missiles in hand gain +${boost} damage and trigger an extra time.`
-    : `Shuffle in 1 Arcane Missile. Arcane Missiles in hand gain +${boost} damage.`;
+function _arcaneboostTier(missileCount, boost, value) {
   return {
-    cost: 1, value,
-    desc: { zh: descZh, en: descEn },
+    cost: 2, value,
+    desc: {
+      zh: `洗入${missileCount}张奥弹。你手牌中的奥弹伤害+${boost}。`,
+      en: `Shuffle in ${missileCount} Arcane Missiles. Arcane Missiles in hand gain +${boost} damage.`,
+    },
     effects: () => [],
     onUse(_, world) {
+      // 显式 buff：现有手牌中的奥弹获得 +boost 伤害（卡面说了"你手牌中的奥弹伤害+N"）
       for (const c of world.deck.hand) {
         if (c.familyId === 'arcane_missile') {
           c._arcBonus = (c._arcBonus || 0) + boost;
-          if (doubleTrigger) c._arcDoubleFire = true;
         }
       }
-      const newCard = mkCard('arcane_missile', 'silver');
-      newCard._arcBonus = boost;
-      if (doubleTrigger) newCard._arcDoubleFire = true;
-      // 洗入时刻：snapshot 当前本回合用过的卡（包括奥术强化本身），固化到这张奥弹上
-      newCard._inheritedHooks = (world._turnHookCards || []).slice();
-      world.deck.shuffleIntoHand(newCard);
+      // 洗入新奥弹时只携带 _arcBonus（显式 buff），不继承本回合的其它卡（设计上奥弹只吃显式 buff）
+      for (let i = 0; i < missileCount; i++) {
+        const newCard = mkCard('arcane_missile', 'silver');
+        newCard._arcBonus = boost;
+        world.deck.shuffleIntoHand(newCard);
+      }
     },
   };
 }
@@ -3713,30 +4678,23 @@ function _scatterTier(count, value) {
   };
 }
 
-function _arcaneFireworkTier(extraRolls, value) {
-  const descZh = extraRolls === 0
-    ? '洗入2张奥弹。'
-    : (extraRolls === 1
-      ? '洗入2张奥弹。有50%概率额外洗入1张。'
-      : `洗入2张奥弹。有50%概率额外洗入一张，判定${extraRolls}次。`);
-  const descEn = extraRolls === 0
-    ? 'Shuffle in 2 Arcane Missiles.'
-    : `Shuffle in 2 Arcane Missiles. ${extraRolls === 1 ? '50% chance to add 1 more.' : `50% chance per roll to add 1 more (${extraRolls} rolls).`}`;
+function _arcaneFireworkTier(extraChance, value) {
+  const descZh = extraChance > 0
+    ? `洗入1张奥弹。有${Math.round(extraChance * 100)}%概率额外洗入一张。`
+    : '洗入1张奥弹。';
+  const descEn = extraChance > 0
+    ? `Shuffle in 1 Arcane Missile. ${Math.round(extraChance * 100)}% chance to add 1 more.`
+    : 'Shuffle in 1 Arcane Missile.';
   return {
     cost: 1, value,
     desc: { zh: descZh, en: descEn },
     effects: () => [],
     onUse(_, world) {
-      // 洗入时刻 snapshot：每张奥弹固化当时本回合用过的卡牌效果
-      const snap = (world._turnHookCards || []).slice();
-      const mk = () => {
-        const m = mkCard('arcane_missile', 'silver');
-        m._inheritedHooks = snap.slice();
-        return m;
-      };
-      for (let i = 0; i < 2; i++) world.deck.shuffleIntoHand(mk());
-      for (let i = 0; i < extraRolls; i++) {
-        if (Math.random() < 0.5) world.deck.shuffleIntoHand(mk());
+      // 洗入裸奥弹（无 _arcBonus / 无继承）— 奥弹只吃显式 buff，本卡没说要 buff
+      const mk = () => mkCard('arcane_missile', 'silver');
+      world.deck.shuffleIntoHand(mk());
+      if (extraChance > 0 && Math.random() < extraChance) {
+        world.deck.shuffleIntoHand(mk());
       }
     },
   };
@@ -3804,24 +4762,33 @@ function _slowCapsuleTier(atk, shots, boost, value) {
   };
 }
 
-function _cryptTier(n, value) {
+function _cryptTier(n, value, atkBoost = 0) {
+  const summonAndBoost = (world) => {
+    for (let i = 0; i < n; i++) spawnSkeleton(world, { attackBonus: atkBoost });
+  };
+  const descZh = atkBoost > 0
+    ? `召唤${n}个骷髅，它的伤害+${atkBoost}。弃置此牌等同于使用。`
+    : `召唤${n}个骷髅。弃置此牌等同于使用。`;
+  const descEn = atkBoost > 0
+    ? `Summon ${n} Skeleton(s) with Damage+${atkBoost}. Discard = use.`
+    : `Summon ${n} Skeleton(s). Discard = use.`;
   return {
     cost: 1, value,
-    desc: { zh: `召唤${n}个骷髅。弃置此牌：召唤${n}个骷髅。`, en: `Summon ${n} Skeletons. Discard: summon ${n} Skeletons.` },
+    desc: { zh: descZh, en: descEn },
     effects: () => [],
-    onUse(_, world) { for (let i = 0; i < n; i++) spawnSkeleton(world); },
-    onDiscard(_, world) { for (let i = 0; i < n; i++) spawnSkeleton(world); },
+    onUse(_, world) { summonAndBoost(world); },
+    onDiscard(_, world) { summonAndBoost(world); },
   };
 }
 
 // 终结技：基础 +atk；若本次射击正好用光法力 → 弹射+bound、穿透+pen。
-// 钻级 (diamondRefund=true)：否则本场战斗中此卡 cost = 1（_battleCostOverride，resetForBattle 清空）。
+// 钻级 (diamondRefund=true)：否则下 1 次使用此牌费用-1（一次性折扣，下次使用消耗后清零）。
 function _finisherTier(atk, bound, pen, diamondRefund, value) {
   const tail = diamondRefund
-    ? '否则，本场战斗中此卡牌费用为1点。'
+    ? '否则，下1次使用此牌的费用-1。'
     : '';
   const tailEn = diamondRefund
-    ? ' Otherwise, this card costs 1 for the rest of this battle.'
+    ? ' Otherwise, the next use of this card costs 1 less.'
     : '';
   return {
     cost: 2, value,
@@ -3841,12 +4808,331 @@ function _finisherTier(atk, bound, pen, diamondRefund, value) {
       }),
     ],
     onUse(card, world) {
-      if (!diamondRefund) return;
-      // 钻级 only: 如果未用光法力，给此卡设置本场战斗 cost=1（_battleCostOverride）
-      const p = world?.player;
-      if (p && p.mana > 0 && (card._battleCostOverride == null || card._battleCostOverride > 1)) {
-        card._battleCostOverride = 1;
+      // 消耗本次预存的"下1次-1"折扣（如果有）
+      if (card._finisherNextDiscount) {
+        card._finisherNextDiscount = false;
+        card._battleCostOverride = null;
       }
+      if (!diamondRefund) return;
+      // 钻级 only: 若本次未用光法力 → 给下 1 次使用打 -1 折扣
+      const p = world?.player;
+      if (p && p.mana > 0) {
+        card._finisherNextDiscount = true;
+        const next = Math.max(0, (card.cost || 0) - 1);
+        card._battleCostOverride = next;
+      }
+    },
+  };
+}
+
+// 拥有"骷髅"关键词的卡家族 ID（叫魂用：弃出的牌若属此集合 → 额外召唤骷髅）
+const SKELETON_FAMILY_IDS = new Set([
+  'crypt', 'skeleton_horn', 'bone_blossom', 'skeleton_lord',
+  'necromancer', 'soulcall', 'reincarnation',
+]);
+
+// 火力覆盖：纯数量加成。
+function _firepowerTier(count, value) {
+  return {
+    cost: 2, value,
+    desc: { zh: `数量+${count}。`, en: `Bullets+${count}.` },
+    effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bulletCount += count; })],
+  };
+}
+
+// 撒豆成兵：数量+N，实体化+2。子弹本身变为实体。
+function _beanSoldiersTier(count, value) {
+  return {
+    cost: 3, value,
+    desc: { zh: `数量+${count}，实体化+2。`, en: `Bullets+${count}, Entity+2.` },
+    effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bulletCount += count; ctx.bullet.entityLayers += 2; })],
+  };
+}
+
+// 穿甲炸弹：穿透+1，每次穿透时向随机方向 cone AOE。
+function _armorPiercerTier(halfAngle, value) {
+  return {
+    cost: 1, value,
+    desc: {
+      zh: `穿透+1。穿透时向随机方向造成${Math.round(halfAngle * 2 / Math.PI * 180)}°的范围伤害。`,
+      en: `Pierce+1. On pierce, deal a ${Math.round(halfAngle * 2 / Math.PI * 180)}° cone in a random direction.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += 1; }),
+      new Effect(Phase.HitEnemy, 6, ctx => {
+        if (ctx.bullet.penetrate < 1) return;
+        applyAoe(ctx.world, ctx.bullet, {
+          kind: 'cone', damage: ctx.bullet.attack,
+          mult: AOE_MULT.arcaneExplode, target: 'enemies',
+          dirAngle: Math.random() * Math.PI * 2, halfAngle,
+          color: '#ffd84a',
+        });
+      }),
+    ],
+  };
+}
+
+// 叫魂：召唤 1 骷髅 + 随机弃 2 张手牌。每张骷髅关键词的牌额外召唤 1 骷髅；diamond 时非骷髅牌使场上骷髅伤害+1。
+function _soulcallTier(diamondBoost, value) {
+  const descZh = diamondBoost
+    ? '召唤1个骷髅。随机弃置2张手牌，每张包含骷髅关键词的牌会额外召唤1个骷髅，反之使场上的骷髅伤害+1。'
+    : (value >= 10
+      ? '召唤1个骷髅。随机弃置2张手牌，每张包含骷髅关键词的牌会额外召唤1个骷髅。'
+      : '召唤1个骷髅。随机弃置2张手牌。');
+  const descEn = diamondBoost
+    ? 'Summon 1 Skeleton. Discard 2 random hand cards; each with the Skeleton keyword summons 1 more Skeleton, otherwise +1 damage to your skeletons.'
+    : (value >= 10
+      ? 'Summon 1 Skeleton. Discard 2 random hand cards; each with the Skeleton keyword summons 1 more Skeleton.'
+      : 'Summon 1 Skeleton. Discard 2 random hand cards.');
+  const summon = (world, n = 1) => { for (let i = 0; i < n; i++) spawnSkeleton(world); };
+  const apply = (_, world) => {
+    summon(world);
+    const discarded = world.deck.discardRandomFromHand(2);
+    if (value <= 8) return;   // silver：仅基础召唤 + 弃
+    for (const c of discarded) {
+      if (SKELETON_FAMILY_IDS.has(c.familyId)) {
+        summon(world);
+      } else if (diamondBoost) {
+        for (const b of world.bullets) {
+          if (b.alive && b._isSkeleton) b.attack = (b.attack || 0) + 1;
+        }
+      }
+    }
+  };
+  return {
+    cost: 1, value,
+    desc: { zh: descZh, en: descEn },
+    effects: () => [],
+    onUse(card, world) { apply(card, world); },
+    onDiscard(card, world) { apply(card, world); },
+  };
+}
+
+// 持续施法：使用后注册"每个玩家回合开始 → 洗入 2 张奥弹（带 N 种随机强化）"
+// rollsPerMissile: 0 (silver) / 1 (gold) / 2 (diamond)
+// 用完之后自身在 fireFromCards 后被替换为同 tier 奥术礼花。
+function _continuousCastTier(rollsPerMissile, value) {
+  const tail = rollsPerMissile > 0
+    ? `它们具有${rollsPerMissile}种随机强化。`
+    : '';
+  const tailEn = rollsPerMissile > 0
+    ? ` They each gain ${rollsPerMissile} random buff${rollsPerMissile > 1 ? 's' : ''}.`
+    : '';
+  return {
+    cost: 3, value,
+    desc: {
+      zh: `在本关卡中，每回合开始时洗入2张奥弹。${tail}用奥术礼花替换此牌。`,
+      en: `For the rest of this stage, each turn shuffle 2 Arcane Missiles into your hand.${tailEn} Replace this card with Arcane Firework.`,
+    },
+    effects: () => [],
+    onUse(card, world) {
+      // 取既有的最高强化设置（多张同时使用时不退档）
+      const cur = world._contCastRolls || 0;
+      world._contCastRolls = Math.max(cur, rollsPerMissile);
+      world._contCastActive = true;
+      // 立即洗入一组：让首次使用就有触发感（也符合"每回合"包含本回合）
+      _continuousCastShuffleIn(world);
+      // 标记替换为奥术礼花
+      card._becomeArcaneFirework = card.tier;
+    },
+  };
+}
+
+// 持续施法支持：洗入 2 张奥弹 + 按 world._contCastRolls 应用随机强化
+//   奥弹不继承本回合用过的卡（设计上奥弹只吃显式 buff），只带 _contCastBuffs 显式随机强化。
+function _continuousCastShuffleIn(world) {
+  const rolls = world._contCastRolls || 0;
+  for (let i = 0; i < 2; i++) {
+    const m = mkCard('arcane_missile', 'silver');
+    // 随机强化：5 种之一（伤害+1 / 弹射+1 / 穿透+1 / 命中燃烧 / 25%冻结）
+    const BUFFS = [
+      b => { b.attack = (b.attack || 0) + 1; },
+      b => { b.bound = (b.bound || 0) + 1; },
+      b => { b.penetrate = (b.penetrate || 0) + 1; },
+      b => { b._fireOnHit = (b._fireOnHit || 0) + 1; },
+      b => { b._freezeChance = (b._freezeChance || 0) + 0.25; },
+    ];
+    const applied = [];
+    for (let r = 0; r < rolls; r++) {
+      const choice = randInt(0, BUFFS.length - 1);
+      applied.push(BUFFS[choice]);
+    }
+    if (applied.length > 0) m._contCastBuffs = applied;
+    world.deck.shuffleIntoHand(m);
+  }
+}
+
+// 转生：每个敌人死亡时有 10% 概率召唤 1 骷髅；用完后自身被替换为同 tier 墓穴。
+function _reincarnationTier(value) {
+  return {
+    cost: 3, value,
+    desc: {
+      zh: '在本关卡中，每个敌人死亡时，有10%的概率召唤1个骷髅。用墓穴替换此牌。',
+      en: 'For the rest of this stage, each enemy death has a 10% chance to summon a Skeleton. Replace this card with Crypt.',
+    },
+    effects: () => [],
+    onUse(card, world) {
+      world._reincarnateActive = true;
+      card._becomeCrypt = card.tier;
+    },
+  };
+}
+
+// 收集所有"含至少一个展露 tier"的家族 → 用于挖掘的候选池。
+// 探针 tier 选择策略：与商店等级挂钩 → _rollTier；若该 tier 没有 reveal 版本就回落到此家族
+// 最低的 reveal tier。
+function _revealCandidateFamilies() {
+  const out = [];
+  for (const [fid, fam] of Object.entries(CARD_DATA)) {
+    if (fam.excludedFromShop) continue;
+    let hasReveal = false;
+    for (const tk of TIER_KEYS) {
+      if (fam.tiers[tk] && fam.tiers[tk].hasRevealFx) { hasReveal = true; break; }
+    }
+    if (hasReveal) out.push(fid);
+  }
+  return out;
+}
+
+// 挖掘候选：roll N 张"同等级 + 展露"的卡。tier 来自调用方（如挖掘卡自身的 tier）。
+// 同等级的展露卡可能少于 N 张（如银 / 金只有 1 张爆骨花）；此时返回的数组就只有那么多张。
+function _rollRevealDiscoverCandidates(world, count, tier) {
+  const fams = _revealCandidateFamilies().filter(fid => {
+    const t = CARD_DATA[fid].tiers[tier];
+    return t && t.hasRevealFx;
+  });
+  return _rollDiscoverFromPool(fams, count, tier);
+}
+
+// 挖掘候选：roll N 张"同等级 + 任意非衍生"的卡。silver 挖掘用。
+// 排除挖掘 / 定向勘探自身（避免递归发现）。
+function _rollAnyDiscoverCandidates(world, count, tier) {
+  const fams = [];
+  for (const [fid, fam] of Object.entries(CARD_DATA)) {
+    if (fam.excludedFromShop) continue;
+    if (fid === 'excavate' || fid === 'directed_survey') continue;
+    if (!fam.tiers[tier]) continue;
+    fams.push(fid);
+  }
+  return _rollDiscoverFromPool(fams, count, tier);
+}
+
+// 定向勘探候选：roll N 张"同等级 + base cost == targetCost"的卡。
+function _rollDiscoverByCost(world, count, tier, targetCost) {
+  const fams = [];
+  for (const [fid, fam] of Object.entries(CARD_DATA)) {
+    if (fam.excludedFromShop) continue;
+    if (fid === 'excavate' || fid === 'directed_survey') continue;
+    const t = fam.tiers[tier];
+    if (!t) continue;
+    if ((t.cost ?? 0) !== targetCost) continue;
+    fams.push(fid);
+  }
+  return _rollDiscoverFromPool(fams, count, tier);
+}
+
+// 公共：从一个 family 列表里随机抽 count 张 tier 卡，按 family 去重，存在性不足时返回少于 N。
+function _rollDiscoverFromPool(fams, count, tier) {
+  if (fams.length === 0) return [];
+  const out = [];
+  const used = new Set();
+  let safety = 40;
+  while (out.length < count && used.size < fams.length && safety-- > 0) {
+    const fid = fams[randInt(0, fams.length - 1)];
+    if (used.has(fid)) continue;
+    used.add(fid);
+    out.push(mkCard(fid, tier));
+  }
+  return out;
+}
+
+// 挖掘：使用 → 伤害+N (PreActive)；弃置 → 发现 1 张同等级临时卡，按 tier 调 pool / cost。
+// poolType: 'any' (silver - 任意非衍生卡) / 'reveal' (gold/diamond - 仅展露卡)
+// costMode: 'minus1' (silver) / 'zero' (gold/diamond)
+// damage: 使用本牌给本次发射加的伤害（铜/银/金/钻 = 各自配置）
+function _excavateTier(poolType, costMode, damage, value) {
+  const noun   = poolType === 'reveal' ? '临时的展露卡牌' : '临时的卡牌';
+  const nounEn = poolType === 'reveal' ? 'temporary Reveal card' : 'temporary card';
+  const tail   = costMode === 'zero' ? '，其消耗值为0' : '，其消耗值-1';
+  const tailEn = costMode === 'zero' ? ', cost becomes 0' : ', cost reduced by 1';
+  return {
+    cost: 2, value,
+    desc: {
+      zh: `伤害+${damage}。弃置此牌时，发现1张${noun}，将其洗入手牌并翻为正面${tail}。`,
+      en: `Damage+${damage}. When discarded, discover 1 ${nounEn}. Shuffle it into your hand face-up${tailEn}.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += damage; }),
+    ],
+    onDiscard(card, world) {
+      // 同等级候选：源挖掘卡 tier 决定候选 tier
+      const candidates = poolType === 'reveal'
+        ? _rollRevealDiscoverCandidates(world, 3, card.tier)
+        : _rollAnyDiscoverCandidates(world, 3, card.tier);
+      if (candidates.length === 0) return;
+      triggerDiscover(world, {
+        candidates,
+        title: LANG.current === 'zh' ? '挖掘' : 'Excavate',
+        sub: LANG.current === 'zh'
+          ? (poolType === 'reveal' ? '选择一张展露卡' : '选择一张卡')
+          : (poolType === 'reveal' ? 'Pick a Reveal card' : 'Pick a card'),
+        onPick: (chosen) => {
+          // 临时：使用 / 弃置后从卡组移除
+          chosen._destroyAfterUse = true;
+          // 调整 cost
+          if (costMode === 'minus1') chosen._battleCostOverride = Math.max(0, (chosen.cost || 0) - 1);
+          else if (costMode === 'zero') chosen._battleCostOverride = 0;
+          // 洗入手牌（随机位置）
+          world.deck.shuffleIntoHand(chosen);
+          // 翻为正面（即使不在边缘也保持正面）
+          chosen._foresightFaceUp = true;
+          world.deck._setFace(chosen, true);
+          Events.emit('deckChanged');
+        },
+      });
+    },
+  };
+}
+
+// 定向勘探：使用 → 伤害+2 (PreActive)；弃置 → 发现 1 张同等级 3 费临时卡，按 tier 调 cost / 洗入位置。
+// 用户给的 4 tier 描述文字（费用值描述里 "为" 字不统一，保留原样）：
+//   铜：消耗值为2，洗入手牌（随机位置）并翻为正面
+//   银：消耗值2，洗入最左侧
+//   金：消耗值1，洗入最左侧
+//   钻：消耗值为0，洗入最左侧
+function _directedSurveyTier(descZh, descEn, costOverride, insertPos, value) {
+  return {
+    cost: 1, value,
+    desc: { zh: descZh, en: descEn },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 2; }),
+    ],
+    onDiscard(card, world) {
+      // 同等级候选 + 必须是 base cost = 3 的牌
+      const candidates = _rollDiscoverByCost(world, 3, card.tier, 3);
+      if (candidates.length === 0) return;
+      triggerDiscover(world, {
+        candidates,
+        title: LANG.current === 'zh' ? '定向勘探' : 'Directed Survey',
+        sub: LANG.current === 'zh' ? '选择一张3费卡' : 'Pick a 3-cost card',
+        onPick: (chosen) => {
+          // 临时：使用 / 弃置后从卡组移除
+          chosen._destroyAfterUse = true;
+          chosen._battleCostOverride = costOverride;
+          if (insertPos === 'leftmost') {
+            // 洗入最左侧：变成新的左缘卡 → 自然 face-up；同时打 _foresightFaceUp 让它即使被挤出边缘也保持正面
+            world.deck.hand.unshift(chosen);
+          } else {
+            // 洗入手牌（随机位置）
+            world.deck.shuffleIntoHand(chosen);
+          }
+          chosen._foresightFaceUp = true;
+          world.deck._setFace(chosen, true);
+          world.deck._updateFaceUp();
+          Events.emit('deckChanged');
+          Events.emit('shuffledIn', chosen);
+        },
+      });
     },
   };
 }
@@ -3924,6 +5210,7 @@ const CARD_DATA = {
   foresight: {
     emoji: '🔮',
     name: { zh: '预知', en: 'Foresight' },
+    excludedFromShop: true,
     tiers: {
       diamond: {
         cost: 0, value: 4,
@@ -4070,18 +5357,18 @@ const CARD_DATA = {
     tiers: {
       silver: {
         cost: 2, value: 18,
-        desc: { zh: '穿透+1，可追踪敌人。', en: 'Pierce+1. Bullets track enemies.' },
-        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += 1; ctx.bullet.tracking = true; })],
+        desc: { zh: '穿透+2，速度略微降低，可追踪敌人。', en: 'Pierce+2, slightly slower, tracks enemies.' },
+        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += 2; ctx.bullet.speed *= 0.9; ctx.bullet.tracking = true; })],
       },
       gold: {
         cost: 2, value: 23,
-        desc: { zh: '穿透+2，可追踪敌人。', en: 'Pierce+2. Bullets track enemies.' },
-        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += 2; ctx.bullet.tracking = true; })],
+        desc: { zh: '穿透+4，速度略微降低，可追踪敌人。', en: 'Pierce+4, slightly slower, tracks enemies.' },
+        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += 4; ctx.bullet.speed *= 0.9; ctx.bullet.tracking = true; })],
       },
       diamond: {
         cost: 2, value: 30,
-        desc: { zh: '穿透+4，可追踪敌人。', en: 'Pierce+4. Bullets track enemies.' },
-        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += 4; ctx.bullet.tracking = true; })],
+        desc: { zh: '穿透+5，弹射+2，可追踪敌人。', en: 'Pierce+5, Bounce+2, tracks enemies.' },
+        effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += 5; ctx.bullet.bound += 2; ctx.bullet.tracking = true; })],
       },
     },
   },
@@ -4140,9 +5427,9 @@ const CARD_DATA = {
     emoji: '✦',
     name: { zh: '奥术强化', en: 'Arcane Boost' },
     tiers: {
-      silver: _arcaneboostTier(1, false, 8),
-      gold: _arcaneboostTier(2, false, 10),
-      diamond: _arcaneboostTier(2, true, 13),
+      silver: _arcaneboostTier(2, 1, 18),
+      gold: _arcaneboostTier(2, 1, 23),
+      diamond: _arcaneboostTier(3, 1, 30),
     },
   },
 
@@ -4150,9 +5437,9 @@ const CARD_DATA = {
     emoji: '🌸',
     name: { zh: '爆骨花', en: 'Bone Blossom' },
     tiers: {
-      silver: _boneBlossomTier(2, 0, 18, { zh: '召唤2个骷髅。展露：骷髅死亡时，造成范围伤害。', en: 'Summon 2 Skeletons. Reveal: skeleton deaths deal area damage.' }),
-      gold: _boneBlossomTier(4, 0, 23, { zh: '召唤4个骷髅。展露：骷髅死亡时，造成范围伤害。', en: 'Summon 4 Skeletons. Reveal: skeleton deaths deal area damage.' }),
-      diamond: _boneBlossomTier(4, 1, 30, { zh: '召唤4个骷髅。展露：骷髅伤害+1；骷髅死亡时，造成范围伤害。', en: 'Summon 4 Skeletons. Reveal: skeletons +1 damage; skeleton deaths deal area damage.' }),
+      silver: _boneBlossomTier(0, Math.PI / 4, 30, { zh: '召唤1个骷髅。展露：骷髅死亡时，向随机方向造成90°的范围伤害。', en: 'Summon 1 Skeleton. Reveal: on skeleton death, deal a 90° cone in a random direction.' }),
+      gold: _boneBlossomTier(0, Math.PI / 3, 39, { zh: '召唤1个骷髅。展露：骷髅死亡时，向随机方向造成120°的范围伤害。', en: 'Summon 1 Skeleton. Reveal: on skeleton death, deal a 120° cone in a random direction.' }),
+      diamond: _boneBlossomTier(1, Math.PI / 3, 50, { zh: '召唤1个骷髅。展露：骷髅伤害+1；骷髅死亡时，向随机方向造成120°的范围伤害。', en: 'Summon 1 Skeleton. Reveal: skeletons +1 damage; on death, deal a 120° cone in a random direction.' }),
     },
   },
 
@@ -4161,10 +5448,11 @@ const CARD_DATA = {
     emoji: '🎯',
     name: { zh: '狙击', en: 'Snipe' },
     tiers: {
-      bronze: _snipeTier(560, 6, { zh: '伤害会随着经过距离增加而略微增加。', en: 'Damage scales slightly with distance.' }),
-      silver: _snipeTier(467, 8, { zh: '伤害会随着经过距离增加而轻度增加。', en: 'Damage scales lightly with distance.' }),
-      gold: _snipeTier(373, 10, { zh: '伤害会随着经过距离增加而增加。', en: 'Damage scales with distance.' }),
-      diamond: _snipeTier(280, 13, { zh: '伤害会随着经过距离增加而快速增加。', en: 'Damage scales rapidly with distance.' }),
+      // 距离每 N 像素 +1 攻击；铜级以 1/2 战场高度（≈280px）为基准，逐级递减 1/6
+      bronze: _snipeTier(280, 6, { zh: '伤害会随着经过距离增加而略微增加。', en: 'Damage scales slightly with distance.' }),
+      silver: _snipeTier(233, 8, { zh: '伤害会随着经过距离增加而轻度增加。', en: 'Damage scales lightly with distance.' }),
+      gold: _snipeTier(187, 10, { zh: '伤害会随着经过距离增加而增加。', en: 'Damage scales with distance.' }),
+      diamond: _snipeTier(140, 13, { zh: '伤害会随着经过距离增加而快速增加。', en: 'Damage scales rapidly with distance.' }),
     },
   },
 
@@ -4228,10 +5516,10 @@ const CARD_DATA = {
     emoji: '🎈',
     name: { zh: '热气球', en: 'Hot Air Balloon' },
     tiers: {
-      bronze: _hotairTier(1, 1.2, 6),
-      silver: _hotairTier(2, 1.2, 8),
-      gold: _hotairTier(3, 1.2, 10),
-      diamond: _hotairTier(2, 1.5, 13),
+      bronze: _hotairTier(2, 1.2, 6),
+      silver: _hotairTier(3, 1.2, 8),
+      gold: _hotairTier(3, 1.5, 10),
+      diamond: _hotairTier(4, 1.5, 13),
     },
   },
 
@@ -4251,27 +5539,30 @@ const CARD_DATA = {
     name: { zh: '滚石', en: 'Boulder' },
     tiers: {
       bronze: { cost: 3, value: 23,
-        desc: { zh: '穿透+99，弹射-99。速度降低，体积大幅增加。', en: 'Pierce+99, Bounce-99. Slower, much larger.' },
+        desc: { zh: '穿透+5，弹射-10。速度降低，体积大幅增加。', en: 'Pierce+5, Bounce-10. Slower, much larger.' },
         effects: () => [new Effect(Phase.PreActive, 100, ctx => {
-          ctx.bullet.penetrate += 99; ctx.bullet.bound = 0;
+          ctx.bullet.penetrate += 5;
+          ctx.bullet.bound = Math.max(0, ctx.bullet.bound - 10);
           ctx.bullet.speed *= 0.5; ctx.bullet.radius *= 2.5;
         })] },
       silver: { cost: 3, value: 30,
-        desc: { zh: '穿透+99，弹射-99。体积大幅增加。', en: 'Pierce+99, Bounce-99. Much larger.' },
+        desc: { zh: '穿透+6，弹射-10。体积大幅增加。', en: 'Pierce+6, Bounce-10. Much larger.' },
         effects: () => [new Effect(Phase.PreActive, 100, ctx => {
-          ctx.bullet.penetrate += 99; ctx.bullet.bound = 0; ctx.bullet.radius *= 2.5;
+          ctx.bullet.penetrate += 6;
+          ctx.bullet.bound = Math.max(0, ctx.bullet.bound - 10);
+          ctx.bullet.radius *= 2.5;
         })] },
       gold: { cost: 3, value: 39,
-        desc: { zh: '穿透+99，弹射减半（向上取整）。体积大幅增加。', en: 'Pierce+99, Bounce halved (round up). Much larger.' },
+        desc: { zh: '穿透+8，弹射-10。体积大幅增加。', en: 'Pierce+8, Bounce-10. Much larger.' },
         effects: () => [new Effect(Phase.PreActive, 100, ctx => {
-          ctx.bullet.penetrate += 99;
-          ctx.bullet.bound = Math.ceil(ctx.bullet.bound / 2);
+          ctx.bullet.penetrate += 8;
+          ctx.bullet.bound = Math.max(0, ctx.bullet.bound - 10);
           ctx.bullet.radius *= 2.5;
         })] },
       diamond: { cost: 3, value: 50,
-        desc: { zh: '穿透+99。体积大幅增加。', en: 'Pierce+99. Much larger.' },
+        desc: { zh: '穿透+10。体积大幅增加。', en: 'Pierce+10. Much larger.' },
         effects: () => [new Effect(Phase.PreActive, 100, ctx => {
-          ctx.bullet.penetrate += 99; ctx.bullet.radius *= 2.5;
+          ctx.bullet.penetrate += 10; ctx.bullet.radius *= 2.5;
         })] },
     },
   },
@@ -4302,10 +5593,9 @@ const CARD_DATA = {
     emoji: '🎆',
     name: { zh: '奥术礼花', en: 'Arcane Firework' },
     tiers: {
-      bronze: _arcaneFireworkTier(0, 6),
-      silver: _arcaneFireworkTier(1, 8),
-      gold: _arcaneFireworkTier(2, 10),
-      diamond: _arcaneFireworkTier(4, 13),
+      silver: _arcaneFireworkTier(0, 8),
+      gold: _arcaneFireworkTier(0.25, 10),
+      diamond: _arcaneFireworkTier(0.5, 13),
     },
   },
 
@@ -4335,10 +5625,10 @@ const CARD_DATA = {
     emoji: '💊',
     name: { zh: '缓释胶囊', en: 'Slow-Release Capsule' },
     tiers: {
-      bronze: _slowCapsuleTier(2, 1, 1, 13),
-      silver: _slowCapsuleTier(3, 2, 1, 18),
-      gold: _slowCapsuleTier(3, 3, 1, 23),
-      diamond: _slowCapsuleTier(3, 5, 1, 30),
+      bronze: _slowCapsuleTier(3, 2, 1, 13),
+      silver: _slowCapsuleTier(3, 2, 2, 18),
+      gold: _slowCapsuleTier(3, 3, 2, 23),
+      diamond: _slowCapsuleTier(3, 3, 3, 30),
     },
   },
 
@@ -4346,10 +5636,10 @@ const CARD_DATA = {
     emoji: '⚰',
     name: { zh: '墓穴', en: 'Crypt' },
     tiers: {
-      bronze: _cryptTier(2, 6),
-      silver: _cryptTier(3, 8),
-      gold: _cryptTier(4, 10),
-      diamond: _cryptTier(5, 13),
+      bronze: _cryptTier(1, 6, 0),
+      silver: _cryptTier(1, 8, 1),
+      gold: _cryptTier(1, 10, 2),
+      diamond: _cryptTier(2, 13, 0),
     },
   },
 
@@ -4357,10 +5647,9 @@ const CARD_DATA = {
     emoji: '📯',
     name: { zh: '骷髅号角', en: 'Skeleton Horn' },
     tiers: {
-      bronze: _skeletonHornTier(1, 1, 13),
-      silver: _skeletonHornTier(1, 1, 18),
-      gold: _skeletonHornTier(1, 2, 23),
-      diamond: _skeletonHornTier(2, 3, 30),
+      silver: _skeletonHornTier(1, 1, 8),
+      gold: _skeletonHornTier(1, 2, 10),
+      diamond: _skeletonHornTier(2, 3, 13),
     },
   },
 
@@ -4379,10 +5668,116 @@ const CARD_DATA = {
     emoji: '⚔',
     name: { zh: '终结技', en: 'Finisher' },
     tiers: {
-      bronze:  _finisherTier(2, 2, 1, false, 13),
-      silver:  _finisherTier(3, 3, 2, false, 18),
-      gold:    _finisherTier(4, 4, 3, false, 23),
-      diamond: _finisherTier(5, 4, 3, true,  30),
+      bronze:  _finisherTier(4, 2, 1, false, 13),
+      silver:  _finisherTier(6, 3, 2, false, 18),
+      gold:    _finisherTier(8, 4, 3, false, 23),
+      diamond: _finisherTier(8, 4, 3, true,  30),
+    },
+  },
+
+  // 火力覆盖：纯数量加成（4 tier 等同强化系）
+  firepower: {
+    emoji: '🎯',
+    name: { zh: '火力覆盖', en: 'Barrage' },
+    tiers: {
+      bronze: _firepowerTier(2, 13),
+      silver: _firepowerTier(3, 18),
+      gold:   _firepowerTier(4, 23),
+      diamond: _firepowerTier(5, 30),
+    },
+  },
+
+  // 挖掘：使用 +N 伤害；弃置 → 发现 1 张同等级临时卡，洗入手牌并翻为正面。
+  //   银：伤害+4，发现任意卡，消耗值-1
+  //   金：伤害+5，发现展露卡，消耗值为 0
+  //   钻：伤害+6，发现展露卡，消耗值为 0
+  excavate: {
+    emoji: '⛏',
+    name: { zh: '挖掘', en: 'Excavate' },
+    tiers: {
+      silver:  _excavateTier('any',    'minus1', 4, 18),
+      gold:    _excavateTier('reveal', 'zero',   5, 23),
+      diamond: _excavateTier('reveal', 'zero',   6, 30),
+    },
+  },
+
+  // 定向勘探：1 费，使用 +2 伤害；弃置 → 发现 1 张同等级 3 费临时卡。
+  directed_survey: {
+    emoji: '🧭',
+    name: { zh: '定向勘探', en: 'Directed Survey' },
+    tiers: {
+      bronze: _directedSurveyTier(
+        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值为2；将其洗入手牌并翻为正面。',
+        'Damage+2. When discarded, discover 1 temporary 3-cost card (cost set to 2) and shuffle it into your hand face-up.',
+        2, 'random', 6,
+      ),
+      silver: _directedSurveyTier(
+        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值2；将其洗入最左侧。',
+        'Damage+2. When discarded, discover 1 temporary 3-cost card (cost 2) and shuffle it to the leftmost slot.',
+        2, 'leftmost', 8,
+      ),
+      gold: _directedSurveyTier(
+        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值1；将其洗入最左侧。',
+        'Damage+2. When discarded, discover 1 temporary 3-cost card (cost 1) and shuffle it to the leftmost slot.',
+        1, 'leftmost', 10,
+      ),
+      diamond: _directedSurveyTier(
+        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值为0；将其洗入最左侧。',
+        'Damage+2. When discarded, discover 1 temporary 3-cost card (cost 0) and shuffle it to the leftmost slot.',
+        0, 'leftmost', 13,
+      ),
+    },
+  },
+
+  // 叫魂（银 / 金 / 钻）— 召唤骷髅 + 随机弃 2 张
+  soulcall: {
+    emoji: '💀',
+    name: { zh: '叫魂', en: 'Soul Call' },
+    tiers: {
+      silver:  _soulcallTier(false, 8),
+      gold:    _soulcallTier(false, 10),
+      diamond: _soulcallTier(true, 13),
+    },
+  },
+
+  // 撒豆成兵（银 / 金 / 钻）— 数量爆炸 + 子弹变实体
+  bean_soldiers: {
+    emoji: '🌱',
+    name: { zh: '撒豆成兵', en: 'Bean Soldiers' },
+    tiers: {
+      silver:  _beanSoldiersTier(2, 30),
+      gold:    _beanSoldiersTier(4, 39),
+      diamond: _beanSoldiersTier(6, 50),
+    },
+  },
+
+  // 持续施法（银 / 金 / 钻）— 每回合开始洗入 2 张奥弹，自身变奥术礼花
+  continuous_cast: {
+    emoji: '🌀',
+    name: { zh: '持续施法', en: 'Continuous Cast' },
+    tiers: {
+      silver:  _continuousCastTier(0, 30),
+      gold:    _continuousCastTier(1, 39),
+      diamond: _continuousCastTier(2, 50),
+    },
+  },
+
+  // 穿甲炸弹（金 / 钻）
+  armor_piercer: {
+    emoji: '💣',
+    name: { zh: '穿甲炸弹', en: 'Armor Piercer' },
+    tiers: {
+      gold:    _armorPiercerTier(Math.PI / 3, 10),
+      diamond: _armorPiercerTier(Math.PI / 2, 13),
+    },
+  },
+
+  // 转生（钻）— 每个敌人死亡 10% 召唤骷髅；自身变墓穴
+  reincarnation: {
+    emoji: '♻',
+    name: { zh: '转生', en: 'Reincarnation' },
+    tiers: {
+      diamond: _reincarnationTier(50),
     },
   },
 
@@ -4418,9 +5813,8 @@ const CARD_DATA = {
               card._firing = false;
               return;
             }
-            _autoFireArcaneMissile(w, card);
-            card._lastAction = 'buff';
-            w.deck.destroyCard(card);
+            // 入队 —— 多张奥弹同时洗面时，每发间隔 110ms 错开播放
+            _enqueueArcaneFire(w, card);
           });
         },
         onConceal(card) { card._firing = false; },
@@ -4438,31 +5832,31 @@ const CARD_DATA = {
     name: { zh: '奥术进化', en: 'Arcane Evolution' },
     tiers: {
       silver: {
-        cost: 1, value: 8,
+        cost: 3, value: 30,
         desc: {
           zh: '将5种奥术进化衍生牌洗入你的手牌。用奥术强化替换此牌。',
           en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
         },
         effects: () => [],
-        onUse(card, world) { _arcaneEvoOnUse(card, world); },
+        onUse(card, world) { _arcaneEvoOnUse(card, world, 0); },
       },
       gold: {
-        cost: 1, value: 10,
+        cost: 3, value: 39,
         desc: {
-          zh: '将5种奥术进化衍生牌洗入你的手牌。用奥术强化替换此牌。',
-          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
+          zh: '将5种奥术进化衍生牌洗入你的手牌。将2张奥术进化翻为正面。用奥术强化替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip 2 of them face-up. Replace this card with Arcane Boost.',
         },
         effects: () => [],
-        onUse(card, world) { _arcaneEvoOnUse(card, world); },
+        onUse(card, world) { _arcaneEvoOnUse(card, world, 2); },
       },
       diamond: {
-        cost: 1, value: 13,
+        cost: 3, value: 50,
         desc: {
-          zh: '将5种奥术进化衍生牌洗入你的手牌。用奥术强化替换此牌。',
-          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
+          zh: '将5种奥术进化衍生牌洗入你的手牌。将它们翻为正面。用奥术强化替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip all of them face-up. Replace this card with Arcane Boost.',
         },
         effects: () => [],
-        onUse(card, world) { _arcaneEvoOnUse(card, world); },
+        onUse(card, world) { _arcaneEvoOnUse(card, world, 5); },
       },
     },
   },
@@ -4540,16 +5934,33 @@ const ARC_EVO_DERIVED_FAMILIES = ['arc_evo_power', 'arc_evo_pierce', 'arc_evo_fi
 
 // 奥术进化使用时调用：洗入 5 张衍生 + 标记自身待替换为 arcaneboost。
 // "先使用，再替换" — onUse 只设置标记；fireFromCards 在 toDiscard 之后扫描标记并就地替换。
-function _arcaneEvoOnUse(card, world) {
+// revealCount: 衍生牌中翻为正面的张数（金=2, 钻=5）。0 = 不翻。
+function _arcaneEvoOnUse(card, world, revealCount = 0) {
   // 洗入 5 张衍生（顺序：力 / 穿 / 火 / 弹 / 冰）。
   // 衍生 def 只有 bronze 版本（效果固定），但把 rarity / tier 覆盖成主卡同 tier
   // → 卡面边框 / 底色与主卡视觉一致（玩家一眼能看出"是哪级奥术进化产物"）。
   const cardTier = card.tier || 'bronze';
+  const spawned = [];
   for (const f of ARC_EVO_DERIVED_FAMILIES) {
     const d = mkCard(f, 'bronze');
     d.tier = cardTier;
     d.rarity = cardTier;
     world.deck.shuffleIntoHand(d);
+    spawned.push(d);
+  }
+  // 金/钻：翻 N 张为正面（_foresightFaceUp 标记 = 不只在边缘也保持正面）
+  if (revealCount > 0) {
+    const shuffled = spawned.slice();
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = randInt(0, i);
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const n = Math.min(revealCount, shuffled.length);
+    for (let i = 0; i < n; i++) {
+      shuffled[i]._foresightFaceUp = true;
+      world.deck._setFace(shuffled[i], true);
+    }
+    Events.emit('deckChanged');
   }
   // 视觉：在炮台位置撒紫色粒子表示 "进化触发"
   const p = world.player;
@@ -4567,27 +5978,104 @@ function _arcaneEvoOnUse(card, world) {
   card._becomeArcaneboost = card.tier;
 }
 
-// 扫描 bag (主卡槽) + discard，把所有 _becomeArcaneboost 标记的卡就地替换为 arcaneboost。
+// 扫描 bag (主卡槽) + discard，把使用过后带"待替换"标记的卡就地换成对应衍生家族。
 // 由 fireFromCards 在 toDiscard 之后调用。
+//   _becomeArcaneboost      → arcaneboost  （奥术进化）
+//   _becomeArcaneFirework   → arcane_firework （持续施法）
+//   _becomeCrypt            → crypt       （转生）
+const _CARD_REPLACEMENTS = [
+  { mark: '_becomeArcaneboost',    family: 'arcaneboost' },
+  { mark: '_becomeArcaneFirework', family: 'arcane_firework' },
+  { mark: '_becomeCrypt',          family: 'crypt' },
+];
 function _resolveArcaneEvoReplacements(world) {
   const deck = world.deck;
   if (!deck) return;
   let changed = false;
   // 主卡槽（bag[0]）— 用 deck.replaceAt 保持 face-up 状态
-  if (deck.bag[0] && deck.bag[0]._becomeArcaneboost) {
-    const tier = deck.bag[0]._becomeArcaneboost;
-    deck.replaceAt(0, mkCard('arcaneboost', tier));
-    changed = true;
+  const main = deck.bag[0];
+  if (main) {
+    for (const r of _CARD_REPLACEMENTS) {
+      if (main[r.mark]) {
+        deck.replaceAt(0, mkCard(r.family, main[r.mark]));
+        changed = true;
+        break;
+      }
+    }
   }
   // 弃牌堆：直接索引替换（弃牌堆里的卡 faceUp 已是 false，新卡也保持 false）
   for (let i = 0; i < deck.discard.length; i++) {
     const c = deck.discard[i];
-    if (c && c._becomeArcaneboost) {
-      deck.discard[i] = mkCard('arcaneboost', c._becomeArcaneboost);
-      changed = true;
+    if (!c) continue;
+    for (const r of _CARD_REPLACEMENTS) {
+      if (c[r.mark]) {
+        deck.discard[i] = mkCard(r.family, c[r.mark]);
+        changed = true;
+        break;
+      }
     }
   }
   if (changed) Events.emit('deckChanged');
+}
+
+// ─── 发现（Discover）关键词框架 ──────────────────────────────────────
+// 通用机制：卡牌 onUse 中调用 triggerDiscover(world, opts)
+//   → 暂停发射流程 → 弹出弹窗显示 3 张候选 → 玩家点击 → 触发 onPick → 继续发射。
+// opts:
+//   candidates: Card[] (前 3 张被用作候选；不足 3 张按实际数显示)
+//   onPick:     (chosen: Card) => void  — 玩家点击后立即调用
+//   title?:     string — 弹窗标题，默认 "发现"
+//   sub?:       string — 弹窗副标题，默认 "选择一张卡"
+// 候选卡只是 UI 展示用 — 框架不会自动 spawn / 入手 / 入背包。具体效果完全由 onPick 决定。
+function triggerDiscover(world, opts) {
+  if (!opts || !opts.candidates || !opts.onPick) return;
+  const candidates = opts.candidates.filter(Boolean).slice(0, 3);
+  if (candidates.length === 0) return;        // 无候选 → 直接放弃，不弹窗
+  if (world._discoverPending) {
+    // 同一发射内多张发现卡 → 后者排队等前者结算（实际游戏中极少出现）
+    world._discoverQueue = world._discoverQueue || [];
+    world._discoverQueue.push(opts);
+    return;
+  }
+  world._discoverPending = {
+    candidates,
+    onPick: opts.onPick,
+    title: opts.title || (LANG.current === 'zh' ? '发现' : 'Discover'),
+    sub: opts.sub || (LANG.current === 'zh' ? '选择一张卡' : 'Pick a card'),
+    resolved: false,
+    _continuation: null,
+  };
+  Events.emit('discoverShow', world._discoverPending);
+}
+
+// UI 点击候选卡时调用。idx 越界 / 已 resolve → 静默忽略。
+function resolveDiscover(world, idx) {
+  const d = world._discoverPending;
+  if (!d || d.resolved) return;
+  d.resolved = true;
+  const chosen = d.candidates[idx];
+  world._discoverPending = null;
+  Events.emit('discoverHide');
+  if (chosen) {
+    try { d.onPick(chosen); } catch (e) { console.error('triggerDiscover onPick error', e); }
+  }
+  // 队列中还有等待的发现 → 推下一个；否则继续发射流程
+  const next = world._discoverQueue && world._discoverQueue.shift();
+  const cont = d._continuation;
+  if (next) {
+    // 把当前 continuation 转交给下一个发现
+    triggerDiscover(world, next);
+    if (cont && world._discoverPending) world._discoverPending._continuation = cont;
+    return;
+  }
+  if (cont) queueMicrotask(cont);   // 推迟一帧让 UI 隐藏先生效
+}
+
+// 战斗结束 / 阵亡时强制清理（不触发 onPick，避免对已死的世界做副作用）
+function _clearDiscoverState(world) {
+  world._discoverPending = null;
+  world._discoverQueue = null;
+  Events.emit('discoverHide');
 }
 
 // ─── 新手开局 picks 队列 ────────────────────────────────────────────
@@ -4682,8 +6170,11 @@ function _rollShopCard(world, alreadyKeys, maxAttempts = 40, forceTier = null) {
   for (const f of allFamilies) ownedTiers[f] = _ownedTiersOf(world, f);
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const tier = forceTier || _rollTier(world.shopLevel);
+    const removed = world.removedFamilyIds;
     const pool = allFamilies.filter(f => {
       if (!CARD_DATA[f].tiers[tier]) return false;
+      // 玩家已剔除的 family：本局完全黑名单
+      if (removed && removed.has(f)) return false;
       const owned = ownedTiers[f];
       // 钻级已拥有 → 整个 family 黑名单
       if (owned.has('diamond')) return false;
@@ -4837,6 +6328,19 @@ class CardDeck {
     Events.emit('bagChanged');
   }
 
+  // 剔除卡牌：从背包移除指定槽位（splice，后续槽位前移）。
+  // 主卡（index 0）不可剔；保留至少 main + 1 张其它，避免空牌组软锁。
+  // 返回被移除的卡，或 null（拒绝）。
+  removeAt(i) {
+    if (i <= 0 || i >= this.bag.length) return null;
+    if (this.bag.length <= 2) return null;
+    const removed = this.bag[i];
+    if (removed && removed.faceUp) { removed.onConceal(); removed.faceUp = false; }
+    this.bag.splice(i, 1);
+    Events.emit('bagChanged');
+    return removed;
+  }
+
   setAsMain(i) {
     if (i <= 0 || i >= this.bag.length) return;
     this.swap(0, i);
@@ -4857,12 +6361,23 @@ class CardDeck {
     this._updateFaceUp();
   }
 
-  // 边缘卡 (最左 / 最右) 展露；_foresightFaceUp 标记的卡也保持正面
+  // 边缘卡 (最左 / 最右) 始终展露；非边缘卡仅在 _foresightFaceUp 标记下保持正面。
+  // 关键规则（两向）：边缘 → 正面；非边缘 → 背面（除非主动 _foresightFaceUp 锁定）。
+  //   _foresightFaceUp 的语义是"把一张当前非边缘的卡强制翻正面"。
+  //   一旦该卡因移动到边缘获得自然 face-up，flag 就完成了使命 → 清零，
+  //   这样后续若被挤离边缘可以正常变回背面（防止"卡 A 进入边缘后翻面，被挤开仍保持正面"的 bug）。
   _updateFaceUp() {
     for (let i = 0; i < this.hand.length; i++) {
+      const c = this.hand[i];
       const isEdge = i === 0 || i === this.hand.length - 1;
-      const targetFace = isEdge || !!this.hand[i]._foresightFaceUp;
-      this._setFace(this.hand[i], targetFace);
+      if (isEdge) {
+        // 边缘卡：天然正面；同时清掉 _foresightFaceUp，让规则在它被挤离边缘时双向生效
+        c._foresightFaceUp = false;
+        this._setFace(c, true);
+      } else {
+        // 非边缘：仅当 _foresightFaceUp 标记仍存在（卡是直接在中央被翻正面的）时保持正面
+        this._setFace(c, !!c._foresightFaceUp);
+      }
     }
   }
 
@@ -4895,26 +6410,25 @@ class CardDeck {
   }
 
   // 销毁卡牌：从 hand / discard 移除（衍生卡触发后销毁自身）
+  // 注意：doDiscard 走的路径里，takeSide 已经先把卡从 hand 拿走。这里既不在 hand 也不在 discard
+  //   也算"销毁"成功 — 总是发 deckChanged，让 renderHand 跑离场动画 + 触发空手洗牌检查。
   destroyCard(card) {
     // 默认按 "buff" 离场（衍生卡如奥术飞弹自毁场景视觉等同于"魔法效果"）
     if (!card._lastAction) card._lastAction = 'buff';
     card._foresightFaceUp = false;
-    let removed = false;
     const i = this.hand.indexOf(card);
-    if (i >= 0) { this.hand.splice(i, 1); removed = true; }
+    if (i >= 0) this.hand.splice(i, 1);
     const j = this.discard.indexOf(card);
-    if (j >= 0) { this.discard.splice(j, 1); removed = true; }
-    if (removed) {
-      this._setFace(card, false);
-      this._updateFaceUp();
-      Events.emit('deckChanged');
-      // 手牌空了（最后一张奥弹自毁等情况）→ 延迟洗回，与 toDiscard 同步：让 leaving 动画完成
-      if (this.hand.length === 0 && this.discard.length > 0) {
-        setTimeout(() => {
-          this._reshuffleIfEmpty();
-          Events.emit('deckChanged');
-        }, 350);
-      }
+    if (j >= 0) this.discard.splice(j, 1);
+    this._setFace(card, false);
+    this._updateFaceUp();
+    Events.emit('deckChanged');
+    // 手牌空了（最后一张奥弹自毁等情况）→ 延迟洗回，与 toDiscard 同步：让 leaving 动画完成
+    if (this.hand.length === 0 && this.discard.length > 0) {
+      setTimeout(() => {
+        this._reshuffleIfEmpty();
+        Events.emit('deckChanged');
+      }, 350);
     }
   }
 
@@ -4926,6 +6440,22 @@ class CardDeck {
     this._updateFaceUp();
     Events.emit('deckChanged');
     Events.emit('shuffledIn', card);     // 洗入号令 / 奥弹之书 监听此事件
+  }
+
+  // 弃置 n 张随机手牌（任意面）。返回实际弃置的卡数组。叫魂用。
+  discardRandomFromHand(n) {
+    const discarded = [];
+    for (let i = 0; i < n; i++) {
+      if (this.hand.length === 0) break;
+      const idx = randInt(0, this.hand.length - 1);
+      const card = this.hand.splice(idx, 1)[0];
+      this._setFace(card, false);
+      this.discard.push(card);
+      discarded.push(card);
+    }
+    this._updateFaceUp();
+    Events.emit('deckChanged');
+    return discarded;
   }
 
   // 弃置 n 张随机反面手牌（战术撤退用）。返回实际弃置的卡数组。
@@ -5045,6 +6575,10 @@ class BattleManager {
       p.armor = p.armorPerTurn || 3;
       Events.emit('armorChanged', p.armor);
       this.world._turnHookCards = [];
+      // 持续施法：每回合开始洗入 2 张奥弹（仅在战斗中，避免商店/选卡阶段触发）
+      if (this.world._contCastActive && this.state === State.Battle) {
+        _continuousCastShuffleIn(this.world);
+      }
       // 回合开始缓冲：把 auto-end 计时器预置为负值，保证玩家至少有 ~1s 反应时间
       // 即使开局水晶不足以发牌（如被时空法师抽光、所有牌都贵）也不会瞬间被 auto-end 跳过。
       // 中途因发牌导致水晶不足 → else 分支已经把计时器清 0，仍走 0.25s 原速度，不影响节奏。
@@ -5241,6 +6775,10 @@ class BattleManager {
     this.world._shotBuffs = [];         // 缓释胶囊 buff 清空
     this.world._arcaneEvo = {};         // 奥术进化本局 buff 清空
     this.world._turnHookCards = [];     // 本回合用过的卡（奥弹/骷髅继承）清空
+    this.world._contCastActive = false; // 持续施法 本局状态清空
+    this.world._contCastRolls = 0;
+    this.world._reincarnateActive = false; // 转生 本局状态清空
+    _clearDiscoverState(this.world);     // 发现弹窗 残留清理
     this.world.summons = [];
     this.world.inventoryDiscount = 0;   // 背包减费跨关不继承
     Events.emit('inventoryDiscountChanged', 0);
@@ -5288,6 +6826,7 @@ class BattleManager {
 
   endPlayerTurn() {
     if (this.state !== State.Battle || this.turn !== 'player') return;
+    if (this.world._discoverPending) return;   // 发现挂起 → 玩家必须先选择
     // 剩余法力 → 金币：累积制，每 10 法力换 1 金币 orb（余数跨关保留，玩家不可见）。
     // orb 从法力条 fill 末端 spawn → 飞向金币条。
     const leftover = Math.floor(this.world.player.mana || 0);
@@ -5353,6 +6892,7 @@ class BattleManager {
     this.world.summons.length = 0;
     this.summonOverTurns = [];
     this.world.deck.clearBattleState();
+    _clearDiscoverState(this.world);
     this.setState(State.PostBattle);
     toast(t('enter_to_restart'), 2.5);
   }
@@ -5567,6 +7107,8 @@ class BattleManager {
     this.world.pendingShops = (this.world.pendingShops || 0) + 1;
     this.resumeAfterLoot = true;
     this._stageEndPending = true;
+    // 通关音：在商店打开"之前"播放（要求：关卡通过音在进入商店前播）
+    playSfx('stageClear', 200);
     toast(LANG.current === 'en'
       ? `★ Stage ${this.stageNumber} cleared! ★`
       : `★ 第 ${this.stageNumber} 关通过 ★`, 1.8);
@@ -5596,6 +7138,10 @@ class BattleManager {
     // 临时 buff 全部清空
     w._shotBuffs = [];
     w._arcaneEvo = {};           // 奥术进化本局 buff 清空
+    w._contCastActive = false;   // 持续施法 本局状态清空
+    w._contCastRolls = 0;
+    w._reincarnateActive = false; // 转生 本局状态清空
+    _clearDiscoverState(w);       // 发现弹窗 残留清理
     w._turnHookCards = [];       // 本回合用过的卡（奥弹/骷髅继承）清空
     w.inventoryDiscount = 0;
     Events.emit('inventoryDiscountChanged', 0);
@@ -5679,7 +7225,8 @@ class BattleManager {
   }
 
   // 玩家本回合能执行的最小动作 cost = min(最左 cost, 最右 cost) + 主卡有效 cost。
-  // 主卡 cost 必须加上 cannon.mainCostMod（强能炮台 +1）→ 与 fireFromCards 实际扣费保持一致
+  // 用 effectiveCardCost 统一读取（含 _battleCostOverride / _costMod / 主卡 mainCostMod）
+  //   → 挖掘洗入的 0 费卡能正确算入，不会被 autoEnd 错杀。
   // 弃牌不计在内（弃牌不是「使用」）。
   _minUsableCost() {
     const hand = this.world.deck.hand;
@@ -5692,10 +7239,11 @@ class BattleManager {
     const left = hand[0];
     const right = hand[hand.length - 1];
     const main = this.world.deck.mainCard;
-    const mainCostMod = this.world.cannon?.mainCostMod || 0;
-    const eff = (c) => Math.max(0, (c?.cost ?? 0) - (c?._costMod || 0));
-    const mainCost = main ? Math.max(0, eff(main) + mainCostMod) : 0;
-    return Math.min(eff(left), eff(right)) + mainCost;
+    const mainCost = main ? effectiveCardCost(main, this.world, true) : 0;
+    return Math.min(
+      effectiveCardCost(left, this.world, false),
+      effectiveCardCost(right, this.world, false),
+    ) + mainCost;
   }
 
   _spawnEnemy(typeKey) {
@@ -5783,6 +7331,8 @@ class World {
     //   damage: +1 攻击 / pierce: +1 穿透 / bound: +1 弹射 / speed: +50 px/s
     // 价格 = base * e^(已买次数 / 5)，每次买涨 ~22%
     this.permUpgrades = { damage: 0, pierce: 0, bound: 0, speed: 0 };
+    // 玩家剔除的卡 family（本局不再出现在商店候选）。阵亡重开时清空。
+    this.removedFamilyIds = new Set();
     // 商店升级花费（Lv1→2 .. Lv15→16）：每级递增 ~20-25%（更平缓的指数曲线）
     // 累积 ~800 金；最贵一级 161 金（≈ 8 个一波击杀奖励）
     this.SHOP_THRESHOLDS = [10, 12, 15, 18, 22, 27, 33, 40, 49, 60, 73, 89, 108, 132, 161];
@@ -5813,6 +7363,7 @@ class World {
     this._startupQueue = _makeStartupQueue();
     this._startupCurrent = null;
     this.permUpgrades = { damage: 0, pierce: 0, bound: 0, speed: 0 };
+    this.removedFamilyIds = new Set();
     this._shotBuffs = [];
     // 法力换金币进度：阵亡重开才清；关卡间保留余数
     this._manaConversionProgress = 0;
@@ -6557,26 +8108,22 @@ function fireFromCards(world, cards, side, opts = {}) {
   const main = world.deck.mainCard;
   const useList = [...cards, main];
 
-  // 单卡有效消耗：基础 cost 扣掉 _costMod（cost 减免类卡填这个字段），但不低于 0
-  // 主卡额外加上 cannon.mainCostMod（强能炮台 +1）
-  const mainCostMod = world.cannon?.mainCostMod || 0;
-  const effectiveCost = (c) => {
-    let cost = c.cost - (c._costMod || 0);
-    if (c === main) cost += mainCostMod;
-    return Math.max(0, cost);
-  };
+  // 单卡有效消耗：用 effectiveCardCost 统一读取（含 _battleCostOverride / _costMod / 主卡 mainCostMod）。
+  const effectiveCost = (c) => effectiveCardCost(c, world, c === main);
   // 计算总法力：连携时「完美协调」cost 视为 0（_comboCostFree 标记）
   const totalCost = useList.reduce((s, c) => {
     if (isCombo && c._comboCostFree) return s;
     return s + effectiveCost(c);
   }, 0);
-  if (player.mana < totalCost) { toast(t('no_mana'), 0.7); return false; }
+  if (player.mana < totalCost) { playSfx('noMana', 200); toast(t('no_mana'), 0.7); return false; }
 
   // 模板子弹（基础攻击 = 2，所有 PreActive 加成在此基础上累计）
   const tpl = new Bullet({
     x: player.x, y: player.y, angle: player.angle,
     speed: 480, lifetime: 3.0, bulletCount: 1, waveCount: 1, attack: 2, bound: 0, penetrate: 0,
   });
+  // 标记连携，让 fireOneWave 内播放音效时区分开炮 vs 连携开炮
+  tpl._fireIsCombo = !!isCombo;
 
   // 炮台被动：在 PreActive 之前修改 tpl 基础属性 / 累计 cannon 状态（连击 stack / 燃烧计数等）
   if (world.cannon) world.cannon.onFire(world, tpl, opts);
@@ -6592,16 +8139,16 @@ function fireFromCards(world, cards, side, opts = {}) {
     const cost = (isCombo && c._comboCostFree) ? 0 : effectiveCost(c);
     if (c === main) {
       // 主卡走「附带触发」：不弹出，直接把 Hook 装到模板，主卡自身扣费
-      if (!player.spend(cost)) { toast(t('no_mana'), 0.7); return false; }
+      if (!player.spend(cost)) { playSfx('noMana', 200); toast(t('no_mana'), 0.7); return false; }
       for (const h of main.initializeEffects()) tpl.addHook(h);
     } else {
       // 连携模式：跳过 c.use 的 spend（已统计好），手动装 hook
       if (isCombo) {
-        if (!player.spend(cost)) { toast(t('no_mana'), 0.7); return false; }
+        if (!player.spend(cost)) { playSfx('noMana', 200); toast(t('no_mana'), 0.7); return false; }
         for (const h of c.initializeEffects()) tpl.addHook(h);
       } else {
         // 普通使用：手动扣 effectiveCost，跳过 c.use 内部的 c.cost 扣费
-        if (!player.spend(cost)) { toast(t('no_mana'), 0.7); return false; }
+        if (!player.spend(cost)) { playSfx('noMana', 200); toast(t('no_mana'), 0.7); return false; }
         for (const h of c.initializeEffects()) tpl.addHook(h);
       }
     }
@@ -6610,11 +8157,14 @@ function fireFromCards(world, cards, side, opts = {}) {
   }
   // 记录本回合用过的卡（供奥弹自动发射 / 骷髅召唤继承本回合 buff）。
   // 排除奥弹与奥术进化衍生（避免继承自循环 / 重复加成）；boost1 等普通强化保留。
+  // 按引用去重：主卡 / 同一边缘卡若一回合内多次发射，hooks 只算 1 份
+  //   （否则 spawn 骷髅 / 自动奥弹时会按使用次数叠 buff，例如剑士主卡每发射一次就 +2 实体化）。
   world._turnHookCards = world._turnHookCards || [];
   for (const c of useList) {
     if (!c) continue;
     if (c.familyId === 'arcane_missile') continue;
     if (c._def?.arcEvoDerived) continue;
+    if (world._turnHookCards.includes(c)) continue;
     world._turnHookCards.push(c);
   }
   // 通知"哪一侧使用了什么"——展露类侦听该事件以做"另一侧 / 同一侧"等触发
@@ -6623,42 +8173,56 @@ function fireFromCards(world, cards, side, opts = {}) {
   // 副作用：onUse 设置全局 buff、洗入卡、召唤、连携 stacks 等
   for (const c of useList) c.onUse?.(world, player);
 
-  // PreActive 一次（带 world，让连击 / 共鸣弹等可读 world.combo）
-  tpl.triggerHooks(Phase.PreActive, { world });
+  // 发现关键词：onUse 中触发 triggerDiscover() 时，发射流程暂停 → 弹窗结算后再继续
+  // 把"PreActive → fireOneWave → 卡入弃牌堆 → 替换 → 连击 → 冷却"打包成一个延续函数
+  const continueFire = () => {
+    // PreActive 一次（带 world，让连击 / 共鸣弹等可读 world.combo）
+    tpl.triggerHooks(Phase.PreActive, { world });
 
-  // 一波几颗、几波
-  const waves = Math.max(1, tpl.waveCount);
-  for (let w = 0; w < waves; w++) {
-    setTimeout(() => fireOneWave(tpl, world), w * 120);
-  }
-
-  // 用过的卡入弃牌堆（主卡留在原位）
-  // 标记 _lastAction → renderHand 用以播 use / buff 离场特效
-  // _def.destroyOnUse 的卡（奥术进化衍生）使用后破碎 + 永久移除，不入弃牌堆
-  for (const c of cards) {
-    const effects = c.initializeEffects?.() || [];
-    if (c._def?.destroyOnUse) {
-      c._lastAction = 'shatter';
-      world.deck.destroyCard(c);
-    } else {
-      // 无 bullet hook 的卡视为 "纯效果" / buff（加倍奥弹 / 召唤 / 战吼 / 洗入 等）
-      c._lastAction = effects.length === 0 ? 'buff' : 'use';
-      world.deck.toDiscard(c);
+    // 一波几颗、几波
+    const waves = Math.max(1, tpl.waveCount);
+    for (let w = 0; w < waves; w++) {
+      setTimeout(() => fireOneWave(tpl, world), w * 120);
     }
+
+    // 用过的卡入弃牌堆（主卡留在原位）
+    // 标记 _lastAction → renderHand 用以播 use / buff 离场特效
+    // _def.destroyOnUse 的卡（奥术进化衍生）使用后破碎 + 永久移除，不入弃牌堆
+    // card._destroyAfterUse（挖掘洗入的卡）：使用 / 弃置后破碎 + 永久移除
+    for (const c of cards) {
+      const effects = c.initializeEffects?.() || [];
+      if (c._def?.destroyOnUse || c._destroyAfterUse) {
+        c._lastAction = 'shatter';
+        world.deck.destroyCard(c);
+      } else {
+        // 无 bullet hook 的卡视为 "纯效果" / buff（加倍奥弹 / 召唤 / 战吼 / 洗入 等）
+        c._lastAction = effects.length === 0 ? 'buff' : 'use';
+        world.deck.toDiscard(c);
+      }
+    }
+    // 奥术进化：先使用（onUse 已洗入 5 张衍生），再替换 — 把 bag 主卡槽 / discard 中
+    // 标记 _becomeArcaneboost 的卡就地替换成同 tier 的 arcaneboost。
+    _resolveArcaneEvoReplacements(world);
+
+    // 连击
+    world.combo.onUse(side);
+
+    // 共享冷却
+    player.notifyAction(performance.now() / 1000);
+  };
+
+  if (world._discoverPending && !world._discoverPending.resolved) {
+    // 发现挂起 → 把"继续发射"挂在挂起对象上，玩家选择后由 resolveDiscover 触发
+    world._discoverPending._continuation = continueFire;
+  } else {
+    continueFire();
   }
-  // 奥术进化：先使用（onUse 已洗入 5 张衍生），再替换 — 把 bag 主卡槽 / discard 中
-  // 标记 _becomeArcaneboost 的卡就地替换成同 tier 的 arcaneboost。
-  _resolveArcaneEvoReplacements(world);
-
-  // 连击
-  world.combo.onUse(side);
-
-  // 共享冷却
-  player.notifyAction(performance.now() / 1000);
   return true;
 }
 
 function fireOneWave(tpl, world) {
+  // 每波开火音（cardUsedSide 不再播开火音 → 这里按 wave 数等距响）
+  Events.emit('fireWave', { combo: !!tpl._fireIsCombo });
   const n = Math.max(1, tpl.bulletCount);
   // 子弹做小扇形：单颗 3°，最大总扇形 30°（避免子弹数多时太散）
   const perBullet = Math.PI / 60;
@@ -6778,11 +8342,10 @@ function _comboTotalCost(world) {
   const main = world.deck.mainCard;
   const left = hand[0];
   const right = hand[hand.length - 1];
-  const mainCostMod = world.cannon?.mainCostMod || 0;
-  const eff = (c) => Math.max(0, (c?.cost ?? 0) - (c?._costMod || 0));
-  const lc = left?._comboCostFree ? 0 : eff(left);
-  const rc = right?._comboCostFree ? 0 : eff(right);
-  const mc = main?._comboCostFree ? 0 : Math.max(0, eff(main) + mainCostMod);
+  // 用 effectiveCardCost：会读取 _battleCostOverride（如挖掘洗入卡的 cost = 0 覆盖）
+  const lc = left?._comboCostFree ? 0 : effectiveCardCost(left, world, false);
+  const rc = right?._comboCostFree ? 0 : effectiveCardCost(right, world, false);
+  const mc = main?._comboCostFree ? 0 : effectiveCardCost(main, world, true);
   return lc + rc + mc;
 }
 
@@ -6794,6 +8357,7 @@ function _comboWillFire(world) {
 }
 
 function doFire(world, side) {
+  if (world._discoverPending) return;  // 发现挂起 → 必须先选择
   // 连携优先 — 但只在"实际能付得起三卡"时才触发。
   // 法力不够时回落到单卡发射（不消耗 stack），避免有连携反而打不出卡的尴尬。
   if (_comboWillFire(world)) {
@@ -6825,6 +8389,7 @@ function doFire(world, side) {
 }
 
 function doFireAll(world) {
+  if (world._discoverPending) return;
   if (world.deck.hand.length < 2) { toast(t('need_two'), 0.7); return; }
   const left = world.deck.takeSide('left');
   const right = world.deck.takeSide('right');
@@ -6838,6 +8403,7 @@ function doFireAll(world) {
 }
 
 function doDiscard(world, side) {
+  if (world._discoverPending) return;
   const c = world.deck.takeSide(side);
   if (!c) return;
   if (!c.discard(world.player)) {
@@ -6845,15 +8411,22 @@ function doDiscard(world, side) {
     else world.deck.hand.push(c);
     world.deck._updateFaceUp();
     Events.emit('deckChanged');
-    toast(t('no_mana'), 0.7);
+    playSfx('noMana', 200); toast(t('no_mana'), 0.7);
     return;
   }
+  playSfx('discard', 60);
   // 弃置时副作用：双面间谍 / 战术撤退 / 弃牌号令 等
   c.onDiscard?.(world, world.player);
   // 亡灵法师：场上有活的 _isNecromancer 实体子弹 → 每次弃牌召唤 1 骷髅
   handleDiscardForNecromancer(world);
-  c._lastAction = 'discard';
-  world.deck.toDiscard(c);
+  // _destroyAfterUse（挖掘洗入的卡）：弃置时同样破碎 + 永久移除，不入弃牌堆
+  if (c._destroyAfterUse) {
+    c._lastAction = 'shatter';
+    world.deck.destroyCard(c);
+  } else {
+    c._lastAction = 'discard';
+    world.deck.toDiscard(c);
+  }
   world.combo.reset();
 }
 
@@ -7075,8 +8648,7 @@ function setupUI(world) {
   function updateUsableState() {
     const mana = world.player.mana;
     const mainCard = world.deck.mainCard;
-    const mainCostMod = world.cannon?.mainCostMod || 0;
-    const mainCost = mainCard ? Math.max(0, mainCard.cost + mainCostMod) : 0;
+    const mainCost = mainCard ? effectiveCardCost(mainCard, world, true) : 0;
     const hand = world.deck.hand;
     const left = hand[0];
     const right = hand[hand.length - 1];
@@ -7093,8 +8665,8 @@ function setupUI(world) {
         continue;
       }
       const isEdge = (card === left || card === right);
-      // 单卡发射所需法力
-      const singleCost = card.cost + mainCost;
+      // 单卡发射所需法力（用 effectiveCardCost 读取 _battleCostOverride）
+      const singleCost = effectiveCardCost(card, world, false) + mainCost;
       // 边缘卡：根据连携是否会触发，显示连携总价或单卡总价
       if (isEdge && totalEl) {
         if (comboFires) {
@@ -7316,9 +8888,102 @@ function setupUI(world) {
     const refreshLangBtn = () => { $langBtn.textContent = t('lang_btn'); };
     refreshLangBtn();
     $langBtn.addEventListener('click', () => {
+      playSfx('uiClick', 0);
       setLang(LANG.current === 'zh' ? 'en' : 'zh');
     });
     Events.on('langChanged', refreshLangBtn);
+  }
+
+  // 设置面板：右上角齿轮按钮打开 / 关闭；面板内含语言 / 音量 / 静音 / 两个自动结束回合开关
+  const $settingsBtn = document.getElementById('settings-btn');
+  const $settingsPanel = document.getElementById('settings-panel');
+  const $settingsClose = document.getElementById('settings-close-btn');
+  const $sfxVol = document.getElementById('sfx-volume');
+  const $sfxVolVal = document.getElementById('sfx-volume-val');
+  const $sfxMute = document.getElementById('sfx-mute');
+  if ($settingsBtn && $settingsPanel) {
+    const refreshSettingsTip = () => { $settingsBtn.title = t('settings_btn_tip'); };
+    refreshSettingsTip();
+    Events.on('langChanged', refreshSettingsTip);
+
+    const openPanel = () => {
+      $settingsPanel.classList.remove('hidden');
+      $settingsBtn.classList.add('active');
+      playSfx('uiOpen', 0);
+    };
+    const closePanel = () => {
+      if ($settingsPanel.classList.contains('hidden')) return;
+      $settingsPanel.classList.add('hidden');
+      $settingsBtn.classList.remove('active');
+      playSfx('uiClose', 0);
+    };
+    $settingsBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      if ($settingsPanel.classList.contains('hidden')) openPanel();
+      else closePanel();
+    });
+    if ($settingsClose) {
+      $settingsClose.addEventListener('click', e => { e.stopPropagation(); closePanel(); });
+    }
+    // 点击面板外关闭
+    document.addEventListener('click', e => {
+      if ($settingsPanel.classList.contains('hidden')) return;
+      if ($settingsPanel.contains(e.target) || $settingsBtn.contains(e.target)) return;
+      closePanel();
+    });
+    // ESC 关闭
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !$settingsPanel.classList.contains('hidden')) closePanel();
+    });
+  }
+  // 音量滑块：0-100 映射到 0-1
+  if ($sfxVol && $sfxVolVal) {
+    const refreshVol = () => {
+      const v = Math.round(SFX.master * 100);
+      $sfxVol.value = String(v);
+      $sfxVolVal.textContent = String(v);
+    };
+    refreshVol();
+    $sfxVol.addEventListener('input', () => {
+      const v = clamp(parseInt($sfxVol.value, 10) || 0, 0, 100) / 100;
+      setSfxMaster(v);
+      $sfxVolVal.textContent = String(Math.round(v * 100));
+    });
+    // 拖完之后播一下试听
+    $sfxVol.addEventListener('change', () => { if (!SFX.muted) playSfx('uiClick', 0); });
+    Events.on('sfxChanged', refreshVol);
+  }
+  if ($sfxMute) {
+    $sfxMute.checked = SFX.muted;
+    $sfxMute.addEventListener('change', () => {
+      setSfxMuted($sfxMute.checked);
+      if (!SFX.muted) playSfx('uiClick', 0);
+    });
+  }
+  // BGM 音量 / 开关
+  const $bgmVol = document.getElementById('bgm-volume');
+  const $bgmVolVal = document.getElementById('bgm-volume-val');
+  const $bgmEnabled = document.getElementById('bgm-enabled');
+  if ($bgmVol && $bgmVolVal) {
+    const refreshBgmVol = () => {
+      const v = Math.round(BGM.master * 100);
+      $bgmVol.value = String(v);
+      $bgmVolVal.textContent = String(v);
+    };
+    refreshBgmVol();
+    $bgmVol.addEventListener('input', () => {
+      const v = clamp(parseInt($bgmVol.value, 10) || 0, 0, 100) / 100;
+      setBgmMaster(v);
+      $bgmVolVal.textContent = String(Math.round(v * 100));
+    });
+    Events.on('bgmChanged', refreshBgmVol);
+  }
+  if ($bgmEnabled) {
+    $bgmEnabled.checked = BGM.enabled;
+    $bgmEnabled.addEventListener('change', () => {
+      setBgmEnabled($bgmEnabled.checked);
+      if (!SFX.muted) playSfx('uiClick', 0);
+    });
   }
 
   // 语言切换 → 重新填充静态 DOM 文案、再触发各模块自己的渲染。
@@ -7365,6 +9030,44 @@ function setupUI(world) {
   Events.emit('stateChanged', world.battle.state);
   Events.emit('turnChanged', world.battle.turn);
 
+  // ─── 发现弹窗：监听 show/hide 事件 + 点击候选卡 → resolveDiscover ───
+  const $discover = document.getElementById('modal-discover');
+  const $discoverTitle = document.getElementById('discover-title');
+  const $discoverSub = document.getElementById('discover-sub');
+  const $discoverCards = document.getElementById('discover-cards');
+  const $handArea = document.getElementById('hand-area');
+  // hand-area 在 DOM 中是布局尾巴 → 测出实际高度写入 CSS 变量，让弹窗精准避开
+  const _updateHandAreaH = () => {
+    const h = $handArea ? Math.round($handArea.getBoundingClientRect().height) : 320;
+    if (h > 0) document.documentElement.style.setProperty('--hand-area-h', `${h}px`);
+  };
+  _updateHandAreaH();
+  window.addEventListener('resize', _updateHandAreaH);
+  // 手牌变化也可能改高度（虽然 hand-row min-height 是固定的，但保险起见）
+  Events.on('deckChanged', _updateHandAreaH);
+
+  if ($discover && $discoverCards) {
+    Events.on('discoverShow', (data) => {
+      if (!data) return;
+      $discoverTitle.textContent = data.title || (LANG.current === 'zh' ? '发现' : 'Discover');
+      $discoverSub.textContent = data.sub || (LANG.current === 'zh' ? '选择一张卡' : 'Pick a card');
+      $discoverCards.innerHTML = '';
+      data.candidates.forEach((card, i) => {
+        const el = modalCardEl(card);
+        el.addEventListener('click', () => resolveDiscover(world, i));
+        $discoverCards.appendChild(el);
+      });
+      _updateHandAreaH();          // 弹窗显示前再测一次（确保最新布局）
+      $discover.classList.remove('hidden');
+      // 弹窗内的候选卡描述也走字体自适应，长描述（如展露卡）能正确缩放
+      scheduleFitCardDescs();
+    });
+    Events.on('discoverHide', () => {
+      $discover.classList.add('hidden');
+      $discoverCards.innerHTML = '';
+    });
+  }
+
   return { update, renderHand };
 }
 
@@ -7399,6 +9102,7 @@ function setupInventoryPanel(world) {
   _refreshButton();
 
   function open() {
+    if (world._discoverPending) return;   // 发现挂起 → 阻塞背包
     const inBattle = world.battle.state === State.Battle;
     const cost = _effectiveOpenCost();
     if (inBattle) {
@@ -7465,6 +9169,8 @@ function setupInventoryPanel(world) {
     el.addEventListener('contextmenu', e => {
       e.preventDefault();
       if (index === 0) { toast(t('is_main'), 0.6); return; }
+      // 切换主卡音：和"购买点击背包牌"同款的 ka-ching 确认音
+      playSfx('purchase', 0);
       // 飞行动画提示主卡上位
       el.classList.add('set-main-flash');
       setTimeout(() => {
@@ -7642,16 +9348,44 @@ function setupKeywordTooltips() {
   }
 
   // 事件委托：监听 document mouseover。让 show 内部决定显示关键词解释 / 反面提示 / 不显示
+  // 跟踪上次悬浮的 slot：避免 mouseover 在子元素间跳动时重复播音
+  let _lastHoverSlot = null;
   document.addEventListener('mouseover', e => {
     const slot = e.target.closest('.card-slot, .modal-card, .bag-slot');
     if (!slot) return;
+    if (slot !== _lastHoverSlot) {
+      _lastHoverSlot = slot;
+      playSfx('cardHover', 30);
+    }
     const kws = slot.__keywords || [];
     show(slot, kws);
   });
   document.addEventListener('mouseout', e => {
     const slot = e.target.closest('.card-slot, .modal-card, .bag-slot');
-    if (slot) clear();
+    if (slot) {
+      clear();
+      // 离开 slot（去到非 slot 元素或别的 slot）→ 清空跟踪，让下次 mouseover 重新触发
+      // 注意：不能赋成 "to"（新 slot），否则下次 mouseover 检测 slot === lastHover → 静默
+      const to = e.relatedTarget && e.relatedTarget.closest
+        ? e.relatedTarget.closest('.card-slot, .modal-card, .bag-slot')
+        : null;
+      if (to !== slot) _lastHoverSlot = null;
+    }
   });
+  // 任何卡 / 候选卡被点击 → 选择音
+  // 注意：.bag-slot 不在此列 —— 背包槽的"替换"步骤会触发后续 uiClick / 替换音，避免双响
+  // 商店候选卡（在 #loot-candidates 内）用金币 chime —— "花钱买卡"的语义
+  document.addEventListener('click', e => {
+    const slot = e.target.closest('.card-slot, .modal-card');
+    if (!slot) return;
+    if (slot.closest('#loot-candidates')) playSfx('coinCascade', 100);
+    else playSfx('cardSelect', 60);
+  }, true); // capture 阶段：在卡自身的 click 处理（如 resolveDiscover）之前响起来
+
+  // 发现弹窗 / 状态切换 时，卡 DOM 会同步消失但 mouseout 不会触发
+  //   → 残留 kw-pop 不会被清除。这里监听生命周期事件来主动清场。
+  Events.on('discoverHide', () => { clear(); _lastHoverSlot = null; });
+  Events.on('stateChanged', () => { clear(); _lastHoverSlot = null; });
 }
 
 // ---- 起始炮台选择面板（首次进入 / 阵亡后重开）----
@@ -7755,6 +9489,19 @@ function setupLootPanel(world) {
       const slots = [];
       for (let i = 0; i < n; i++) slots.push(_rollShopCard(world, keys, 40, tier));
       world.shopSlots = slots;
+    } else if (world.shopSlots && world.shopSlots.some(c => c && c._shopLocked)) {
+      // 上一次商店有锁定的卡 → 保留锁定卡的位置，只填补空槽
+      // 锁定的 family 先填入 dedup keys，让填补的新卡不会和锁定卡同 family / 不同 tier 重复
+      const keys = new Set();
+      for (const c of world.shopSlots) {
+        if (c && c._shopLocked) keys.add(c.familyId);
+      }
+      while (world.shopSlots.length < n) world.shopSlots.push(null);
+      for (let i = 0; i < world.shopSlots.length; i++) {
+        if (world.shopSlots[i] == null) {
+          world.shopSlots[i] = _rollShopCard(world, keys);
+        }
+      }
     } else {
       world.shopSlots = rollShopCandidates(world, n);
     }
@@ -7939,6 +9686,68 @@ function setupLootPanel(world) {
       el.appendChild(tag);
 
       const idx = i;       // 闭包捕获
+
+      // 商店候选操作按钮：锁定 + 剔除（新手 pick 阶段不显示）
+      //   锁定：刷新跳过此槽位，且跨"继续游戏"保留位置
+      //   剔除：本局商店池永久去除此 family（写入 world.removedFamilyIds），二次点击确认
+      if (!isStartupPick()) {
+        if (c._shopLocked) el.classList.add('shop-cand-locked');
+        const actions = document.createElement('div');
+        actions.className = 'shop-cand-actions';
+
+        const lockBtn = document.createElement('button');
+        lockBtn.type = 'button';
+        lockBtn.className = 'shop-cand-act shop-cand-lock' + (c._shopLocked ? ' active' : '');
+        lockBtn.textContent = c._shopLocked ? '🔒' : '🔓';
+        lockBtn.title = t(c._shopLocked ? 'shop_unlock_tip' : 'shop_lock_tip');
+        lockBtn.addEventListener('mousedown', e => e.stopPropagation());
+        lockBtn.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
+        lockBtn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          c._shopLocked = !c._shopLocked;
+          renderCandidates();
+          renderRerollBtn();
+        });
+        actions.appendChild(lockBtn);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'shop-cand-act shop-cand-remove';
+        removeBtn.textContent = '✕';
+        removeBtn.title = t('slot_remove_tip');
+        removeBtn.addEventListener('mousedown', e => e.stopPropagation());
+        removeBtn.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
+        removeBtn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (c._shopLocked) { toast(t('slot_locked_remove'), 0.9); return; }
+          if (!removeBtn._confirming) {
+            removeBtn._confirming = true;
+            removeBtn.classList.add('confirm');
+            removeBtn._timer = setTimeout(() => {
+              removeBtn._confirming = false;
+              removeBtn.classList.remove('confirm');
+            }, 2000);
+            toast(t('slot_remove_confirm'), 1.2);
+            return;
+          }
+          clearTimeout(removeBtn._timer);
+          world.removedFamilyIds = world.removedFamilyIds || new Set();
+          world.removedFamilyIds.add(c.familyId);
+          toast(t('slot_removed_toast', { name: c.name }), 1.2);
+          world.shopSlots[idx] = null;
+          if (selectedIdx === idx) selectedIdx = -1;
+          renderCandidates();
+          renderBag();
+          renderRerollBtn();
+          updateHint();
+        });
+        actions.appendChild(removeBtn);
+
+        el.appendChild(actions);
+      }
+
       el.addEventListener('click', () => {
         // 可合成 → 点击直接触发购买 + 自动合成（不需要再点 bag 槽）
         if (canMergeThis) {
@@ -7971,6 +9780,8 @@ function setupLootPanel(world) {
     }
     world.gold -= price;
     Events.emit('goldChanged', world.gold);
+    // 购买确认音：饱满 "ka-ching"（Step 2 的反馈，比 uiClick 更厚实）
+    playSfx('purchase', 0);
     const candEl = $cands.querySelectorAll('.modal-card')[candIdx];
     if (candEl) candEl.classList.add('cand-consume-flash');
 
@@ -8079,6 +9890,8 @@ function setupLootPanel(world) {
     el.addEventListener('contextmenu', e => {
       e.preventDefault();
       if (index === 0) { toast(t('is_main'), 0.6); return; }
+      // 切换主卡音：和"购买点击背包牌"同款的 ka-ching 确认音
+      playSfx('purchase', 0);
       // 动画：先 flash 当前 slot 提示「即将上位主卡」
       el.classList.add('set-main-flash');
       setTimeout(() => {
@@ -8113,7 +9926,17 @@ function setupLootPanel(world) {
   }
 
   $continue.addEventListener('click', () => {
-    world.shopSlots = null;
+    // 锁定的候选要跨"继续游戏 → 下次进入商店"保留：清空非锁定槽位，但保留 shopSlots 数组。
+    // 完全没有锁定的话直接清空（保持旧行为，下次 showLoot 全新 roll）。
+    if (world.shopSlots && world.shopSlots.some(c => c && c._shopLocked)) {
+      for (let i = 0; i < world.shopSlots.length; i++) {
+        if (world.shopSlots[i] && !world.shopSlots[i]._shopLocked) {
+          world.shopSlots[i] = null;
+        }
+      }
+    } else {
+      world.shopSlots = null;
+    }
     selectedIdx = -1;
     world.refreshCount = 0;
     // 新手 pick 阶段：进下一个 startup item
@@ -8159,10 +9982,15 @@ function setupLootPanel(world) {
       if (world.gold < cost) return;
       world.gold -= cost;
       world.refreshCount++;
-      // 刷新：只 re-roll "非空" 槽位（已购的保持空缺，要求 #3）
+      // 刷新：只 re-roll "非空 且 未锁定" 槽位（已购保持空、锁定保持原卡）
+      // 锁定槽位的 family 先填入 keys，让重 roll 的其它槽位不会出现同 family 重复。
       const keys = new Set();
+      for (const slot of world.shopSlots) {
+        if (slot != null && slot._shopLocked) keys.add(slot.familyId);
+      }
       for (let i = 0; i < world.shopSlots.length; i++) {
-        if (world.shopSlots[i] != null) {
+        const cur = world.shopSlots[i];
+        if (cur != null && !cur._shopLocked) {
           world.shopSlots[i] = _rollShopCard(world, keys);
         }
       }
@@ -8411,12 +10239,120 @@ function render(ctx, world) {
   }
 }
 
+// 把音效与游戏事件挂在一起。各 SFX 只在玩家"主动操作 / 显著状态变化"时响一次。
+function setupSfxBindings(world) {
+  // 模态按钮（刷新 / 升级 / 继续 / 背包 / 永久升级 等）统一 UI 点击音
+  // capture 阶段：在按钮自身的 click handler 之前响起；disabled 按钮跳过；
+  // 已有专属音效的按钮（设置 / 语言 / 关闭设置）跳过避免双响
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    if (btn.disabled) return;
+    if (btn.id === 'settings-btn' || btn.id === 'settings-close-btn' || btn.id === 'lang-btn') return;
+    const cls = btn.className || '';
+    if (btn.id === 'open-inventory-btn') { playSfx('uiOpen', 0); return; }
+    if (btn.id === 'close-inventory-btn') { playSfx('uiClose', 0); return; }
+    if (btn.id === 'shop-level-btn') {
+      // 升级是积极动作 → 用 cannonPick 双音脆响（disabled 已被上面拦截）
+      playSfx('cannonPick', 0);
+      return;
+    }
+    if (btn.id === 'reroll-btn') {
+      // 刷新 → 用 shuffleIn 的洗牌感
+      playSfx('shuffleIn', 0);
+      return;
+    }
+    if (cls.includes('perm-upgrade-btn')) {
+      // 永久升级 = 花金币买 buff（要求 #3 取消金币音 → 用 UI 脆响替代）
+      playSfx('uiClick', 60);
+      return;
+    }
+    if (cls.includes('modal-btn')) {
+      playSfx('uiClick', 60);
+      return;
+    }
+  }, true);
+
+  // 开火：每"波"触发（fireOneWave 内 emit 'fireWave'）→ 固定 timbre，不随伤害变化；更响
+  Events.on('fireWave', payload => {
+    if (payload && payload.combo) playSfx('shotCombo', 20);
+    else playSfx('shotFire', 20);
+  });
+  // 子弹弹射 / 摧毁：统一用 bulletDestroy 音色（用户要求 —— 弹射和撞墙耗尽听感一致）
+  Events.on('bulletBounce', () => playSfx('bulletDestroy', 25));
+  Events.on('bulletDestroyed', () => playSfx('bulletDestroy', 60));
+
+  // 敌人死亡：boss 用更厚重的音效
+  Events.on('enemyDied', enemy => {
+    if (enemy && enemy.typeKey === 'boss') playSfx('bossDie', 120);
+    else playSfx('enemyDie', 30);
+  });
+
+  // 玩家死亡
+  Events.on('playerDied', () => playSfx('death', 0));
+
+  // 金币变化：要求 #3 取消金币音（之前的 chime 太吵 / 频繁）
+
+  // 连携 stacks 增加 → 提示音
+  let _lastCombo = 0;
+  Events.on('comboStacksChanged', n => {
+    if (n > _lastCombo) playSfx('comboStack', 60);
+    _lastCombo = n;
+  });
+
+  // 洗入：奥弹 / 挖掘 等
+  Events.on('shuffledIn', () => playSfx('shuffleIn', 50));
+
+  // 炮台选定
+  Events.on('cannonChanged', c => { if (c) playSfx('cannonPick', 0); });
+
+  // 关卡推进 → 通关号角已挪到 BattleManager._endStage（进商店前），这里不再监听 stageChanged
+
+  // 关卡开始：state 转入 Battle 时播战鼓；进入商店时播店铃；进入奖励回合时播星星 arpeggio
+  let _lastBattleState = null;
+  Events.on('stateChanged', s => {
+    if (s === 'Battle' && _lastBattleState !== 'Battle') {
+      playSfx('stageStart', 400);
+    }
+    if (s === 'Reward' && _lastBattleState !== 'Reward') {
+      playSfx('shopEnter', 200);
+    }
+    _lastBattleState = s;
+    // BGM 曲目切换：State.Reward = 商店；其它 = 战斗（奖励关卡再由 rewardTurn 决定）
+    if (s === 'Reward') setBgmTrack('shop');
+    else setBgmTrack(world.battle.rewardTurn ? 'reward' : 'combat');
+  });
+
+  // 奖励回合开始 / 结束：BGM 切换 reward ↔ combat；进入奖励关卡时播 rewardEnter
+  let _lastRewardTurn = false;
+  Events.on('stageChanged', () => {
+    const r = !!world.battle.rewardTurn;
+    if (r !== _lastRewardTurn) {
+      _lastRewardTurn = r;
+      if (world.battle.state === 'Battle') {
+        setBgmTrack(r ? 'reward' : 'combat');
+      }
+      if (r) playSfx('rewardEnter', 400);
+    }
+  });
+
+  // 回合结束（player → enemy）= 上膛音；玩家回合开始静音（无需开始提示）
+  Events.on('turnChanged', t => {
+    if (t === 'enemy') playSfx('gunCock', 80);
+  });
+
+  // 召唤物事件：召唤 / 死亡（攻击在 Summon.fireOnce 内已直接 playSfx）
+  Events.on('summonSpawned', () => playSfx('summonSpawn', 50));
+  Events.on('summonDied', () => playSfx('summonDie', 50));
+}
+
 function main() {
   const canvas = document.getElementById('stage');
   const ctx = canvas.getContext('2d');
   const world = new World();
   const ui = setupUI(world);
   setupInput(world, canvas);
+  setupSfxBindings(world);
 
   // 初始背包：9 张 1 费"强化"（伤害 +1）—— 干净的起手卡，玩家通过商店逐步替换为策划表卡。
   // bag[0] 是主卡 → 主卡也是 强化，每次发射主卡 hook 也算一次伤害 +1（即每次基础攻击 = 1 + 1 + 1 = 3，
@@ -8432,7 +10368,9 @@ function main() {
   Events.on('enemyDied', enemy => {
     // 旧 xp 字段已删除，但 enemy.xpReward 仍作为"击杀分量"评估指标用于：震屏强度 + 计分。
     const killValue = enemy.xpReward || 2;
-    const goldAmount = enemy.waveGoldDrop ?? Math.max(1, Math.ceil(killValue / 5));
+    const rawGold = enemy.waveGoldDrop ?? Math.max(1, Math.ceil(killValue / 5));
+    // 敌人掉落 ≈ 原值 1/3（向上取整，下限 1）；奖励金球 hit 掉金币走另外的路径，不受影响。
+    const goldAmount = Math.max(1, Math.ceil(rawGold / 3));
     const orbCount = Math.min(5, Math.max(1, goldAmount));
     const perOrb = Math.max(1, Math.ceil(goldAmount / orbCount));
     for (let i = 0; i < orbCount; i++) {
@@ -8477,6 +10415,10 @@ function main() {
     Events.emit('scoreChanged', world.score);
     // 触发死亡特殊效果（如分裂）
     enemy.onDie?.(world);
+    // 转生：本局开启时，每个敌人死亡有 10% 概率召唤 1 个骷髅
+    if (world._reincarnateActive && Math.random() < 0.10) {
+      spawnSkeleton(world, { x: enemy.x, y: enemy.y });
+    }
   });
   // 关卡完成奖励分数
   Events.on('stageChanged', () => {
@@ -8566,6 +10508,8 @@ function main() {
   window.__events = Events;
   window.__rollShop = rollShopCandidates;
   window.__rollShopCard = _rollShopCard;
+  window.__triggerDiscover = triggerDiscover;
+  window.__resolveDiscover = resolveDiscover;
 }
 
 main();
