@@ -1038,7 +1038,7 @@ const ENEMY_TYPES = {
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '缓慢推进接触' }] },
   shrieker:  { name: '尖叫者',   icon: '📢', maxHp: 7,  attack: 0, speed: 40, radius: 15, color: '#c0a040', shape: 'circle', xpReward: 5, value: 5, minWave: 13,
                behavior: 'support', preferredRange: 320,
-               intents: [{ kind: 'buffall', icon: '📢', cooldown: 3, value: 3, desc: '3 回合后全敌人 +3 最大 HP' }] },
+               intents: [{ kind: 'buffall', icon: '📢', cooldown: 3, value: 15, desc: '3 回合后全敌人 +15 速度' }] },
   slower:    { name: '时空法师', icon: '⏳', maxHp: 9, attack: 0, speed: 45, radius: 16, color: '#6080c0', shape: 'circle', xpReward: 6, value: 6, minWave: 14,
                behavior: 'support', preferredRange: 300,
                intents: [{ kind: 'debuff', icon: '⬇', cooldown: 2, desc: '2 回合后抽走玩家 1 法力' }] },
@@ -1074,7 +1074,7 @@ const ENEMY_TR = {
   berserker: { name_en: 'Berserker',    intents_en: ['Self +1 ATK (stacking) in 1 turn', 'Contact damage'] },
   splitter:  { name_en: 'Splitter',     intents_en: ['Contact / on death splits into 2 small'] },
   slug:      { name_en: 'Slug',         intents_en: ['Slow advance, contact damage'] },
-  shrieker:  { name_en: 'Shrieker',     intents_en: ['All enemies +3 max HP in 3 turns'] },
+  shrieker:  { name_en: 'Shrieker',     intents_en: ['All enemies +15 speed in 3 turns'] },
   slower:    { name_en: 'Chronomancer', intents_en: ['Drain 1 player mana in 2 turns'] },
   boss:      { name_en: 'Abyss Lord',   intents_en: ['Fires a 3-dmg shot in 1 turn', 'Summons a Goblin in 2 turns', 'AOE 5 dmg in 2 turns'] },
   reward:    { name_en: 'Gold Orb',     intents_en: ['Reward target. Hit it for gold (per-stage damage threshold + Fibonacci; color brightens from dark gold to white).'] },
@@ -1723,11 +1723,18 @@ function executeIntent(world, enemy, intent) {
       },
     });
   } else if (k === 'buffall') {
-    // 全敌人 +HP
+    // 全敌人 +speed（永久 / 本场战斗内累积）
+    const bump = intent.value || 15;
     for (const o of world.enemies) {
       if (!o.alive) continue;
-      o.maxHp += (intent.value || 3);
-      o.hp += (intent.value || 3);
+      o.speed += bump;
+      // 视觉反馈：金色脉冲环 + "💨" 飞字
+      const w = world;
+      if (w) {
+        w.particles.push(new Particle({
+          x: o.x, y: o.y, life: 0.32, color: '#c0a040', size: o.radius + 6, type: 'ring',
+        }));
+      }
     }
   } else if (k === 'selfbuff') {
     enemy.attack += (intent.value || 1);
