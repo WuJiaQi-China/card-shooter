@@ -3035,7 +3035,7 @@ function _autoFireArcaneMissile(world, card) {
       angle: initAngle,
       speed: 360, lifetime: 3.5,
       attack: 1 + (card._arcBonus || 0) + (evo.dmg || 0),
-      bound: 0, penetrate: 0 + (evo.pen || 0), radius: 6,
+      bound: 0 + (evo.bound || 0), penetrate: 0 + (evo.pen || 0), radius: 6,
     });
     bullet.isArcane = true;
     bullet.tracking = true;             // 走新版 homing-missile steering（trackAccel 默认 900）
@@ -4430,7 +4430,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹伤害+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Damage +1. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.dmg = (world._arcaneEvo.dmg || 0) + 1; },
@@ -4443,7 +4443,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹穿透+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Pierce +1. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.pen = (world._arcaneEvo.pen || 0) + 1; },
@@ -4456,7 +4456,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹施加1层燃烧。移除此牌。', en: 'For this battle, your Arcane Missiles apply 1 Burn on hit. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.fire = (world._arcaneEvo.fire || 0) + 1; },
@@ -4465,14 +4465,14 @@ const CARD_DATA = {
   },
   arc_evo_missile: {
     emoji: '✷',
-    name: { zh: '奥术进化-弹', en: 'Arc.Evo · Missile' },
+    name: { zh: '奥术进化-弹', en: 'Arc.Evo · Bounce' },
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
-        desc: { zh: '本局对战中，每回合开始将2枚奥弹翻为正面。移除此牌。', en: 'For this battle, reveal 2 Arcane Missiles at the start of each turn. Remove this card.' },
+        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        desc: { zh: '本局对战中，你的奥弹弹射+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Bounce +1. Remove this card.' },
         effects: () => [],
-        onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.missileFlip = (world._arcaneEvo.missileFlip || 0) + 2; },
+        onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.bound = (world._arcaneEvo.bound || 0) + 1; },
       },
     },
   },
@@ -4482,7 +4482,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 1, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹有25%概率施加冻结。移除此牌。', en: 'For this battle, your Arcane Missiles have 25% chance to apply Freeze. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.freezeChance = (world._arcaneEvo.freezeChance || 0) + 0.25; },
@@ -4544,26 +4544,6 @@ function _resolveArcaneEvoReplacements(world) {
     }
   }
   if (changed) Events.emit('deckChanged');
-}
-
-// 玩家回合开始时调用：奥术进化-弹 buff 生效 → 把 2 张反面奥弹翻为正面（自动触发发射）
-function _tickArcaneEvoMissileFlip(world) {
-  const n = world?._arcaneEvo?.missileFlip || 0;
-  if (n <= 0) return;
-  const deck = world.deck;
-  if (!deck || !deck.hand) return;
-  const candidates = deck.hand.filter(c => c.familyId === 'arcane_missile' && !c.faceUp);
-  // Fisher-Yates 取前 n 张
-  const idxs = candidates.map((_, i) => i);
-  for (let i = idxs.length - 1; i > 0; i--) {
-    const j = randInt(0, i);
-    [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
-  }
-  const take = Math.min(n, candidates.length);
-  for (let i = 0; i < take; i++) {
-    const c = candidates[idxs[i]];
-    deck._setFace(c, true);
-  }
 }
 
 // ─── 新手开局 picks 队列 ────────────────────────────────────────────
@@ -5306,8 +5286,6 @@ class BattleManager {
     this.world.player.mana = this.world.player.maxMana;
     this.setTurn('player');     // 重置护甲等
     this.enemyTurnTimer = 0;
-    // 奥术进化-弹 buff：每个玩家回合开始翻 N 张奥弹（触发自动发射）
-    _tickArcaneEvoMissileFlip(this.world);
   }
 
   // 战斗只在阵亡时结束（没有"胜利"概念 - 关卡是无限的，只通过升级触发 Loot）
@@ -5361,8 +5339,6 @@ class BattleManager {
           }
           // 敌方结算完成 → 直接进入玩家回合
           this.setTurn('player');
-          // 奥术进化-弹 buff：每个玩家回合开始翻 N 张奥弹（触发自动发射）
-          _tickArcaneEvoMissileFlip(this.world);
         }
       }
     }
@@ -6881,6 +6857,11 @@ function setupUI(world) {
         applyCardState(el, card, { edge: isEdge });
         el.style.left = (startX + i * step) + 'px';
       }
+      // 边缘卡（最左 / 最右）始终在最上层，避免被中间卡叠盖；
+      // 中间卡按"离中线越近越低"分配，保持自然层叠（z-index 必须是整数）
+      el.style.zIndex = isEdge
+        ? '20'
+        : String(Math.max(1, 10 - Math.round(Math.abs(i - (n - 1) / 2))));
     }
 
     // 主卡
