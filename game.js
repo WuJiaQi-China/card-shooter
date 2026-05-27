@@ -8422,8 +8422,11 @@ class BattleManager {
     if (this.state === State.Battle || this.state === State.PreBattle
         || this.state === State.Reward || this.state === State.Inventory) return;
     // 上一局阵亡后重开：完整重置玩家进度（等级 / 卡组 / 金币 / 商店 / 计分 + cannon 清空）
+    // 立即切到 Idle 防止重入：玩家选完炮台后 cb 会再调 startBattle，那时 state 必须不是
+    // PostBattle，否则 resetForNewGame 会把刚选的 cannon 又清掉 → 模态死循环
     if (this.state === State.PostBattle) {
       this.world.resetForNewGame();
+      this.setState(State.Idle);
     }
     // 还没选炮台：弹出选择面板，选完后再重新调 startBattle
     if (!this.world.cannon) {
