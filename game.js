@@ -1665,10 +1665,12 @@ class Bullet {
     // 召唤型友方实体（与一般弹/骷髅区分）：
     //   亡灵龙 → 暗紫（搭配下方绿色辉光内核）
     //   觉醒剑圣 → 金色 / 普通剑圣 → 银白
+    //   奥数巨人 → 深紫（draw 里有专门的 radial gradient + 闪光 overlay 覆盖）
     const color = this._batBullet ? '#5a1f7a'
                 : this.team === 'enemy' ? '#ff5050'
                 : this.isArcane ? '#c97aff'
                 : this._isUndeadDragon ? '#5a2a8c'
+                : this._isArcaneGiant ? '#9c4bd0'
                 : this._isSwordSaint ? (this._awakened ? '#ffd84a' : '#dde3ec')
                 : this._isSkeleton ? '#aebfd8'
                 : '#ffd84a';
@@ -1732,6 +1734,51 @@ class Bullet {
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.fill();
+    // 奥数巨人：紫色 radial gradient + 闪光呼吸光环 + 随机紫白火星
+    if (this._isArcaneGiant) {
+      const tt = performance.now() / 1000;
+      ctx.shadowBlur = 0;
+      // 紫色径向渐变（内白外深紫）覆盖原球
+      const flashPulse = 0.65 + Math.sin(tt * 6) * 0.35;
+      const grad = ctx.createRadialGradient(0, 0, this.radius * 0.05, 0, 0, this.radius);
+      grad.addColorStop(0,    `rgba(255, 245, 255, ${0.95 * flashPulse})`);
+      grad.addColorStop(0.25, `rgba(230, 170, 255, ${0.9 * flashPulse})`);
+      grad.addColorStop(0.55, `rgba(170, 90, 220, 0.92)`);
+      grad.addColorStop(0.85, `rgba(110, 50, 170, 0.9)`);
+      grad.addColorStop(1,    `rgba(70, 20, 120, 0.85)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+      // 外圈快速闪烁光环（"充能感"）
+      const flicker = 0.5 + Math.sin(tt * 14) * 0.45;
+      ctx.strokeStyle = `rgba(255, 220, 255, ${flicker})`;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius * (1.08 + Math.sin(tt * 9) * 0.05), 0, Math.PI * 2);
+      ctx.stroke();
+      // 二层外光晕（更大更淡，紫色辉光）
+      ctx.shadowColor = '#c97aff';
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = `rgba(201, 122, 255, ${0.35 + flicker * 0.3})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius * 1.25, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      // 偶发紫白火星从球面飞出
+      if (this._world && Math.random() < 0.32) {
+        const a = Math.PI * 2 * Math.random();
+        const sp = 60 + Math.random() * 100;
+        this._world.particles.push(new Particle({
+          x: this.x + Math.cos(a) * this.radius,
+          y: this.y + Math.sin(a) * this.radius,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          life: 0.45, color: Math.random() < 0.5 ? '#dd99ff' : '#ffffff',
+          size: 2 + Math.random() * 1.5,
+        }));
+      }
+    }
     // 亡灵龙：紫色外壳 + 绿色不死辉光内核（搭配独特配色让玩家秒辨认）
     if (this._isUndeadDragon) {
       const tt = performance.now() / 1000;
@@ -3724,9 +3771,10 @@ function _spawnBuffFloat(world, x, y, type, amount, isDebuff = false) {
 // 例：主卡 +1 攻 + 副卡 +3 攻 → 飘两个 ⚔+1 + ⚔+3（而非合并为 ⚔+4）
 //
 // items 形如 [['atk', 1], ['atk', 3], ['pen', 2], ...] —— 调用方按卡片维度构造。
-// 位置：炮台周围 180° 后半圆内**完全随机**（左 / 右 / 后方）+ 紧贴炮台外缘。
-//   不挡前 180° 半圆 = 不挡瞄准视线。
-//   每次每个 item 角度独立随机 → 同一发射不同 buff 会自然散落不同位置，避免"总在固定位置"。
+// 位置：炮台周围 180° 后半圆内 + 紧贴炮台外缘。
+//   - 每个 item 采样 8 个候选位置 → 选与已有 floattext 粒子距离最大的 → 蓝噪声分散
+//   - 既保持位置随机感（每次不一样），又避免 buff 文字相互压叠
+//   - 不挡前 180° 半圆 = 不挡瞄准视线
 function _emitCannonBuffFX(world, items) {
   if (!world || !world.player) return;
   if (!items || items.length === 0) return;
@@ -3734,15 +3782,33 @@ function _emitCannonBuffFX(world, items) {
   const backAngle = p.angle + Math.PI;
   const halfArc = Math.PI / 2;          // ±90° 后半圆
   const radius = p.radius || 24;
+  // 记录本次 emit 内已选的位置，加上现有粒子池中的 floattext
+  const placed = [];
+  for (const part of world.particles) {
+    if (part.type === 'floattext') placed.push({ x: part.x, y: part.y });
+  }
   items.forEach((it) => {
-    // 完全随机角度（在后半圆内）—— 不再按 i 等距分布
-    const relAng = (Math.random() - 0.5) * 2 * halfArc;
-    const ang = backAngle + relAng;
-    // 紧贴炮台外缘：radius + 2..14 px（之前 radius + 18..28，太远）
-    const dist = radius + 2 + Math.random() * 12;
-    const x = p.x + Math.cos(ang) * dist;
-    const y = p.y + Math.sin(ang) * dist - 2;
-    _spawnBuffFloat(world, x, y, it[0], it[1]);
+    // 采样 8 个候选位置，选与已有粒子距离最大者（含本次 emit 已选的兄弟）
+    let bestX = 0, bestY = 0, bestMinDist = -Infinity;
+    for (let k = 0; k < 8; k++) {
+      const relAng = (Math.random() - 0.5) * 2 * halfArc;
+      const ang = backAngle + relAng;
+      const dist = radius + 2 + Math.random() * 12;
+      const cx = p.x + Math.cos(ang) * dist;
+      const cy = p.y + Math.sin(ang) * dist - 2;
+      // 找最近邻
+      let minD = Infinity;
+      for (const o of placed) {
+        const d = Math.hypot(o.x - cx, o.y - cy);
+        if (d < minD) minD = d;
+      }
+      if (minD > bestMinDist) {
+        bestMinDist = minD;
+        bestX = cx; bestY = cy;
+      }
+    }
+    placed.push({ x: bestX, y: bestY });
+    _spawnBuffFloat(world, bestX, bestY, it[0], it[1]);
   });
 }
 // 按 useList 计算"每张卡 PreActive 贡献了什么"。
@@ -5131,57 +5197,120 @@ function _absorbIntoArcaneGiant(giant, missile, world) {
 }
 
 // 奥数巨人回合末激光：朝最近敌人发射一发"激光"子弹，可穿透 / 弹射 / 燃烧 / 冻结。
+// 奥数巨人激光（v8.4 Jinx 大招风格重做）：
+//   - 瞬时跨屏激光柱（1300 px ≈ 跨整张地图）
+//   - 矩形 AOE 一次性结算所有沿线敌人 damage + 燃烧 + 冻结
+//   - 所有命中敌人沿激光方向**强力击退**（不是从巨人径向，而是沿光柱向前推）
+//   - 视觉层：60 段沿线渐变 ring（白→淡紫→深紫，前端亮后端淡）+ 巨人 origin 3 圈扩散环
+//             + 40 颗光柱两侧火星 + 30 颗 origin 爆裂 + 重屏震 0.5s + 色散 0.3s
 function _fireArcaneGiantLaser(world, giant, baseHits) {
   const target = _nearestEnemyTo(world, giant.x, giant.y);
-  if (!target) return;
+  const angle = target ? angleBetween(giant.x, giant.y, target.x, target.y) : -Math.PI / 2;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
   const s = giant._giantStats || {};
-  const dmg = 1 + (s.laserAtk || 0);
-  const pen = (baseHits - 1) + (s.laserPen || 0);     // baseHits = 同时命中目标数；用 penetrate 实现穿透
-  const bound = s.laserBound || 0;
+  // baseHits 作为伤害倍率（旧设计是"同时命中目标数"，新设计激光横扫全屏所有目标 → 改作 dmg scaler）
+  const dmg = (1 + (s.laserAtk || 0)) * baseHits;
   const fire = s.laserFire || 0;
   const freezeChance = (s.laserFreezePct || 0) / 100;
-  const angle = angleBetween(giant.x, giant.y, target.x, target.y);
+  const knockbackForce = 50 + (s.laserBound || 0) * 10;   // laserBound 增强击退距离
 
-  const beam = new Bullet({
-    x: giant.x, y: giant.y, angle,
-    speed: 1600, lifetime: 0.6,                       // 超快 → 视觉上是一道横扫的光束
-    attack: dmg, bound, penetrate: pen,
-    bulletCount: 1, waveCount: 1, radius: 7,
+  const laserLen = 1300;
+  const laserHalfWidth = 32;
+
+  // 伤害 + 击退：用 rect kind AOE，不消耗子弹 / 不走 HitEnemy 钩子链
+  applyAoe(world, giant, {
+    kind: 'rect',
+    cx: giant.x, cy: giant.y,
+    damage: dmg, dirAngle: angle,
+    length: laserLen, halfWidth: laserHalfWidth,
+    target: 'enemies',
+    knockback: false,   // 自定义"沿激光方向"击退，不走默认径向
+    fx: false,          // 自绘 visual，不要默认 explode ring
+    onHit: (enemy) => {
+      if (fire > 0) applyFire(enemy, fire);
+      if (freezeChance > 0 && Math.random() < freezeChance) applyFreeze(enemy, 1);
+      // 沿激光方向击退：构造一个"虚拟源点"在敌人身后（激光来向）→ applyKnockback 推开
+      if (enemy.applyKnockback) {
+        const pushSrcX = enemy.x - cosA * 100;
+        const pushSrcY = enemy.y - sinA * 100;
+        enemy.applyKnockback(pushSrcX, pushSrcY, knockbackForce);
+      }
+    },
   });
-  beam._fromAlly = true;
-  beam._isGiantLaser = true;
-  if (fire > 0) {
-    beam._fireOnHit = fire;
-    beam.addHook(_fireApplyHook);
-  }
-  if (freezeChance > 0) {
-    beam.addHook(new Effect(Phase.OnHit, -1, ctx => {
-      if (Math.random() < freezeChance) applyFreeze(ctx.enemy, 1);
-    }));
-  }
-  beam.activate(performance.now() / 1000);
-  world.bullets.push(beam);
-  // 视觉：起点炸点 + 沿线一串紫色 ring
-  const len = 800;
-  for (let i = 0; i < 12; i++) {
-    const t = i / 11;
+
+  // ─── 视觉 ──────────────────────────────────────────────────
+  // 巨人 origin 三圈扩散光环（从内到外）
+  for (let i = 0; i < 3; i++) {
     world.particles.push(new Particle({
-      x: giant.x + Math.cos(angle) * (len * t),
-      y: giant.y + Math.sin(angle) * (len * t),
-      life: 0.35 + (1 - t) * 0.2, color: '#c97aff',
-      size: 7 - t * 3, type: 'ring',
+      x: giant.x, y: giant.y, life: 0.5 + i * 0.12,
+      color: i === 0 ? '#ffffff' : '#c97aff',
+      size: 30 + i * 28, type: 'ring',
     }));
   }
-  for (let k = 0; k < 18; k++) {
+  // 主光柱：60 段 ring 沿激光方向铺开，颜色从白到紫渐变（"激光柱"视觉）
+  // 起点更亮粗，远端淡细 → 标识光的"流向"
+  for (let i = 0; i < 60; i++) {
+    const t = i / 59;
+    const px = giant.x + cosA * laserLen * t;
+    const py = giant.y + sinA * laserLen * t;
+    // 颜色分段：前 15% 纯白，15-50% 亮紫，50-100% 深紫
+    let color;
+    if (t < 0.15) color = '#ffffff';
+    else if (t < 0.5) color = '#e8b5ff';
+    else color = '#9c4bd0';
+    // 起点附近最粗 26px，远端 6px
+    const size = 26 - t * 20;
+    // 寿命：远端短（像激光冷却），近端长（"光源持续"感）
+    const life = 0.55 - t * 0.25;
+    world.particles.push(new Particle({
+      x: px, y: py, life, color, size, type: 'ring',
+    }));
+  }
+  // 光柱两侧火星：40 颗垂直激光方向喷射（朝两边对称）
+  const perpA = angle + Math.PI / 2;
+  for (let k = 0; k < 40; k++) {
+    const t = Math.random();
+    const px = giant.x + cosA * laserLen * t;
+    const py = giant.y + sinA * laserLen * t;
+    const sideSign = Math.random() < 0.5 ? 1 : -1;
+    const jitterA = perpA + (Math.random() - 0.5) * 0.5;
+    const sp = (120 + Math.random() * 180) * sideSign;
+    world.particles.push(new Particle({
+      x: px, y: py,
+      vx: Math.cos(jitterA) * sp, vy: Math.sin(jitterA) * sp,
+      life: 0.4 + Math.random() * 0.3,
+      color: Math.random() < 0.5 ? '#dd99ff' : '#ffffff',
+      size: 2 + Math.random() * 2,
+    }));
+  }
+  // 巨人 origin 爆裂：30 颗向四面八方
+  for (let k = 0; k < 30; k++) {
     const a = Math.PI * 2 * Math.random();
-    const sp = 100 + Math.random() * 140;
+    const sp = 150 + Math.random() * 220;
     world.particles.push(new Particle({
       x: giant.x, y: giant.y,
       vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-      life: 0.4, color: k % 2 ? '#c97aff' : '#dde3ec', size: 3,
+      life: 0.5, color: k % 3 === 0 ? '#ffffff' : (k % 2 ? '#c97aff' : '#9c4bd0'),
+      size: 3 + Math.random() * 1.5,
     }));
   }
-  FX.shake(world, 4, 0.18);
+  // 远端落点冲击（光柱末端的"爆炸感"）
+  const endX = giant.x + cosA * laserLen;
+  const endY = giant.y + sinA * laserLen;
+  world.particles.push(new Particle({ x: endX, y: endY, life: 0.45, color: '#c97aff', size: 60, type: 'ring' }));
+  for (let k = 0; k < 16; k++) {
+    const a = Math.PI * 2 * Math.random();
+    const sp = 100 + Math.random() * 140;
+    world.particles.push(new Particle({
+      x: endX, y: endY,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      life: 0.45, color: k % 2 ? '#dd99ff' : '#ffffff', size: 2.6,
+    }));
+  }
+  // 重屏震 + 色散 + hit-stop（强冲击感）
+  FX.shake(world, 12, 0.5);
+  FX.hitStop(world, 0.12);
+  world.chromaT = Math.max(world.chromaT || 0, 0.32);
 }
 
 function _arcaneGiantTier(laserHits, value, descPrefix) {
