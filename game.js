@@ -1343,7 +1343,7 @@ class Bullet {
         if (Math.abs(d) < bestAbs) { bestAbs = Math.abs(d); best = e; }
       }
       this._lockTarget = best;
-      // 奥数巨人优先：友方奥弹存在巨人时 override lock → 锁一个**随机**巨人（非最近）
+      // 奥术巨人优先：友方奥弹存在巨人时 override lock → 锁一个**随机**巨人（非最近）
       // 锁定后整段飞行只追这个 → 视觉上像"主动飞向巨人"，不是被动靠最近匹配
       if (this.isArcane && this.team !== 'enemy') {
         const giants = (w.bullets || []).filter(b => b.alive && b._isArcaneGiant);
@@ -1358,7 +1358,7 @@ class Bullet {
   update(dt, now, world) {
     if (!this.alive) return;
     this._world = world;     // 给 Destroyed 钩子留下 world 引用
-    // 奥数巨人吸收瞬闪计时器（被奥弹接触时设到 0.22，draw 时 > 0 → body 加亮）
+    // 奥术巨人吸收瞬闪计时器（被奥弹接触时设到 0.22，draw 时 > 0 → body 加亮）
     if (this._absorbFlashT > 0) this._absorbFlashT = Math.max(0, this._absorbFlashT - dt);
     // 风之眼：持续吸引附近敌人，任意阶段（含玩家回合 / 敌方回合 / 实体态）都生效。
     // 范围内距离越近吸引力越强（线性 falloff：边缘 0, 中心 maxPullSpeed）。
@@ -1387,7 +1387,7 @@ class Bullet {
     // 新模型：每帧把朝向直接朝目标转 ≤ trackTurnRate × dt 弧度；速度模长另由 trackAccel 控制。
     if (this.tracking) {
       let nearest = null;
-      // 奥数巨人优先：保留 activate 时锁定的 random 巨人；只有那只死了才重选一只
+      // 奥术巨人优先：保留 activate 时锁定的 random 巨人；只有那只死了才重选一只
       if (this.isArcane && this.team !== 'enemy') {
         const lk = this._lockTarget;
         if (lk && lk.alive && lk._isArcaneGiant) {
@@ -1494,7 +1494,7 @@ class Bullet {
     this.x += Math.cos(this.angle) * this.speed * dt;
     this.y += Math.sin(this.angle) * this.speed * dt;
 
-    // 奥数巨人吸收：友方奥弹接触巨人 = 被吸收强化巨人（不触发命中 / 穿透 / 燃烧）
+    // 奥术巨人吸收：友方奥弹接触巨人 = 被吸收强化巨人（不触发命中 / 穿透 / 燃烧）
     if (this.isArcane && this.team !== 'enemy') {
       for (const b of (world.bullets || [])) {
         if (!b.alive || !b._isArcaneGiant) continue;
@@ -1707,7 +1707,7 @@ class Bullet {
     // 召唤型友方实体（与一般弹/骷髅区分）：
     //   亡灵龙 → 暗紫（搭配下方绿色辉光内核）
     //   觉醒剑圣 → 金色 / 普通剑圣 → 银白
-    //   奥数巨人 → 深紫（draw 里有专门的 radial gradient + 闪光 overlay 覆盖）
+    //   奥术巨人 → 深紫（draw 里有专门的 radial gradient + 闪光 overlay 覆盖）
     const color = this._batBullet ? '#5a1f7a'
                 : this.team === 'enemy' ? '#ff5050'
                 : this.isArcane ? '#c97aff'
@@ -1776,7 +1776,7 @@ class Bullet {
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.fill();
-    // 奥数巨人：紫色 radial gradient + 闪光呼吸光环 + 随机紫白火星
+    // 奥术巨人：紫色 radial gradient + 闪光呼吸光环 + 随机紫白火星
     if (this._isArcaneGiant) {
       const tt = performance.now() / 1000;
       ctx.shadowBlur = 0;
@@ -2004,7 +2004,7 @@ function _drawEntityDecos(ctx, bullet) {
     }
   }
 
-  // ✨ 奥数巨人：球体顶部漂浮（单个 — 巨人就 1 张）
+  // ✨ 奥术巨人：球体顶部漂浮（单个 — 巨人就 1 张）
   const arcane = grouped.arcane || 0;
   if (arcane > 0) {
     const baseFont = Math.max(16, Math.min(28, r * 1.1));
@@ -2039,6 +2039,22 @@ function _drawEntityDecos(ctx, bullet) {
     ctx.shadowColor = colorMix > 0.5 ? '#c97aff' : '#3aff8c';
     ctx.shadowBlur = 10;
     ctx.fillText('🐉', 0, -dist + sway);
+    ctx.restore();
+  }
+
+  // 🏹 弓箭手：球体顶部漂浮，蓝色专注光晕；轻轻摆动表示"瞄准"姿态
+  const archers = grouped.archer || 0;
+  if (archers > 0) {
+    const baseFont = Math.max(18, Math.min(28, r * 1.5));
+    const dist = r + 9;
+    const sway = Math.sin(t * 2.2) * 3;
+    ctx.save();
+    ctx.font = baseFont + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#7eb1ff';
+    ctx.shadowBlur = 12;
+    ctx.fillText('🏹', 0, -dist + sway);
     ctx.restore();
   }
 
@@ -4365,7 +4381,7 @@ const CANNON_DEFS = {
     },
   },
   summon: {
-    id: 'summon', name: '召唤炮台', desc: '每发射2次，子弹获得1实体化。',
+    id: 'summon', name: '召唤炮台', desc: '每发射2次，获得+1实体化。',
     icon: '🪄', color: '#a060d0',
     baseColor: '#4a2a6a', strokeColor: '#1a0830', barrelColor: '#c89edd',
     onFire(self, world, tpl) {
@@ -4387,10 +4403,10 @@ const CANNON_DEFS = {
 };
 
 const CANNON_TR = {
-  chain:  { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携。（连携发射也算）' },
-            en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack. (Chain-fires count.)' } },
-  summon: { zh: { name: '召唤炮台', desc: '每发射2次，子弹获得1实体化。' },
-            en: { name: 'Summon Cannon', desc: 'Every 2 shots, the bullet gains +1 Entity layer.' } },
+  chain:  { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携。' },
+            en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack.' } },
+  summon: { zh: { name: '召唤炮台', desc: '每发射2次，获得+1实体化。' },
+            en: { name: 'Summon Cannon', desc: 'Every 2 shots, gain +1 Entity layer.' } },
   power:  { zh: { name: '强能炮台', desc: '波次+1，主卡牌消耗+1。' },
             en: { name: 'Power Cannon', desc: 'Wave +1. Main card cost +1.' } },
 };
@@ -5125,7 +5141,8 @@ function _necromancerTier(ent, value) {
 
 // 骷髅领主：实体子弹，每回合攻击最近的敌人 attacksPerTurn 次，击杀则召唤 1 骷髅。
 // 友军骷髅死亡时获得 +1 攻击（v6 改：原本是 +1 实体化层）。
-function _skeletonLordTier(attacksPerTurn, value) {
+// v9 改：金 实体化+4 / 钻 实体化+3（之前都是 +2）
+function _skeletonLordTier(attacksPerTurn, ent, value) {
   const attackPart = attacksPerTurn > 1 ? `每回合攻击最近的敌人${attacksPerTurn}次` : `每回合攻击最近的敌人`;
   const attackPartEn = attacksPerTurn > 1
     ? `Each turn attacks the nearest enemy ${attacksPerTurn} times`
@@ -5133,13 +5150,13 @@ function _skeletonLordTier(attacksPerTurn, value) {
   return {
     cost: 3, value,
     desc: {
-      zh: `实体化+2。在场时，每个死亡的骷髅会为此单位提供+1伤害。${attackPart}，如果击杀则召唤1个骷髅。`,
-      en: `Entity+2. While alive, each dead skeleton grants +1 damage. ${attackPartEn}; on kill, summons 1 skeleton.`,
+      zh: `实体化+${ent}。在场时，每个死亡的骷髅会为此单位提供+1伤害。${attackPart}，如果击杀则召唤1个骷髅。`,
+      en: `Entity+${ent}. While alive, each dead skeleton grants +1 damage. ${attackPartEn}; on kill, summons 1 skeleton.`,
     },
     effects: () => [
       new Effect(Phase.PreActive, 0, ctx => {
         if (ctx.bullet._isSkeleton) return;
-        ctx.bullet.entityLayers += 2;
+        ctx.bullet.entityLayers += ent;
       }),
       new Effect(Phase.Spawned, 0, ctx => {
         if (ctx.bullet._isSkeleton) return;
@@ -5253,7 +5270,7 @@ function _boneBlossomTier(skN, atkBoost, radiusMult, value, desc) {
   };
 }
 
-// ─── 奥数巨人 ──────────────────────────────────────────────────────
+// ─── 奥术巨人 ──────────────────────────────────────────────────────
 // 实体子弹（无攻击力，3 层实体化）。你的奥弹优先以它为目标 → 接触时被"吸收"
 // （奥弹销毁，不触发命中 / 穿透 / 燃烧等）→ 累计强化巨人 + 回合末激光。
 //
@@ -5348,8 +5365,8 @@ function _absorbIntoArcaneGiant(giant, missile, world) {
   }
 }
 
-// 奥数巨人回合末激光：朝最近敌人发射一发"激光"子弹，可穿透 / 弹射 / 燃烧 / 冻结。
-// 奥数巨人激光（v8.4 Jinx 大招风格重做）：
+// 奥术巨人回合末激光：朝最近敌人发射一发"激光"子弹，可穿透 / 弹射 / 燃烧 / 冻结。
+// 奥术巨人激光（v8.4 Jinx 大招风格重做）：
 //   - 瞬时跨屏激光柱（1300 px ≈ 跨整张地图）
 //   - 矩形 AOE 一次性结算所有沿线敌人 damage + 燃烧 + 冻结
 //   - 所有命中敌人沿激光方向**强力击退**（不是从巨人径向，而是沿光柱向前推）
@@ -5550,10 +5567,10 @@ function _warBannerTier(auraDmg, spawnDmg, value) {
 // 掘墓（钻）：发现 1 张骷髅家族牌洗入手牌（face-up，临时）；在你回合结束时自动弃置。
 function _excavateTombTier(value) {
   return {
-    cost: 1, value,
+    cost: 2, value,
     desc: {
-      zh: '发现1张带有骷髅关键词的牌并洗入你的手牌，在你回合结束时自动弃置。',
-      en: 'Discover 1 card with the Skeleton keyword and shuffle it into your hand; auto-discards at end of your turn.',
+      zh: '发现1张临时的骷髅卡牌并洗入你的手牌，它会在你回合结束时自动弃置。',
+      en: 'Discover 1 temporary Skeleton card and shuffle it into your hand; auto-discards at end of your turn.',
     },
     effects: () => [],
     onUse(card, world) {
@@ -5664,11 +5681,23 @@ function _eyewindTier(pullMult, lifeMult, value) {
   };
 }
 
-function _swordsmanTier({ atk, ent, half, reachMult = 1, value, desc }) {
+// 剑士：实体化+ent 实体，每回合向最近敌人挥剑造成 cone AOE
+// v9 改动：所有 tier 都"体积增大"（bullet.radius × volumeMul）；钻"每命中+1 攻击"（永久叠加 b.attack）
+//   atk          : PreActive 加伤害（铜为 0）
+//   ent          : PreActive 加实体化层数
+//   half         : 锥形 AOE 半角（rad）—— total 角度 = 2*half
+//   reachMult    : AOE 半径倍率（钻 1.5 = +50% reach）
+//   volumeMul    : bullet.radius 倍率（"体积增大" 1.4×）
+//   hitStackAtk  : 命中 N 个敌人时 b.attack += N（钻特性）
+function _swordsmanTier({ atk = 0, ent, half, reachMult = 1, volumeMul = 1.4, hitStackAtk = false, value, desc }) {
   return {
     cost: 3, value, desc,
     effects: () => [
-      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += atk; ctx.bullet.entityLayers += ent; }),
+      new Effect(Phase.PreActive, 0, ctx => {
+        if (atk > 0) ctx.bullet.attack += atk;
+        ctx.bullet.entityLayers += ent;
+        if (volumeMul && volumeMul !== 1) ctx.bullet.radius *= volumeMul;
+      }),
       new Effect(Phase.Spawned, 0, ctx => { (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('sword'); }),
       new Effect(Phase.EntityTurn, 0, ctx => {
         const b = ctx.bullet, w = ctx.world;
@@ -5680,6 +5709,8 @@ function _swordsmanTier({ atk, ent, half, reachMult = 1, value, desc }) {
           kind: 'cone', damage: b.attack, mult: AOE_MULT.swordSlash * reachMult,
           halfAngle: half, dirAngle, color: '#f1f4f8',
         });
+        // 钻级：每命中一个敌人，伤害 +1（永久写入 b.attack，累积到下一回合）
+        if (hitStackAtk && hits > 0) b.attack = (b.attack || 0) + hits;
         const sparks = 14;
         for (let i = 0; i <= sparks; i++) {
           const t = i / sparks;
@@ -5693,6 +5724,84 @@ function _swordsmanTier({ atk, ent, half, reachMult = 1, value, desc }) {
           }));
         }
         FX.shake(w, clamp(3 + b.attack * 0.4 + hits * 0.5, 3, 9), 0.18);
+      }),
+    ],
+  };
+}
+
+// 弓箭手（v9 新增）：实体子弹，每回合远离最近敌人 + 发射 1 枚 tracking 弓箭。
+//   atk         : PreActive 加伤害
+//   allPierce   : 钻级特性 — 发射的弓箭穿透所有敌人（penetrate=99）
+// 躲避方式：以敌人为起点 → 自己为方向，延长线上移动一段距离（即"反向远离敌人"）
+function _archerTier(atk, allPierce, value) {
+  const pierceTail = allPierce ? '该弓箭会穿透所有敌人。' : '';
+  const pierceTailEn = allPierce ? ' The arrow pierces all enemies.' : '';
+  return {
+    cost: 3, value,
+    desc: {
+      zh: `伤害+${atk}，实体化+2。每回合躲避最近的敌人，并向其发射1枚弓箭。${pierceTail}`,
+      en: `Damage+${atk}, Entity+2. Each turn dodges the nearest enemy and fires 1 arrow at them.${pierceTailEn}`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
+        ctx.bullet.attack += atk;
+        ctx.bullet.entityLayers += 2;
+      }),
+      new Effect(Phase.Spawned, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
+        (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('archer');
+      }),
+      new Effect(Phase.EntityTurn, 0, ctx => {
+        if (ctx.bullet._isSkeleton) return;
+        const b = ctx.bullet, w = ctx.world;
+        const target = _nearestEnemyTo(w, b.x, b.y);
+        if (!target) return;
+        // 1. 躲避：以敌人为起点 → 自己为方向，沿延长线移动 80px（往远离敌人方向）
+        const dx = b.x - target.x, dy = b.y - target.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0.01) {
+          const moveDist = 80;
+          const nx = dx / dist, ny = dy / dist;
+          let newX = b.x + nx * moveDist;
+          let newY = b.y + ny * moveDist;
+          // 限制在战场梯形内
+          newY = clamp(newY, b.radius, (w.h || 560) - b.radius);
+          const tb = trapBounds(w, newY);
+          newX = clamp(newX, tb.leftX + b.radius, tb.rightX - b.radius);
+          // 躲避粒子（从旧位置）
+          for (let k = 0; k < 6; k++) {
+            const a = Math.PI * 2 * Math.random();
+            w.particles.push(new Particle({
+              x: b.x, y: b.y,
+              vx: Math.cos(a) * 90, vy: Math.sin(a) * 90,
+              life: 0.32, color: '#7eb1ff', size: 2.6,
+            }));
+          }
+          b.x = newX; b.y = newY;
+        }
+        // 2. 发射弓箭（tracking + 钻级 all-pierce）
+        const arrow = new Bullet({
+          x: b.x, y: b.y,
+          angle: angleBetween(b.x, b.y, target.x, target.y),
+          speed: 480, lifetime: 2.4,
+          attack: b.attack, bound: 0, penetrate: allPierce ? 99 : 0,
+          bulletCount: 1, waveCount: 1, radius: 5,
+        });
+        arrow._fromAlly = true;
+        arrow.tracking = true;
+        arrow._archerArrow = true;
+        arrow.activate(performance.now() / 1000);
+        w.bullets.push(arrow);
+        // 弓箭起飞粒子
+        for (let k = 0; k < 5; k++) {
+          const a = Math.PI * 2 * Math.random();
+          w.particles.push(new Particle({
+            x: b.x, y: b.y,
+            vx: Math.cos(a) * 70, vy: Math.sin(a) * 70,
+            life: 0.28, color: '#aed0ff', size: 2.4,
+          }));
+        }
       }),
     ],
   };
@@ -5914,13 +6023,29 @@ function _photonGunTier(pen, bound, value) {
   };
 }
 
-function _hotairTier(atk, radiusMult, value) {
+// 热气球（v9 重写）：体积放大 + 实体化+1；金/钻 额外：实体化层数不会在回合结束时消退（_noEntityDecay）
+//   atk          : 加伤害（铜银 0，金 1，钻 2）
+//   radiusMult   : 体积放大（"体积增加" 1.2× / "体积大幅增加" 2.0×）
+//   noDecay      : 实体化层不会在回合结束扣 1 层（金/钻特性）
+function _hotairTier(atk, radiusMult, noDecay, value) {
   const sizeWord = radiusMult >= 1.5 ? '体积大幅增加' : '体积增加';
   const sizeWordEn = radiusMult >= 1.5 ? 'greatly increased size' : 'larger size';
+  const atkPart = atk > 0 ? `伤害+${atk}，` : '';
+  const atkPartEn = atk > 0 ? `Damage+${atk}, ` : '';
+  const tailZh = noDecay ? '实体化层数不会在回合结束时消退。' : '';
+  const tailEn = noDecay ? ' Entity layers do not decay at turn end.' : '';
   return {
     cost: 1, value,
-    desc: { zh: `伤害+${atk}，${sizeWord}。`, en: `Damage+${atk}, ${sizeWordEn}.` },
-    effects: () => [new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += atk; ctx.bullet.radius *= radiusMult; })],
+    desc: {
+      zh: `${atkPart}实体化+1，${sizeWord}。${tailZh}`,
+      en: `${atkPartEn}Entity+1, ${sizeWordEn}.${tailEn}`,
+    },
+    effects: () => [new Effect(Phase.PreActive, 0, ctx => {
+      if (atk > 0) ctx.bullet.attack += atk;
+      ctx.bullet.entityLayers += 1;
+      ctx.bullet.radius *= radiusMult;
+      if (noDecay) ctx.bullet._noEntityDecay = true;
+    })],
   };
 }
 
@@ -6007,32 +6132,40 @@ function _arcaneFireworkTier(baseCount, extraChance, value) {
   };
 }
 
-function _hotpotatoTier(bound, fire, value) {
+// 土豆（v9 新增，替换 v8 的烫土豆）：数量+N，弹射+N。无法瞄准（每颗子弹以随机角度发射）。
+//   "无法瞄准"实现：Spawned 阶段把 ctx.bullet.angle override 为 [0, 2π) 随机值
+//   → fireOneWave 内的扇形分布被覆盖，每颗子弹独立朝随机方向飞
+function _potatoTier(count, bound, value) {
   return {
     cost: 2, value,
-    desc: { zh: `弹射+${bound}。弹射时，为1个随机敌人施加${fire}层燃烧。`, en: `Bounce+${bound}. On bounce, apply ${fire} Burn to a random enemy.` },
+    desc: { zh: `数量+${count}，弹射+${bound}。无法瞄准。`, en: `Bullets+${count}, Bounce+${bound}. Cannot aim.` },
     effects: () => [
-      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bound += bound; }),
-      new Effect(Phase.Spawned, 0, ctx => { ctx.bullet._burnAura = true; }),
-      new Effect(Phase.HitWall, 5, ctx => {
-        if (ctx.bullet.bound <= 0) return;
-        const w = ctx.world || window.__game;
-        if (!w) return;
-        const alive = w.enemies.filter(e => e.alive);
-        if (alive.length === 0) return;
-        applyFire(alive[randInt(0, alive.length - 1)], fire);
+      new Effect(Phase.PreActive, 0, ctx => {
+        ctx.bullet.bulletCount += count;
+        ctx.bullet.bound += bound;
+      }),
+      new Effect(Phase.Spawned, 0, ctx => {
+        // 覆盖发射角度 — 每颗 clone 独立随机
+        ctx.bullet.angle = Math.random() * Math.PI * 2;
       }),
     ],
   };
 }
 
-function _fuelcellTier(pen, bound, gain, igniteOnPen, value) {
-  const descZh = igniteOnPen
-    ? `穿透+${pen}，弹射+${bound}。穿透燃烧敌人时穿透+${gain}。如果穿透时敌人没有燃烧，添加1层燃烧。`
-    : `穿透+${pen}，弹射+${bound}。穿透燃烧敌人时穿透+${gain}。`;
-  const descEn = igniteOnPen
-    ? `Pierce+${pen}, Bounce+${bound}. Piercing a burning enemy grants Pierce+${gain}. If not burning, apply 1 Burn.`
-    : `Pierce+${pen}, Bounce+${bound}. Piercing a burning enemy grants Pierce+${gain}.`;
+// 燃料匣（v9 重写）：穿透燃烧敌人时造成范围伤害；钻额外：范围伤害附带燃烧，非燃烧敌人则点燃。
+//   pen / bound : PreActive 加穿 / 弹
+//   aoeMult     : 命中燃烧敌人时的 AOE 半径倍数（铜 1.0=小, 银/金/钻 2.0=普通）
+//   aoeSmallDesc: desc 显示用 "小范围" / "" (普通范围)
+//   diamond     : 钻级特性 — AOE 附加燃烧 + 非燃烧敌人时施加燃烧
+function _fuelcellTier(pen, bound, aoeMult, diamond, value) {
+  const rangeWord = aoeMult < 1.5 ? '小范围' : '范围';
+  const rangeWordEn = aoeMult < 1.5 ? 'small AOE' : 'AOE';
+  const descZh = diamond
+    ? `穿透+${pen}，弹射+${bound}。穿透燃烧敌人时造成${rangeWord}伤害并造成燃烧，否则点燃敌人。`
+    : `穿透+${pen}，弹射+${bound}。穿透燃烧敌人时造成${rangeWord}伤害。`;
+  const descEn = diamond
+    ? `Pierce+${pen}, Bounce+${bound}. Piercing a burning enemy deals ${rangeWordEn}; non-burning enemies get Ignited.`
+    : `Pierce+${pen}, Bounce+${bound}. Piercing a burning enemy deals ${rangeWordEn}.`;
   return {
     cost: 1, value,
     desc: { zh: descZh, en: descEn },
@@ -6040,16 +6173,23 @@ function _fuelcellTier(pen, bound, gain, igniteOnPen, value) {
       const list = [
         new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += pen; ctx.bullet.bound += bound; }),
       ];
-      if (igniteOnPen) {
+      if (diamond) {
         // 钻级燃料匣会主动施加燃烧 → 也披上火焰光环
         list.push(new Effect(Phase.Spawned, 0, ctx => { ctx.bullet._burnAura = true; }));
       }
       list.push(new Effect(Phase.HitEnemy, 5, ctx => {
-        if (!ctx.enemy || ctx.bullet.penetrate < 1) return;
-        if ((ctx.enemy.fire || 0) > 0) {
-          ctx.bullet.penetrate += gain;
-        } else if (igniteOnPen) {
-          applyFire(ctx.enemy, 1);
+        const e = ctx.enemy, b = ctx.bullet;
+        if (!e || b.penetrate < 1) return;
+        if ((e.fire || 0) > 0) {
+          // 燃烧敌人 → 范围伤害（钻：附带 1 层燃烧）
+          applyAoe(ctx.world, b, {
+            damage: b.attack, mult: aoeMult, target: 'enemies',
+            color: '#ff7030',
+            onHit: diamond ? (ee) => applyFire(ee, 1) : null,
+          });
+        } else if (diamond) {
+          // 钻：非燃烧敌人时仅点燃（不打 AOE）
+          applyFire(e, 1);
         }
       }));
       return list;
@@ -6296,50 +6436,56 @@ function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
   };
 }
 
-// 勇者：实体化+2 + 2 次"发现下级实体化卡"，子弹继承被选卡的 EntityTurn 行为。
+// 勇者：发现 2 张"下级实体化卡牌"并完整应用它们的效果（≈ 等于额外使用了那 2 张牌）。
 //   candidateTier：发现候选所在 tier（hero 自身 tier 降一级：银→铜 / 金→银 / 钻→金）。
 //
-// 实现关键（参见 fireFromCards 流程 + modify-mechanic §2.9）：
-//   1. effects() 返回的 PreActive hook 在 fireFromCards 内于 onUse 之前装到 tpl 上 — 此时 hook
-//      闭包捕获 card，但实际执行延后到 continueFire 阶段。
-//   2. onUse 调 2 次 triggerDiscover（第二个自动进入 _discoverQueue）。fireFromCards 末尾
-//      若检测到 _discoverPending → 把 continueFire 挂为延续。
-//   3. 玩家依次选 2 张 → 每张 onPick 把 Card 推入 card._heroPicks。
-//   4. 队列空 → resolveDiscover 调 continueFire → tpl.triggerHooks(Phase.PreActive) →
-//      hero PreActive 读 card._heroPicks，从每张选定卡 initializeEffects() 中抽 EntityTurn
-//      hook 加到 ctx.bullet（= tpl）。
-//   5. fireOneWave 用 clone.copyHooksFrom(tpl) → 每颗 clone 都拿到这些 EntityTurn hook。
+// 设计：被选卡的"全部效果"都施加 — 不只 EntityTurn：
+//   - PreActive / Spawned / HitEnemy / Destroyed / EntityTurn 等 Bullet hooks 全数加到子弹上
+//   - 被选卡 onUse 在玩家点选的瞬间触发（让骷髅号角召唤骷髅、爆骨花生骨花等副作用照常发生）
+//   - 被选卡不洗入手牌 / 不进背包 / 不消耗费用 — 仅作为本次发射的"行为模板 + 副作用一次性触发"
 //
-// 设计：只继承 EntityTurn hook，不继承 PreActive / Spawned / HitEnemy / Destroyed 等其它阶段
-//   （贴合"获得他们每回合的效果"的字面意思 — 不发生原卡的发射伤害 / 装饰 / 命中副作用）。
-//   被选卡牌不入手牌、不召唤、不消耗费用，仅作为 EntityTurn 行为模板。
+// 实现关键（参见 fireFromCards 流程 + modify-mechanic §2.9）：
+//   1. effects() 返回的 PreActive hook 在 fireFromCards 内于 onUse 之前装到 tpl 上（闭包捕获 card，
+//      实际执行延后到 continueFire 阶段）。
+//   2. onUse 排队 2 次 triggerDiscover；fireFromCards 末尾检测 _discoverPending → 挂 continueFire 为延续。
+//   3. 每次 onPick：① 推入 card._heroPicks ② 立即跑 picked.onUse（"等于使用了该牌"）。
+//   4. 2 选完 → continueFire → tpl.triggerHooks(PreActive) → hero PreActive 跑：
+//        - 把 picked.initializeEffects() 的全部 hook 加到 ctx.bullet（= tpl）
+//        - 对 PreActive 阶段 hook 立即手动 execute，让 attack / entityLayers / _xxxFlag 等真正写到 tpl
+//          （否则 triggerHooks 已 snapshot 当前轮列表 → 后加的 PreActive 不会在同次循环跑）
+//   5. fireOneWave 用 clone.copyHooksFrom(tpl) → 每颗 clone 都拿到完整 hook 列表（Spawned / EntityTurn /
+//      HitEnemy / Destroyed 自然按各自时机触发）。
+//   6. hero 自己的 PreActive 用 priority 50 → 排在普通 PreActive(0) 之后、wall 类(100) 之前；保证
+//      被选卡 PreActive 的 buff 叠加在主 PreActive 已结算的 tpl 上。
 function _heroTier(candidateTier, value) {
   const tierZh = { bronze: '铜', silver: '银', gold: '金', diamond: '钻' }[candidateTier] || candidateTier;
   return {
     cost: 3, value,
     desc: {
-      zh: `实体化+2。发现2张${tierZh}等级的带有实体化关键词的卡牌，并获得他们每回合的效果。`,
-      en: `Entity+2. Discover 2 ${candidateTier}-tier Entity cards and gain their per-turn effects.`,
+      zh: `发现并获得2张${tierZh}等级的实体化卡牌的效果。`,
+      en: `Discover 2 ${candidateTier}-tier Entity cards and apply all their effects.`,
     },
     effects: (card) => [
-      // PreActive：先 +2 实体化；继续注入被选卡的 EntityTurn hook 到 ctx.bullet（= tpl）
-      // 此时 onUse 已结算 + 2 次发现已选完 → card._heroPicks 是当次选择的 2 张 Card
-      new Effect(Phase.PreActive, 0, ctx => {
-        ctx.bullet.entityLayers += 2;
+      // PreActive：把被选卡的所有 hook 加到 ctx.bullet（= tpl），同时立即执行被选卡的 PreActive
+      new Effect(Phase.PreActive, 50, ctx => {
         const picks = card._heroPicks || [];
         for (const picked of picks) {
           if (!picked || !picked.initializeEffects) continue;
           for (const h of picked.initializeEffects()) {
-            if (h.phase === Phase.EntityTurn) ctx.bullet.addHook(h);
+            ctx.bullet.addHook(h);
+            if (h.phase === Phase.PreActive) {
+              try { h.execute({ bullet: ctx.bullet, world: ctx.world }); }
+              catch (e) { console.error('hero pick PreActive error', e); }
+            }
           }
         }
       }),
-      // Spawned：装饰 🦸（每颗 clone 都画）
+      // Spawned：装饰 🦸（每颗 clone 都画 — 标识"勇者派生"，与被选卡的装饰并存）
       new Effect(Phase.Spawned, 0, ctx => {
         (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('hero');
       }),
     ],
-    onUse(card, world) {
+    onUse(card, world, player) {
       // 每次使用重置 picks（多次施放不应叠加旧选择）
       card._heroPicks = [];
       for (let i = 0; i < 2; i++) {
@@ -6351,7 +6497,13 @@ function _heroTier(candidateTier, value) {
           sourceCard: card,
           title: LANG.current === 'zh' ? `勇者 · 第${idx}张` : `Hero · #${idx}`,
           sub: LANG.current === 'zh' ? '选择1张实体化卡牌' : 'Pick 1 Entity card',
-          onPick: (chosen) => { card._heroPicks.push(chosen); },
+          onPick: (chosen) => {
+            card._heroPicks.push(chosen);
+            // "等于使用了这张卡"：立刻调被选卡 onUse（骷髅号角召唤骷髅、爆骨花生骨花等副作用此刻触发）
+            // 不调 onReveal — picks 不在手牌，没有"展露/隐藏"语义
+            try { chosen.onUse?.(world, player); }
+            catch (e) { console.error('hero pick onUse error', e); }
+          },
         });
       }
     },
@@ -6614,9 +6766,10 @@ function _rollDiscoverByCost(world, count, tier, targetCost) {
   return _rollDiscoverFromPool(fams, count, tier);
 }
 
-// 勇者候选：roll N 张"同等级 + desc 含'实体化'关键词"的卡。
-// 候选 tier 由调用方决定（hero 自身 tier - 1）；过滤 hero 自身避免递归 + 挖掘 / 定向勘探衍生链。
-// 同等级实体化卡可能少于 N 张（尤其 bronze 只有战旗 / 令箭等少数 aura 卡）；此时返回少于 N 张。
+// 勇者候选：roll N 张"同等级 + 真·实体化"的卡。
+// 严格过滤：跑一遍 dry PreActive，若 entityLayers > 0 才算"实体化卡"
+// （排除像战旗 / 令箭 / 战鼓那种 desc 提到"实体化"但自己不创造实体单位的 aura 卡）。
+// 候选 tier 由调用方决定（hero 自身 tier - 1）；排除 hero 自身 + excavate / directed_survey 衍生链。
 function _rollEntityKeywordCandidates(world, count, tier) {
   const fams = [];
   for (const [fid, fam] of Object.entries(CARD_DATA)) {
@@ -6624,11 +6777,19 @@ function _rollEntityKeywordCandidates(world, count, tier) {
     if (fid === 'hero') continue;
     if (fid === 'excavate' || fid === 'directed_survey') continue;
     const def = fam.tiers[tier];
-    if (!def) continue;
-    const dz = (typeof def.desc === 'function')
-      ? (def.desc(mkCard(fid, tier))?.zh || '')
-      : (def.desc?.zh || '');
-    if (dz.includes('实体化')) fams.push(fid);
+    if (!def || !def.effects) continue;
+    let hooks;
+    try { hooks = mkCard(fid, tier).initializeEffects(); } catch (e) { continue; }
+    const pre = hooks.filter(h => h.phase === Phase.PreActive);
+    if (pre.length === 0) continue;
+    // dry-run PreActive on probe bullet to detect entityLayers grant
+    const dry = new Bullet({
+      x: 0, y: 0, angle: 0, speed: 480, lifetime: 3,
+      bulletCount: 1, waveCount: 1, attack: 2, bound: 0, penetrate: 0, radius: 6,
+    });
+    for (const h of pre) dry.addHook(h);
+    try { dry.triggerHooks(Phase.PreActive, { world }); } catch (e) { continue; }
+    if (dry.entityLayers > 0) fams.push(fid);
   }
   return _rollDiscoverFromPool(fams, count, tier);
 }
@@ -6948,8 +7109,8 @@ const CARD_DATA = {
     emoji: '👑',
     name: { zh: '骷髅领主', en: 'Skeleton Lord' },
     tiers: {
-      gold:    _skeletonLordTier(1, 39),
-      diamond: _skeletonLordTier(2, 50),
+      gold:    _skeletonLordTier(1, 4, 39),
+      diamond: _skeletonLordTier(2, 3, 50),
     },
   },
 
@@ -6986,13 +7147,34 @@ const CARD_DATA = {
     },
   },
 
+  // 弓箭手 (v9)：实体子弹，每回合躲避最近敌人 + 发射 1 枚 tracking 弓箭。钻：弓箭穿透所有敌人。
+  archer: {
+    emoji: '🏹',
+    name: { zh: '弓箭手', en: 'Archer' },
+    tiers: {
+      bronze:  _archerTier(1, false, 23),
+      silver:  _archerTier(3, false, 30),
+      gold:    _archerTier(5, false, 39),
+      diamond: _archerTier(5, true,  50),
+    },
+  },
+
   swordsman: {
     emoji: '🗡',
     name: { zh: '剑士', en: 'Swordsman' },
     tiers: {
-      silver: _swordsmanTier({ atk: 1, ent: 2, half: Math.PI / 4, value: 30, desc: { zh: '伤害+1，实体化+2。每回合向最近的一名敌人挥剑，造成90°的范围伤害。', en: 'Damage+1, Entity+2. Each turn slashes the nearest enemy for a 90° AOE.' } }),
-      gold: _swordsmanTier({ atk: 1, ent: 2, half: Math.PI / 2, value: 39, desc: { zh: '伤害+1，实体化+2。每回合向周围挥剑，造成180°的范围伤害。', en: 'Damage+1, Entity+2. Each turn slashes 180° AOE.' } }),
-      diamond: _swordsmanTier({ atk: 2, ent: 2, half: Math.PI, reachMult: 1.5, value: 50, desc: { zh: '伤害+2，实体化+2。每回合向周围挥剑，造成360°的大范围伤害。', en: 'Damage+2, Entity+2. 360° slash with +50% reach.' } }),
+      bronze:  _swordsmanTier({ atk: 0, ent: 2, half: Math.PI / 4, value: 23,
+        desc: { zh: '实体化+2，体积增大。每回合向最近的一名敌人挥剑，造成90°的范围伤害。',
+                en: 'Entity+2, larger volume. Each turn slashes the nearest enemy for a 90° AOE.' } }),
+      silver:  _swordsmanTier({ atk: 1, ent: 2, half: Math.PI / 3, value: 30,
+        desc: { zh: '伤害+1，实体化+2，体积增大。每回合向最近的一名敌人挥剑，造成120°的范围伤害。',
+                en: 'Damage+1, Entity+2, larger volume. Each turn slashes the nearest enemy for a 120° AOE.' } }),
+      gold:    _swordsmanTier({ atk: 1, ent: 2, half: Math.PI / 2, value: 39,
+        desc: { zh: '伤害+1，实体化+2，体积增大。每回合向周围挥剑，造成180°的范围伤害。',
+                en: 'Damage+1, Entity+2, larger volume. Each turn slashes 180° AOE.' } }),
+      diamond: _swordsmanTier({ atk: 2, ent: 3, half: Math.PI, reachMult: 1.5, hitStackAtk: true, value: 50,
+        desc: { zh: '伤害+2，实体化+3，体积增大。每回合向周围挥剑，造成360°的大范围伤害。每命中一个敌人，伤害+1。',
+                en: 'Damage+2, Entity+3, larger volume. 360° slash with +50% reach. +1 damage per enemy hit.' } }),
     },
   },
 
@@ -7119,10 +7301,10 @@ const CARD_DATA = {
     emoji: '🎈',
     name: { zh: '热气球', en: 'Hot Air Balloon' },
     tiers: {
-      bronze: _hotairTier(2, 1.2, 6),
-      silver: _hotairTier(3, 1.2, 8),
-      gold: _hotairTier(3, 1.5, 10),
-      diamond: _hotairTier(4, 1.5, 13),
+      bronze:  _hotairTier(0, 1.2, false, 6),    // 实体+1，体积增加
+      silver:  _hotairTier(0, 2.0, false, 8),    // 实体+1，体积大幅增加
+      gold:    _hotairTier(1, 2.0, true,  10),   // 伤+1 + 实体+1 + 体积大幅 + 不消退
+      diamond: _hotairTier(2, 2.0, true,  13),   // 伤+2 + 实体+1 + 体积大幅 + 不消退
     },
   },
 
@@ -7202,14 +7384,14 @@ const CARD_DATA = {
     },
   },
 
-  hotpotato: {
+  potato: {
     emoji: '🥔',
-    name: { zh: '烫土豆', en: 'Hot Potato' },
+    name: { zh: '土豆', en: 'Potato' },
     tiers: {
-      bronze: _hotpotatoTier(5, 2, 13),
-      silver: _hotpotatoTier(5, 3, 18),
-      gold: _hotpotatoTier(5, 4, 23),
-      diamond: _hotpotatoTier(6, 5, 30),
+      bronze:  _potatoTier(2, 2, 13),
+      silver:  _potatoTier(2, 4, 18),
+      gold:    _potatoTier(3, 4, 23),
+      diamond: _potatoTier(4, 4, 30),
     },
   },
 
@@ -7217,10 +7399,10 @@ const CARD_DATA = {
     emoji: '⛽',
     name: { zh: '燃料匣', en: 'Fuel Cell' },
     tiers: {
-      bronze: _fuelcellTier(1, 2, 1, false, 6),
-      silver: _fuelcellTier(1, 3, 2, false, 8),
-      gold: _fuelcellTier(2, 3, 2, false, 10),
-      diamond: _fuelcellTier(2, 3, 2, true, 13),
+      bronze:  _fuelcellTier(1, 2, 1.0, false, 6),    // 小范围伤害
+      silver:  _fuelcellTier(1, 3, 2.0, false, 8),    // 普通范围伤害
+      gold:    _fuelcellTier(2, 3, 2.0, false, 10),   // 普通范围伤害
+      diamond: _fuelcellTier(2, 3, 2.0, true, 13),    // 普通范围伤害 + 燃烧 + 非燃烧敌人点燃
     },
   },
 
@@ -7271,13 +7453,13 @@ const CARD_DATA = {
     emoji: '⚱',
     name: { zh: '掘墓', en: 'Excavate Tomb' },
     tiers: {
-      diamond: _excavateTombTier(13),
+      diamond: _excavateTombTier(30),
     },
   },
 
   arcane_giant: {
     emoji: '🧙',
-    name: { zh: '奥数巨人', en: 'Arcane Giant' },
+    name: { zh: '奥术巨人', en: 'Arcane Giant' },
     tiers: {
       gold:    _arcaneGiantTier(3, 39, '巨型'),
       diamond: _arcaneGiantTier(5, 50, '巨型强力'),
@@ -7409,12 +7591,12 @@ const CARD_DATA = {
         2, 'random', 6,
       ),
       silver: _directedSurveyTier(
-        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值2；将其洗入最左侧。',
+        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值为2；将其洗入最左侧。',
         'Damage+2. When discarded, discover 1 temporary 3-cost card (cost 2) and shuffle it to the leftmost slot.',
         2, 'leftmost', 8,
       ),
       gold: _directedSurveyTier(
-        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值1；将其洗入最左侧。',
+        '伤害+2。当你弃置此牌时，发现1张临时的3费卡牌，其消耗值为1；将其洗入最左侧。',
         'Damage+2. When discarded, discover 1 temporary 3-cost card (cost 1) and shuffle it to the leftmost slot.',
         1, 'leftmost', 10,
       ),
@@ -7519,11 +7701,11 @@ const CARD_DATA = {
     },
   },
 
-  // ─── 奥术进化主卡：使用时洗入 5 张衍生 + 自身变为「奥术强化」───
+  // ─── 奥术进化主卡：使用时洗入 5 张衍生 + 自身变为「奥术礼花」───
   // "先使用，再替换" — onUse 触发洗牌 + 标记自身待替换；fireFromCards 在 toDiscard 之后扫描标记并就地替换。
-  //   非主卡：进弃牌堆后，原卡槽位被 arcaneboost 顶替（不是在手牌中追加）。
-  //   主卡：bag[0] 在原位被 arcaneboost 顶替。
-  // 银/金/钻 tier 对应替换后的 arcaneboost 同 tier。
+  //   非主卡：进弃牌堆后，原卡槽位被 arcane_firework 顶替（不是在手牌中追加）。
+  //   主卡：bag[0] 在原位被 arcane_firework 顶替。
+  // 银/金/钻 tier 对应替换后的 arcane_firework 同 tier。
   arcane_evolution: {
     emoji: '🌌',
     name: { zh: '奥术进化', en: 'Arcane Evolution' },
@@ -7531,8 +7713,8 @@ const CARD_DATA = {
       silver: {
         cost: 3, value: 30,
         desc: {
-          zh: '将5种奥术进化洗入你的手牌。用奥术强化替换此牌。',
-          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Boost.',
+          zh: '将5种奥术进化洗入你的手牌。用奥术礼花替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Replace this card with Arcane Firework.',
         },
         effects: () => [],
         onUse(card, world) { _arcaneEvoOnUse(card, world, 0); },
@@ -7540,8 +7722,8 @@ const CARD_DATA = {
       gold: {
         cost: 3, value: 39,
         desc: {
-          zh: '将5种奥术进化洗入你的手牌。将2张奥术进化翻为正面。用奥术强化替换此牌。',
-          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip 2 of them face-up. Replace this card with Arcane Boost.',
+          zh: '将5种奥术进化洗入你的手牌。将2张奥术进化翻为正面。用奥术礼花替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip 2 of them face-up. Replace this card with Arcane Firework.',
         },
         effects: () => [],
         onUse(card, world) { _arcaneEvoOnUse(card, world, 2); },
@@ -7549,8 +7731,8 @@ const CARD_DATA = {
       diamond: {
         cost: 3, value: 50,
         desc: {
-          zh: '将5种奥术进化洗入你的手牌。将它们翻为正面。用奥术强化替换此牌。',
-          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip all of them face-up. Replace this card with Arcane Boost.',
+          zh: '将5种奥术进化洗入你的手牌。将它们翻为正面。用奥术礼花替换此牌。',
+          en: 'Shuffle 5 Arcane Evolution derivatives into your hand. Flip all of them face-up. Replace this card with Arcane Firework.',
         },
         effects: () => [],
         onUse(card, world) { _arcaneEvoOnUse(card, world, 5); },
@@ -7671,17 +7853,16 @@ function _arcaneEvoOnUse(card, world, revealCount = 0) {
       }));
     }
   }
-  // 打上标记：fire 流程在所有 toDiscard 完成后会扫描 bag / discard，把标记的卡换成同 tier 的奥术强化
-  card._becomeArcaneboost = card.tier;
+  // 打上标记：fire 流程在所有 toDiscard 完成后会扫描 bag / discard，把标记的卡换成同 tier 的奥术礼花
+  // （v9：原本替换为奥术强化 [arcaneboost]，v9 改为奥术礼花 [arcane_firework]）
+  card._becomeArcaneFirework = card.tier;
 }
 
 // 扫描 bag (主卡槽) + discard，把使用过后带"待替换"标记的卡就地换成对应衍生家族。
 // 由 fireFromCards 在 toDiscard 之后调用。
-//   _becomeArcaneboost      → arcaneboost  （奥术进化）
-//   _becomeArcaneFirework   → arcane_firework （持续施法）
+//   _becomeArcaneFirework   → arcane_firework （奥术进化 + 持续施法）
 //   _becomeCrypt            → crypt       （转生）
 const _CARD_REPLACEMENTS = [
-  { mark: '_becomeArcaneboost',    family: 'arcaneboost' },
   { mark: '_becomeArcaneFirework', family: 'arcane_firework' },
   { mark: '_becomeCrypt',          family: 'crypt' },
 ];
@@ -8450,12 +8631,14 @@ class BattleManager {
       const isSkeleton = b._isSkeleton || b._isUndeadDragon;
       if (n === 0) {
         if (isSkeleton) continue;
-        // 无 EntityTurn 钩子（纯坦克实体）→ 仅扣一层即可
-        b.entityLayers--;
-        // 浮字 FX 由通用 buff-diff 侦测器统一负责
-        if (b.entityLayers <= 0) {
-          b.triggerHooks(Phase.Destroyed, { world: w });
-          b.alive = false;
+        // 无 EntityTurn 钩子（纯坦克实体）→ 仅扣一层即可（_noEntityDecay 标记可豁免 — 热气球金/钻）
+        if (!b._noEntityDecay) {
+          b.entityLayers--;
+          // 浮字 FX 由通用 buff-diff 侦测器统一负责
+          if (b.entityLayers <= 0) {
+            b.triggerHooks(Phase.Destroyed, { world: w });
+            b.alive = false;
+          }
         }
         continue;
       }
@@ -8470,6 +8653,8 @@ class BattleManager {
       }
       if (isSkeleton) continue;        // 骷髅不在这里扣层
       // 所有 EntityTurn 钩子播完之后再扣 1 层（整颗实体每回合仅扣 1，不论多少个挥剑钩子）
+      // _noEntityDecay 标记 → 跳过回合衰减（热气球金/钻）
+      if (b._noEntityDecay) continue;
       const lastFireMs = (n - 1) * staggerMs;
       setTimeout(() => {
         if (!b.alive) return;
@@ -10183,8 +10368,8 @@ function fireFromCards(world, cards, side, opts = {}) {
         world.deck.toDiscard(c);
       }
     }
-    // 奥术进化：先使用（onUse 已洗入 5 张衍生），再替换 — 把 bag 主卡槽 / discard 中
-    // 标记 _becomeArcaneboost 的卡就地替换成同 tier 的 arcaneboost。
+    // 奥术进化 / 持续施法：先使用（onUse 已洗入衍生 / 标记），再替换 — 把 bag 主卡槽 / discard 中
+    // 标记 _becomeArcaneFirework 的卡就地替换成同 tier 的奥术礼花（v9 改）。
     _resolveArcaneEvoReplacements(world);
 
     // 连击
@@ -12635,7 +12820,7 @@ function main() {
   window.__rollShopCard = _rollShopCard;
   window.__triggerDiscover = triggerDiscover;
   window.__resolveDiscover = resolveDiscover;
-  // 测试入口：奥数巨人吸收 + 激光 — preview verify 用，无运行时副作用
+  // 测试入口：奥术巨人吸收 + 激光 — preview verify 用，无运行时副作用
   window.__absorbIntoArcaneGiant = _absorbIntoArcaneGiant;
   window.__fireArcaneGiantLaser = _fireArcaneGiantLaser;
   window.__Bullet = Bullet;
