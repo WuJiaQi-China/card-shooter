@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=44">
+<link rel="stylesheet" href="style.css?v=45">
 </head>
 <body>
 <div id="page-root">
@@ -24,13 +24,15 @@
 </aside>
 
 <div id="game-root">
-  <div id="hud">
-    <div class="hud-block"><span class="label" data-i18n="hud_turn">回合</span><span id="turn" class="turn-player">玩家</span></div>
-    <div class="hud-block"><span class="label" data-i18n="hud_state">状态</span><span id="state">Idle</span></div>
-    <div class="hud-block hud-gold"><span class="label" data-i18n="hud_gold">金币</span><span id="gold" class="gold-badge">5</span></div>
-    <div class="hud-block hud-cannon hidden" id="cannon-hud"><span class="label" data-i18n="cannon_hud_label">炮台</span><span id="cannon-icon" class="cannon-icon">⚙</span><span id="cannon-name" class="cannon-name">—</span></div>
-    <div class="hud-block hud-settings"><button id="settings-btn" class="settings-btn">⚙</button></div>
+  <!-- 右上角浮动小组件：金币 / 炮台 / 设置按钮（替代旧的顶部 HUD 条） -->
+  <div id="top-right-widget">
+    <div class="trw-item trw-gold"><span id="gold" class="gold-badge">5</span></div>
+    <div class="trw-item trw-cannon hidden" id="cannon-hud"><span id="cannon-icon" class="cannon-icon">⚙</span><span id="cannon-name" class="cannon-name">—</span></div>
+    <button id="settings-btn" class="settings-btn">⚙</button>
   </div>
+  <!-- 兼容旧代码：$turn / $state 仍被 JS 引用，但视觉上不展示 -->
+  <span id="turn" class="turn-player hidden-text">玩家</span>
+  <span id="state" class="hidden-text">Idle</span>
 
   <!-- 设置面板：点击右上角齿轮按钮打开 -->
   <div id="settings-panel" class="settings-panel hidden" role="dialog" aria-modal="false">

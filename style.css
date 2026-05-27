@@ -171,34 +171,37 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
-#hud {
+/* 旧 #hud / .hud-block 已删除。新右上角浮动小组件 #top-right-widget 取而代之。
+   保留少量 hud-cannon / hud-settings 样式（cannon-name / settings-btn 等仍被复用）。 */
+.hidden-text { display: none !important; }
+
+#top-right-widget {
+  position: absolute;
+  top: 6px;
+  right: 8px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 3px 8px;
-  background: #181e26;
-  border-radius: 6px;
-  font-size: 11px;
-}
-
-.hud-block {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 78px;
-}
-
-.hud-block .label {
-  color: #6f7986;
-  font-size: 10px;
-  letter-spacing: 0.5px;
-}
-
-.hud-block span:not(.label) {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  gap: 8px;
+  z-index: 25;
+  background: rgba(20, 26, 34, 0.75);
+  border: 1px solid rgba(74, 88, 104, 0.5);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  backdrop-filter: blur(3px);
   color: #f1f4f8;
 }
+#top-right-widget .trw-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+#top-right-widget .trw-icon { font-size: 14px; line-height: 1; }
+#top-right-widget .trw-item.hidden { display: none; }
+#top-right-widget .trw-cannon { gap: 5px; }
+#top-right-widget .trw-cannon .cannon-icon { font-size: 16px; }
+#top-right-widget .trw-cannon .cannon-name { font-size: 12px; font-weight: 700; }
 
 .bar {
   height: 5px;
@@ -350,13 +353,7 @@ html, body {
 .kw-pop.kw-fire .kw-title { color: #ff7030; }
 .kw-pop.kw-freeze .kw-title { color: #7eb1ff; }
 
-/* HUD 炮台展示 */
-.hud-block.hud-cannon {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.hud-block.hud-cannon.hidden { display: none; }
+/* 炮台展示（在 #top-right-widget 内）— hud-block 已废弃，保留 cannon-icon/cannon-name 用于复用 */
 .cannon-icon {
   font-size: 18px;
   line-height: 1;
@@ -433,13 +430,7 @@ html, body {
 }
 .lang-btn:active { transform: translateY(0); }
 
-/* HUD 设置按钮（齿轮）：推到 HUD 最右；点击展开 #settings-panel */
-.hud-block.hud-settings {
-  display: flex;
-  align-items: center;
-  margin-left: auto;     /* 推到 HUD 最右 */
-  min-width: auto;
-}
+/* 设置按钮（齿轮）— 在 #top-right-widget 内，点击展开 #settings-panel */
 .settings-btn {
   background: #2a3340;
   border: 1px solid #4a5868;
@@ -467,10 +458,10 @@ html, body {
   transform: rotate(60deg);
 }
 
-/* 设置面板：贴在 HUD 右下，绝对定位浮层 */
+/* 设置面板：贴在右上角小组件下方，绝对定位浮层 */
 .settings-panel {
   position: absolute;
-  top: 46px;
+  top: 44px;
   right: 8px;
   background: rgba(20, 26, 34, 0.97);
   border: 1px solid #4a5868;
@@ -1480,8 +1471,7 @@ html[lang="en"]  .card-total::before { content: "Total "; opacity: 0.75; font-we
 .hud-toggle-row input { cursor: pointer; flex-shrink: 0; }
 
 /* HUD 金币块：推到最右 + 视觉强调 */
-.hud-gold { margin-left: auto; }
-.hud-gold .gold-badge { font-size: 14px; padding: 2px 10px; }
+/* removed — .gold-badge already defined above with 💰 ::before */
 .hud-toggle label {
   display: flex;
   gap: 6px;
