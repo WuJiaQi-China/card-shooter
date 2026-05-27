@@ -6204,8 +6204,8 @@ function _braveDragonLairTier(threshold, value) {
       const shared = (w && w._discardCounters && w._discardCounters[FAMILY]) || 0;
       const remaining = Math.max(0, threshold - shared);
       return {
-        zh: `召唤2个骷髅。本关勇闯龙巢累计弃置${remaining}次以召唤强大的亡灵龙！`,
-        en: `Summon 2 Skeletons. Discard Brave Dragon's Lair ${remaining} more time${remaining === 1 ? '' : 's'} this stage to summon a mighty Undead Dragon!`,
+        zh: `召唤2个骷髅。弃置同名卡牌${remaining}次以召唤强大的亡灵龙！`,
+        en: `Summon 2 Skeletons. Discard same-name cards ${remaining} more time${remaining === 1 ? '' : 's'} to summon a mighty Undead Dragon!`,
       };
     },
     effects: () => [],
