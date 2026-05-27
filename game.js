@@ -5493,29 +5493,38 @@ function _warBannerTier(auraDmg, spawnDmg, value) {
     },
     effects: () => [],
     onUse(_, world) {
+      // 一次性 aura：场上所有活着的友方实体（含已进入实体态 / 仍带 entityLayers 的飞行体）+ auraDmg。
+      // 也覆盖正在飞行但有 entityLayers 的子弹（如 撒豆成兵 还没落地就吃 aura；不再等 bulletEntity）。
       for (const b of world.bullets) {
-        if (b.alive && b.isEntity && b.team !== 'enemy') {
-          b.attack = (b.attack || 0) + auraDmg;
-          // 浮字 FX 由 Bullet 的属性差异侦测器统一负责（见 main loop 末尾的 buff-diff 段）
-        }
+        if (!b.alive || b.team === 'enemy') continue;
+        const isEntityish = b.isEntity || (b.entityLayers || 0) > 0 || b._isSkeleton;
+        if (!isEntityish) continue;
+        b.attack = (b.attack || 0) + auraDmg;
       }
     },
     onReveal(card) {
       if (card._wbHandler) return;
-      card._wbHandler = (s) => {
+      // 单只单位只 buff 一次：用 _wbBuffed 集合记 bullet 引用避免重复（summonSpawned + bulletEntity 都会触发）
+      const apply = (b) => {
         if (!card.faceUp) return;
-        if (!s || s.team === 'enemy') return;
-        // 实体类友方单位：skeleton / 其它 _isEntity 标志的子弹
-        if (!s._isSkeleton && !s.isEntity) return;
-        s.attack = (s.attack || 0) + spawnDmg;
-        s.entityLayers = (s.entityLayers || 0) + 1;
-        // FX 同上：由通用属性 diff 侦测，不在此显式 spawn 浮字
+        if (!b || b.team === 'enemy') return;
+        if (b._wbBuffed) return;
+        // 友方"实体类"判定：显式 skeleton / 已 isEntity / 仍带 entityLayers 的飞行体
+        const isEntityish = b._isSkeleton || b.isEntity || (b.entityLayers || 0) > 0;
+        if (!isEntityish) return;
+        b._wbBuffed = true;
+        b.attack = (b.attack || 0) + spawnDmg;
+        b.entityLayers = (b.entityLayers || 0) + 1;
+        if (b.entityLayersMax != null) b.entityLayersMax += 1;
       };
-      Events.on('summonSpawned', card._wbHandler);
+      card._wbHandler = apply;
+      Events.on('summonSpawned', apply);   // 骷髅 / 龙 / 剑圣 等显式 spawn
+      Events.on('bulletEntity', apply);    // 撒豆成兵 等"飞行 → 实体态"自然转化
     },
     onConceal(card) {
       if (card._wbHandler) {
         Events.off('summonSpawned', card._wbHandler);
+        Events.off('bulletEntity', card._wbHandler);
         card._wbHandler = null;
       }
     },
