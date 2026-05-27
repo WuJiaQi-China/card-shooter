@@ -5178,7 +5178,6 @@ function _skeletonLordTier(attacksPerTurn, ent, value) {
             if (!b.alive) return;
             const target = _nearestEnemyTo(w, b.x, b.y);
             if (!target) return;
-            const willKill = target.hp - (b.attack || 0) <= 0;
             const bb = new Bullet({
               x: b.x, y: b.y,
               angle: angleBetween(b.x, b.y, target.x, target.y),
@@ -5188,13 +5187,15 @@ function _skeletonLordTier(attacksPerTurn, ent, value) {
             });
             bb._fromAlly = true;
             bb.tracking = true;
-            if (willKill) {
-              bb.addHook(new Effect(Phase.HitEnemy, -1, ctx2 => {
-                const e = ctx2.enemy;
-                if (!e || e.alive) return;
-                spawnSkeleton(w, { x: b.x + rand(-22, 22), y: b.y + rand(-22, 22) });
-              }));
-            }
+            // 击杀时召唤 1 骷髅。旧实现 bug：发射时预测 willKill，命中时再 check e.alive。
+            //   HitEnemy 钩子在 _defaultHitEnemy（实际伤害）之前触发 → e.alive 永远 true → 永不召唤。
+            //   改：始终挂钩子，命中时实时检查 e.hp - bb.attack ≤ 0 即判定为击杀（伤害结算前）。
+            bb.addHook(new Effect(Phase.HitEnemy, -1, ctx2 => {
+              const e = ctx2.enemy;
+              if (!e || !e.alive) return;
+              if (e.hp - (bb.attack || 0) > 0) return;
+              spawnSkeleton(w, { x: b.x + rand(-22, 22), y: b.y + rand(-22, 22) });
+            }));
             bb.activate(performance.now() / 1000);
             w.bullets.push(bb);
             for (let k = 0; k < 6; k++) {
@@ -6436,8 +6437,10 @@ function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
   };
 }
 
-// 勇者：发现 2 张"下级实体化卡牌"并完整应用它们的效果（≈ 等于额外使用了那 2 张牌）。
-//   candidateTier：发现候选所在 tier（hero 自身 tier 降一级：银→铜 / 金→银 / 钻→金）。
+// 征召令（v9+，临时卡，由 口谕 在每回合开始洗入）：发现 2 张"下级实体化卡牌"并完整应用它们的效果。
+//   candidateTier：发现候选所在 tier（征召令自身 tier 降一级：银→铜 / 金→银 / 钻→金）。
+//   _destroyAfterUse / _autoDiscardAtTurnEnd 在 CARD_DATA 注册时打到 def 上，
+//   但运行时也由 onUse 内显式标记 — 因为 mkCard 生成的新实例需要这些 per-instance 状态。
 //
 // 设计：被选卡的"全部效果"都施加 — 不只 EntityTurn：
 //   - PreActive / Spawned / HitEnemy / Destroyed / EntityTurn 等 Bullet hooks 全数加到子弹上
@@ -6449,21 +6452,21 @@ function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
 //      实际执行延后到 continueFire 阶段）。
 //   2. onUse 排队 2 次 triggerDiscover；fireFromCards 末尾检测 _discoverPending → 挂 continueFire 为延续。
 //   3. 每次 onPick：① 推入 card._heroPicks ② 立即跑 picked.onUse（"等于使用了该牌"）。
-//   4. 2 选完 → continueFire → tpl.triggerHooks(PreActive) → hero PreActive 跑：
+//   4. 2 选完 → continueFire → tpl.triggerHooks(PreActive) → 征召令 PreActive 跑：
 //        - 把 picked.initializeEffects() 的全部 hook 加到 ctx.bullet（= tpl）
 //        - 对 PreActive 阶段 hook 立即手动 execute，让 attack / entityLayers / _xxxFlag 等真正写到 tpl
 //          （否则 triggerHooks 已 snapshot 当前轮列表 → 后加的 PreActive 不会在同次循环跑）
 //   5. fireOneWave 用 clone.copyHooksFrom(tpl) → 每颗 clone 都拿到完整 hook 列表（Spawned / EntityTurn /
 //      HitEnemy / Destroyed 自然按各自时机触发）。
-//   6. hero 自己的 PreActive 用 priority 50 → 排在普通 PreActive(0) 之后、wall 类(100) 之前；保证
+//   6. 自身 PreActive 用 priority 50 → 排在普通 PreActive(0) 之后、wall 类(100) 之前；保证
 //      被选卡 PreActive 的 buff 叠加在主 PreActive 已结算的 tpl 上。
-function _heroTier(candidateTier, value) {
+function _conscriptionOrderTier(candidateTier, value) {
   const tierZh = { bronze: '铜', silver: '银', gold: '金', diamond: '钻' }[candidateTier] || candidateTier;
   return {
     cost: 3, value,
     desc: {
-      zh: `发现并获得2张${tierZh}等级的实体化卡牌的效果。`,
-      en: `Discover 2 ${candidateTier}-tier Entity cards and apply all their effects.`,
+      zh: `临时。发现并获得2张${tierZh}等级的实体化卡牌的效果。`,
+      en: `Temporary. Discover 2 ${candidateTier}-tier Entity cards and apply all their effects.`,
     },
     effects: (card) => [
       // PreActive：把被选卡的所有 hook 加到 ctx.bullet（= tpl），同时立即执行被选卡的 PreActive
@@ -6475,12 +6478,12 @@ function _heroTier(candidateTier, value) {
             ctx.bullet.addHook(h);
             if (h.phase === Phase.PreActive) {
               try { h.execute({ bullet: ctx.bullet, world: ctx.world }); }
-              catch (e) { console.error('hero pick PreActive error', e); }
+              catch (e) { console.error('conscription pick PreActive error', e); }
             }
           }
         }
       }),
-      // Spawned：装饰 🦸（每颗 clone 都画 — 标识"勇者派生"，与被选卡的装饰并存）
+      // Spawned：装饰 🦸（每颗 clone 都画 — 标识"征召令派生"，与被选卡的装饰并存）
       new Effect(Phase.Spawned, 0, ctx => {
         (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('hero');
       }),
@@ -6495,19 +6498,56 @@ function _heroTier(candidateTier, value) {
         triggerDiscover(world, {
           candidates: cands,
           sourceCard: card,
-          title: LANG.current === 'zh' ? `勇者 · 第${idx}张` : `Hero · #${idx}`,
+          title: LANG.current === 'zh' ? `征召令 · 第${idx}张` : `Conscription · #${idx}`,
           sub: LANG.current === 'zh' ? '选择1张实体化卡牌' : 'Pick 1 Entity card',
           onPick: (chosen) => {
             card._heroPicks.push(chosen);
             // "等于使用了这张卡"：立刻调被选卡 onUse（骷髅号角召唤骷髅、爆骨花生骨花等副作用此刻触发）
             // 不调 onReveal — picks 不在手牌，没有"展露/隐藏"语义
             try { chosen.onUse?.(world, player); }
-            catch (e) { console.error('hero pick onUse error', e); }
+            catch (e) { console.error('conscription pick onUse error', e); }
           },
         });
       }
     },
   };
+}
+
+// 口谕：使用时把自身替换为 令箭 + 本关每回合开始洗入一张同 tier 临时 征召令。
+//   口谕 / 征召令 tier 一一对应（银→征召令银→候选铜；金→征召令金→候选银；钻→征召令钻→候选金）。
+//   _decreeTiers 是数组（多张 口谕 → 每回合多张 征召令）；按 tier 字串记录，每回合 push 一张到手牌。
+//   清理见 BattleManager.resetForBattle / _startNewGame：本关结束清空。
+function _decreeTier(tierKey, value) {
+  return {
+    cost: 3, value,
+    desc: {
+      zh: '用令箭替换此牌。在你的回合开始时，将一张临时征召令洗入你的手牌。',
+      en: 'Replace this card with Order Arrow. At the start of each turn, shuffle a temporary Conscription Order into your hand.',
+    },
+    effects: () => [],
+    onUse(card, world) {
+      // 注册本关每回合开始洗入 征召令 同 tier
+      world._decreeTiers = world._decreeTiers || [];
+      world._decreeTiers.push(tierKey);
+      // 立即洗入一张（首次使用就有触发感 — 与 持续施法 onUse 同设计）
+      _decreeShuffleIn(world, tierKey);
+      // 标记替换为 令箭 同 tier — 进入弃牌堆 / 主卡槽后由 _resolveArcaneEvoReplacements 替换
+      card._becomeOrderArrow = card.tier;
+    },
+  };
+}
+
+// 把 1 张同 tier 临时 征召令 洗入手牌（口谕 onUse + 每回合开始触发）
+function _decreeShuffleIn(world, tierKey) {
+  const card = mkCard('conscription_order', tierKey);
+  card._destroyAfterUse = true;         // 使用后永久移除
+  card._autoDiscardAtTurnEnd = true;    // 回合结束未用 → 同样移除（不残留手牌污染）
+  world.deck.shuffleIntoHand(card);
+  // foresight 翻正面 — 临时牌应当玩家看得见效果
+  card._foresightFaceUp = true;
+  world.deck._setFace(card, true);
+  Events.emit('shuffledIn', card);
+  Events.emit('deckChanged');
 }
 
 // 勇闯龙巢：召唤2骷髅。弃置 threshold 次（含被效果弃置）以召唤亡灵龙；召唤后计数归零，重新累计。
@@ -6774,7 +6814,7 @@ function _rollEntityKeywordCandidates(world, count, tier) {
   const fams = [];
   for (const [fid, fam] of Object.entries(CARD_DATA)) {
     if (fam.excludedFromShop) continue;
-    if (fid === 'hero') continue;
+    if (fid === 'decree' || fid === 'conscription_order') continue;
     if (fid === 'excavate' || fid === 'directed_survey') continue;
     const def = fam.tiers[tier];
     if (!def || !def.effects) continue;
@@ -7512,14 +7552,27 @@ const CARD_DATA = {
     },
   },
 
-  // 勇者：发现 2 张下级实体化卡 → 子弹实体化+2 + 继承被选卡的 EntityTurn 行为
-  hero: {
-    emoji: '🦸',
-    name: { zh: '勇者', en: 'Hero' },
+  // 口谕：使用即把自身替换为 令箭，并在本关每回合开始洗入一张同 tier 临时 征召令
+  decree: {
+    emoji: '📜',
+    name: { zh: '口谕', en: 'Decree' },
     tiers: {
-      silver:  _heroTier('bronze', 30),
-      gold:    _heroTier('silver', 39),
-      diamond: _heroTier('gold',   50),
+      silver:  _decreeTier('silver', 30),
+      gold:    _decreeTier('gold',   39),
+      diamond: _decreeTier('diamond', 50),
+    },
+  },
+
+  // 征召令（衍生 / 临时）：由 口谕 每回合洗入。发现并获得 2 张下级实体化卡牌的效果。
+  //   银 征召令 → 发现铜；金 → 发现银；钻 → 发现金（与 口谕 对应 tier 一致）
+  conscription_order: {
+    emoji: '📃',
+    name: { zh: '征召令', en: 'Conscription Order' },
+    excludedFromShop: true,
+    tiers: {
+      silver:  _conscriptionOrderTier('bronze', 30),
+      gold:    _conscriptionOrderTier('silver', 39),
+      diamond: _conscriptionOrderTier('gold',   50),
     },
   },
 
@@ -7862,9 +7915,11 @@ function _arcaneEvoOnUse(card, world, revealCount = 0) {
 // 由 fireFromCards 在 toDiscard 之后调用。
 //   _becomeArcaneFirework   → arcane_firework （奥术进化 + 持续施法）
 //   _becomeCrypt            → crypt       （转生）
+//   _becomeOrderArrow       → order_arrow （口谕）
 const _CARD_REPLACEMENTS = [
   { mark: '_becomeArcaneFirework', family: 'arcane_firework' },
   { mark: '_becomeCrypt',          family: 'crypt' },
+  { mark: '_becomeOrderArrow',     family: 'order_arrow' },
 ];
 function _resolveArcaneEvoReplacements(world) {
   const deck = world.deck;
@@ -8522,6 +8577,12 @@ class BattleManager {
       if (this.world._contCastActive && this.state === State.Battle) {
         _continuousCastShuffleIn(this.world);
       }
+      // 口谕：每回合开始为每张已使用的 口谕 洗入一张同 tier 临时 征召令
+      if (this.world._decreeTiers && this.state === State.Battle) {
+        for (const tk of this.world._decreeTiers) {
+          _decreeShuffleIn(this.world, tk);
+        }
+      }
       // v8.2 修复：法力在"玩家回合真正开始时"回满 —— 而不是在 _afterPlayerTurnComplete
       // （玩家回合结束、即将进入敌方回合时）。
       // 旧实现的 bug：法力回满后 setTurn('enemy')，但敌方真正行动还要等子弹清场 + 实体阶段
@@ -8745,6 +8806,7 @@ class BattleManager {
     this.world._turnHookCards = [];     // 本回合用过的卡（奥弹/骷髅继承）清空
     this.world._contCastActive = false; // 持续施法 本局状态清空
     this.world._contCastRolls = 0;
+    this.world._decreeTiers = [];       // 口谕 本局状态清空
     this.world._reincarnateActive = false; // 转生 本局状态清空
     _clearDiscoverState(this.world);     // 发现弹窗 残留清理
     this.world.summons = [];
@@ -9159,6 +9221,7 @@ class BattleManager {
     w._arcaneEvo = {};           // 奥术进化本局 buff 清空
     w._contCastActive = false;   // 持续施法 本局状态清空
     w._contCastRolls = 0;
+    w._decreeTiers = [];          // 口谕 本局状态清空
     w._reincarnateActive = false; // 转生 本局状态清空
     w._discardCounters = {};     // 勇闯龙巢等"本关共享弃置计数"清空
     _clearDiscoverState(w);       // 发现弹窗 残留清理
