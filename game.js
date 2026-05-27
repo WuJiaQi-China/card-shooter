@@ -6555,14 +6555,12 @@ function _decreeTier(tierKey, value) {
 }
 
 // 把 1 张同 tier 临时 征召令 洗入手牌（口谕 onUse + 每回合开始触发）
+// 默认洗入为反面（与所有"无说明"的洗入卡一致）；玩家正常走 _updateFaceUp 在边缘翻正面
 function _decreeShuffleIn(world, tierKey) {
   const card = mkCard('conscription_order', tierKey);
   card._destroyAfterUse = true;         // 使用后永久移除
   card._autoDiscardAtTurnEnd = true;    // 回合结束未用 → 同样移除（不残留手牌污染）
   world.deck.shuffleIntoHand(card);
-  // foresight 翻正面 — 临时牌应当玩家看得见效果
-  card._foresightFaceUp = true;
-  world.deck._setFace(card, true);
   Events.emit('shuffledIn', card);
   Events.emit('deckChanged');
 }

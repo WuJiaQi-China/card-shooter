@@ -575,13 +575,13 @@ html, body {
 }
 
 /* 下方：grid 3 列布局 — 主卡严格居中；左侧 main-left（金币/背包）与右侧 main-stats 对称
- * padding-top 压缩到 4px（手牌行 min-height 180 已留足空间，不需要额外推下） */
+ * padding-top 压缩到 2px，整体压缩主卡容器高度 */
 #hand-main-row {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: start;
   border-top: 1px dashed #2a3242;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
 #hand-main {
@@ -598,11 +598,11 @@ html, body {
   width: 220px;                  /* 与 #main-stats 等宽 */
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   background: #1a2028;
   border: 1px solid #2a3242;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 4px 10px;
   font-size: 12px;
 }
 #main-left button {
@@ -625,11 +625,11 @@ html, body {
   width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   background: #1a2028;
   border: 1px solid #2a3242;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 4px 10px;
   font-size: 12px;
 }
 .ms-row {
@@ -670,7 +670,8 @@ html, body {
   animation: combo-bump 0.45s ease;
 }
 
-/* XP 条独立放页面底部 */
+/* XP 条独立放页面底部
+ * margin-bottom 12px：把战场区从经验条下分离开（其它部分整体向下移） */
 #xp-bar-row {
   display: flex;
   align-items: center;
@@ -679,6 +680,7 @@ html, body {
   background: #14191f;
   border-radius: 4px;
   font-size: 10px;
+  margin-bottom: 12px;
 }
 .xp-lv {
   color: #ffd84a;
@@ -2139,7 +2141,8 @@ kbd {
 
 /* ─── 临时卡（_destroyAfterUse）视觉：蓝色边框 + 75% 不透明度 ─────────
  * 通过发现 / 挖掘等机制临时洗入的卡，使用或弃置后会从卡组中移除。
- * 为了让玩家一眼区分，加蓝色描边 + 略微透明的效果。 */
+ * 为了让玩家一眼区分，加蓝色描边 + 略微透明的效果。
+ * 注意：高亮 / 特效仅在卡牌为正面时显示；反面卡跟普通反面一致（不暴露牌型） */
 .card.temporary .card-front,
 .modal-card.temporary {
   outline: 2px solid rgba(94, 178, 255, 0.85);
@@ -2150,11 +2153,3 @@ kbd {
   opacity: 0.75;
 }
 .card.temporary.face-down .card-front { opacity: 0; }    /* 反面时不画正面层 */
-.card.temporary.face-down .card-back {
-  outline: 2px solid rgba(94, 178, 255, 0.85);
-  outline-offset: -2px;
-  box-shadow:
-    inset 0 0 0 1px rgba(94, 178, 255, 0.4),
-    0 0 14px rgba(94, 178, 255, 0.55);
-  opacity: 0.75;
-}
