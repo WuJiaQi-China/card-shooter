@@ -1512,20 +1512,34 @@ class Bullet {
     if (now - this.born >= this.lifetime) { Events.emit('bulletDestroyed', this); this.destroy(); return; }
 
     // 墙（梯形）—— 顶 / 底 / 两条斜边
-    const tb = trapBounds(world, this.y);
+    // 命中判定：以子弹"边"碰到墙为准（圆心距墙的有符号距离 < radius），不是球心碰墙。
+    //   - 顶 / 底：center.y < radius / > h - radius
+    //   - 左 / 右斜边：center 到墙线的有符号距离 < radius；钳位时沿 inward normal 推回 radius。
+    const r = this.radius;
+    const h = world.h, bl = world.trap.bottomLeft, dr = world.w - world.trap.bottomRight;
+    const llen = Math.hypot(h, bl);
+    const rlen = Math.hypot(h, dr);
+    // 内法线（指向梯形内部）+ 沿其方向的有符号距离（>0 = 内部）
+    const distLeft  = (this.x * h - this.y * bl) / llen;
+    const distRight = ((world.w - this.x) * h - this.y * dr) / rlen;
     let n = null;
-    if (this.y < 0) {
+    if (this.y < r) {
       n = { x: 0, y: 1 };
-      this.y = 0.1;
-    } else if (this.y > world.h) {
+      this.y = r;
+    } else if (this.y > h - r) {
       n = { x: 0, y: -1 };
-      this.y = world.h - 0.1;
-    } else if (this.x < tb.leftX) {
+      this.y = h - r;
+    } else if (distLeft < r) {
       n = trapNormals(world).left;
-      this.x = tb.leftX + 0.1;
-    } else if (this.x > tb.rightX) {
+      // 沿内法线推回到边-tangent 位置
+      const push = r - distLeft;
+      this.x += n.x * push;
+      this.y += n.y * push;
+    } else if (distRight < r) {
       n = trapNormals(world).right;
-      this.x = tb.rightX - 0.1;
+      const push = r - distRight;
+      this.x += n.x * push;
+      this.y += n.y * push;
     }
     if (n) {
       const handled = this.triggerHooks(Phase.HitWall, { normal: n, world });
