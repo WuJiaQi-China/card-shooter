@@ -2042,6 +2042,22 @@ function _drawEntityDecos(ctx, bullet) {
     ctx.restore();
   }
 
+  // 🦸 勇者：球体顶部漂浮，红色英雄光晕；动感稍快（"行动姿态"）
+  const heroes = grouped.hero || 0;
+  if (heroes > 0) {
+    const baseFont = Math.max(18, Math.min(28, r * 1.5));
+    const dist = r + 9;
+    const sway = Math.sin(t * 2.8) * 4;
+    ctx.save();
+    ctx.font = baseFont + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ef5050';
+    ctx.shadowBlur = 12;
+    ctx.fillText('🦸', 0, -dist + sway);
+    ctx.restore();
+  }
+
   // 🤺 剑圣：球体顶部漂浮（觉醒金 / 普通银白），快速摆动暗示战斗姿态
   // 注意：剑圣的"觉醒"标记从 bullet._awakened 读，而非靠装饰 type 区分。
   //   渲染靠 bullet.color cascade（球体本身金/银已经区分了），这里再加同色光晕统一气质
@@ -6280,6 +6296,68 @@ function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
   };
 }
 
+// 勇者：实体化+2 + 2 次"发现下级实体化卡"，子弹继承被选卡的 EntityTurn 行为。
+//   candidateTier：发现候选所在 tier（hero 自身 tier 降一级：银→铜 / 金→银 / 钻→金）。
+//
+// 实现关键（参见 fireFromCards 流程 + modify-mechanic §2.9）：
+//   1. effects() 返回的 PreActive hook 在 fireFromCards 内于 onUse 之前装到 tpl 上 — 此时 hook
+//      闭包捕获 card，但实际执行延后到 continueFire 阶段。
+//   2. onUse 调 2 次 triggerDiscover（第二个自动进入 _discoverQueue）。fireFromCards 末尾
+//      若检测到 _discoverPending → 把 continueFire 挂为延续。
+//   3. 玩家依次选 2 张 → 每张 onPick 把 Card 推入 card._heroPicks。
+//   4. 队列空 → resolveDiscover 调 continueFire → tpl.triggerHooks(Phase.PreActive) →
+//      hero PreActive 读 card._heroPicks，从每张选定卡 initializeEffects() 中抽 EntityTurn
+//      hook 加到 ctx.bullet（= tpl）。
+//   5. fireOneWave 用 clone.copyHooksFrom(tpl) → 每颗 clone 都拿到这些 EntityTurn hook。
+//
+// 设计：只继承 EntityTurn hook，不继承 PreActive / Spawned / HitEnemy / Destroyed 等其它阶段
+//   （贴合"获得他们每回合的效果"的字面意思 — 不发生原卡的发射伤害 / 装饰 / 命中副作用）。
+//   被选卡牌不入手牌、不召唤、不消耗费用，仅作为 EntityTurn 行为模板。
+function _heroTier(candidateTier, value) {
+  const tierZh = { bronze: '铜', silver: '银', gold: '金', diamond: '钻' }[candidateTier] || candidateTier;
+  return {
+    cost: 3, value,
+    desc: {
+      zh: `实体化+2。发现2张${tierZh}等级的带有实体化关键词的卡牌，并获得他们每回合的效果。`,
+      en: `Entity+2. Discover 2 ${candidateTier}-tier Entity cards and gain their per-turn effects.`,
+    },
+    effects: (card) => [
+      // PreActive：先 +2 实体化；继续注入被选卡的 EntityTurn hook 到 ctx.bullet（= tpl）
+      // 此时 onUse 已结算 + 2 次发现已选完 → card._heroPicks 是当次选择的 2 张 Card
+      new Effect(Phase.PreActive, 0, ctx => {
+        ctx.bullet.entityLayers += 2;
+        const picks = card._heroPicks || [];
+        for (const picked of picks) {
+          if (!picked || !picked.initializeEffects) continue;
+          for (const h of picked.initializeEffects()) {
+            if (h.phase === Phase.EntityTurn) ctx.bullet.addHook(h);
+          }
+        }
+      }),
+      // Spawned：装饰 🦸（每颗 clone 都画）
+      new Effect(Phase.Spawned, 0, ctx => {
+        (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('hero');
+      }),
+    ],
+    onUse(card, world) {
+      // 每次使用重置 picks（多次施放不应叠加旧选择）
+      card._heroPicks = [];
+      for (let i = 0; i < 2; i++) {
+        const cands = _rollEntityKeywordCandidates(world, 3, candidateTier);
+        if (cands.length === 0) break;   // 无候选 → 跳过本次发现，不弹空窗
+        const idx = i + 1;
+        triggerDiscover(world, {
+          candidates: cands,
+          sourceCard: card,
+          title: LANG.current === 'zh' ? `勇者 · 第${idx}张` : `Hero · #${idx}`,
+          sub: LANG.current === 'zh' ? '选择1张实体化卡牌' : 'Pick 1 Entity card',
+          onPick: (chosen) => { card._heroPicks.push(chosen); },
+        });
+      }
+    },
+  };
+}
+
 // 勇闯龙巢：召唤2骷髅。弃置 threshold 次（含被效果弃置）以召唤亡灵龙；召唤后计数归零，重新累计。
 //   desc 是函数 → 每次渲染计算剩余次数；剩余 1 次（即将触发）→ _discardCounterReady 引导 UI 橙色高亮 + 翻面粒子。
 // 勇闯龙巢：计数器在**本关内**全 family 共享（v8.6 重构）。
@@ -6532,6 +6610,25 @@ function _rollDiscoverByCost(world, count, tier, targetCost) {
     if (!t) continue;
     if ((t.cost ?? 0) !== targetCost) continue;
     fams.push(fid);
+  }
+  return _rollDiscoverFromPool(fams, count, tier);
+}
+
+// 勇者候选：roll N 张"同等级 + desc 含'实体化'关键词"的卡。
+// 候选 tier 由调用方决定（hero 自身 tier - 1）；过滤 hero 自身避免递归 + 挖掘 / 定向勘探衍生链。
+// 同等级实体化卡可能少于 N 张（尤其 bronze 只有战旗 / 令箭等少数 aura 卡）；此时返回少于 N 张。
+function _rollEntityKeywordCandidates(world, count, tier) {
+  const fams = [];
+  for (const [fid, fam] of Object.entries(CARD_DATA)) {
+    if (fam.excludedFromShop) continue;
+    if (fid === 'hero') continue;
+    if (fid === 'excavate' || fid === 'directed_survey') continue;
+    const def = fam.tiers[tier];
+    if (!def) continue;
+    const dz = (typeof def.desc === 'function')
+      ? (def.desc(mkCard(fid, tier))?.zh || '')
+      : (def.desc?.zh || '');
+    if (dz.includes('实体化')) fams.push(fid);
   }
   return _rollDiscoverFromPool(fams, count, tier);
 }
@@ -7230,6 +7327,17 @@ const CARD_DATA = {
       silver:  _swordSaintVisitTier(false, false, 8),
       gold:    _swordSaintVisitTier(true,  false, 10),
       diamond: _swordSaintVisitTier(true,  true,  13),
+    },
+  },
+
+  // 勇者：发现 2 张下级实体化卡 → 子弹实体化+2 + 继承被选卡的 EntityTurn 行为
+  hero: {
+    emoji: '🦸',
+    name: { zh: '勇者', en: 'Hero' },
+    tiers: {
+      silver:  _heroTier('bronze', 30),
+      gold:    _heroTier('silver', 39),
+      diamond: _heroTier('gold',   50),
     },
   },
 
