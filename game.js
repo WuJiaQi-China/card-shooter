@@ -8581,6 +8581,8 @@ class BattleManager {
     this.world.bullets.length = 0;
     this.world.summons.length = 0;
     this.summonOverTurns = [];
+    // 炉石模式：阵亡也撤销本关替换效果，让 PostBattle 期间 / restart 前的 bag 显示原卡。
+    this.world.deck.restoreStageBag();
     this.world.deck.clearBattleState();
     _clearDiscoverState(this.world);
     this.setState(State.PostBattle);
@@ -12522,6 +12524,7 @@ function main() {
   window.__absorbIntoArcaneGiant = _absorbIntoArcaneGiant;
   window.__fireArcaneGiantLaser = _fireArcaneGiantLaser;
   window.__Bullet = Bullet;
+  window.__resolveArcaneEvoReplacements = _resolveArcaneEvoReplacements;
   window.__spawnUndeadDragon = spawnUndeadDragon;
   window.__spawnSwordSaint = spawnSwordSaint;
 
