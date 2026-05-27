@@ -3723,23 +3723,24 @@ function _spawnBuffFloat(world, x, y, type, amount, isDebuff = false) {
 // 例：主卡 +1 攻 + 副卡 +3 攻 → 飘两个 ⚔+1 + ⚔+3（而非合并为 ⚔+4）
 //
 // items 形如 [['atk', 1], ['atk', 3], ['pen', 2], ...] —— 调用方按卡片维度构造。
-// 位置：炮台两侧 + 后方 180° 弧（excludes 炮口前 ±90°），避免挡住瞄准视线。
+// 位置：炮台周围 180° 后半圆内**完全随机**（左 / 右 / 后方）+ 紧贴炮台外缘。
+//   不挡前 180° 半圆 = 不挡瞄准视线。
+//   每次每个 item 角度独立随机 → 同一发射不同 buff 会自然散落不同位置，避免"总在固定位置"。
 function _emitCannonBuffFX(world, items) {
   if (!world || !world.player) return;
   if (!items || items.length === 0) return;
   const p = world.player;
   const backAngle = p.angle + Math.PI;
-  const arc = Math.PI;                 // 180°（excludes 前 180° 半圆）
-  const baseDist = (p.radius || 24) + 18;
-  items.forEach((it, i) => {
-    // 在 [-arc/2, +arc/2] 等距分布；单项时取 0（正后方）
-    const t = items.length > 1 ? i / (items.length - 1) : 0.5;
-    const relAng = -arc / 2 + arc * t;
-    const jitter = (Math.random() - 0.5) * 0.25;   // ±7° 随机抖动
-    const ang = backAngle + relAng + jitter;
-    const dist = baseDist + Math.random() * 10;
+  const halfArc = Math.PI / 2;          // ±90° 后半圆
+  const radius = p.radius || 24;
+  items.forEach((it) => {
+    // 完全随机角度（在后半圆内）—— 不再按 i 等距分布
+    const relAng = (Math.random() - 0.5) * 2 * halfArc;
+    const ang = backAngle + relAng;
+    // 紧贴炮台外缘：radius + 2..14 px（之前 radius + 18..28，太远）
+    const dist = radius + 2 + Math.random() * 12;
     const x = p.x + Math.cos(ang) * dist;
-    const y = p.y + Math.sin(ang) * dist - 4;       // 略向上偏，提高可见度
+    const y = p.y + Math.sin(ang) * dist - 2;
     _spawnBuffFloat(world, x, y, it[0], it[1]);
   });
 }
