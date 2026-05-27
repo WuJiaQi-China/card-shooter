@@ -2354,6 +2354,11 @@ function _availableEnemies(waveNumber) {
   return out;
 }
 
+// 角色顶部 HUD 占位（HP bar / 火焰 / 冻结 / intent 角标）—— 角色 y 的钳位 min 用
+//   radius + TOP_HUD_PAD，保证被推到顶端时这些 UI 还能完整显示在战场范围内。
+//   HP bar 在 y - radius - 10～-14；火焰/冻结 文字在 y - radius - 22 / -36；留 ~4px 余量。
+const TOP_HUD_PAD = 40;
+
 let _enemyId = 0;
 class Enemy {
   constructor(x, y, typeKey = 'goblin', world = null) {
@@ -2546,10 +2551,11 @@ class Enemy {
     // 立即位移（视觉冲击）+ 设减速窗口（移动 *0.2 持续 ~0.18s）
     this.x += px;
     this.y += py;
-    // 钳位回梯形内：避免被击退到墙外。Y 先 clamp（梯形宽度依赖 y），再按当前 y 钳 X。
+    // 钳位回梯形内：避免被击退到墙外 / 上方。Y 先 clamp（梯形宽度依赖 y），再按当前 y 钳 X。
+    // 顶部 min 加 TOP_HUD_PAD：让 HP bar + intent / 火焰 / 冻结角标也留在可见区内。
     const w = this.world;
     if (w) {
-      this.y = clamp(this.y, this.radius, w.h - this.radius);
+      this.y = clamp(this.y, this.radius + TOP_HUD_PAD, w.h - this.radius);
       const tb = trapBounds(w, this.y);
       this.x = clamp(this.x, tb.leftX + this.radius, tb.rightX - this.radius);
     }
@@ -2724,8 +2730,9 @@ class Enemy {
       this.x += vx * dt;
       this.y += vy * dt;
       // 梯形内活动：先钳 Y，再按当前 y 钳 X（梯形宽度随 y 变化）
-      if (this.y < this.radius)             this.y = this.radius;
-      if (this.y > world.h - this.radius)   this.y = world.h - this.radius;
+      // 顶部 min 加 TOP_HUD_PAD：让 HP bar + intent / 火焰 / 冻结角标也留在可见区内。
+      if (this.y < this.radius + TOP_HUD_PAD) this.y = this.radius + TOP_HUD_PAD;
+      if (this.y > world.h - this.radius)     this.y = world.h - this.radius;
       const tb = trapBounds(world, this.y);
       if (this.x < tb.leftX + this.radius)  this.x = tb.leftX + this.radius;
       if (this.x > tb.rightX - this.radius) this.x = tb.rightX - this.radius;
@@ -3510,7 +3517,8 @@ class Summon extends Unit {
       const tb = trapBounds(world, this.y);
       if (this.x < tb.leftX + this.radius)  this.x = tb.leftX + this.radius;
       if (this.x > tb.rightX - this.radius) this.x = tb.rightX - this.radius;
-      this.y = clamp(this.y, this.radius, world.h - this.radius);
+      // 顶部 min 加 TOP_HUD_PAD：HP bar 等顶部 UI 也留在画面内
+      this.y = clamp(this.y, this.radius + TOP_HUD_PAD, world.h - this.radius);
     }
     // 飞行单位漂浮（无人机）
     if (this.flies) {
@@ -3762,7 +3770,7 @@ function spawnSummon(world, kind, opts = {}) {
   // 梯形内
   const tb = trapBounds(world, sp.y);
   sp.x = clamp(sp.x, tb.leftX + sp.radius, tb.rightX - sp.radius);
-  sp.y = clamp(sp.y, sp.radius, world.h - sp.radius);
+  sp.y = clamp(sp.y, sp.radius + TOP_HUD_PAD, world.h - sp.radius);
   world.summons.push(sp);
   Events.emit('summonSpawned', sp);
   return sp;
