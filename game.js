@@ -15,6 +15,35 @@ const randInt = (a, b) => Math.floor(rand(a, b + 1));
 
 function angleBetween(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
 
+// 颜色 helper：在 hex (#rgb / #rrggbb / rgb()) 与白 / 黑之间线性混合。
+// t ∈ [0, 1]，t=0 = 原色，t=1 = 纯白 / 纯黑。
+// 用于 Enemy.draw 的径向渐变（中心 lighten，边缘 darken）。
+function _parseHexColor(c) {
+  if (!c) return [128, 128, 128];
+  if (c[0] === '#') {
+    if (c.length === 4) return [parseInt(c[1]+c[1],16), parseInt(c[2]+c[2],16), parseInt(c[3]+c[3],16)];
+    if (c.length === 7) return [parseInt(c.slice(1,3),16), parseInt(c.slice(3,5),16), parseInt(c.slice(5,7),16)];
+  }
+  // rgb(r, g, b)
+  const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(c);
+  if (m) return [+m[1], +m[2], +m[3]];
+  return [128, 128, 128];
+}
+function _lightenColor(c, t) {
+  const [r, g, b] = _parseHexColor(c);
+  const lr = Math.round(r + (255 - r) * t);
+  const lg = Math.round(g + (255 - g) * t);
+  const lb = Math.round(b + (255 - b) * t);
+  return `rgb(${lr}, ${lg}, ${lb})`;
+}
+function _darkenColor(c, t) {
+  const [r, g, b] = _parseHexColor(c);
+  const lr = Math.round(r * (1 - t));
+  const lg = Math.round(g * (1 - t));
+  const lb = Math.round(b * (1 - t));
+  return `rgb(${lr}, ${lg}, ${lb})`;
+}
+
 // ─── 多语言（i18n）─────────────────────────────────────────────────
 // 单一 LANG.current 控制全局语言；切换时 emit 'langChanged' → UI 重渲。
 const LANG = { current: 'zh' };
@@ -2215,8 +2244,8 @@ const ENEMY_TYPES = {
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触 2 伤。每回合开始免疫 1 次伤害' }] },
   // 火炮法师：朝玩家方向投影矩形 AOE（长 280 / 宽 70）。2 回合间隔，单次大伤害
   cannoneer: { name: '火炮法师',  icon: '🧙', maxHp: 9,  attack: 0, speed: 75, radius: 16, color: '#a04060', shape: 'triangle', xpReward: 12, value: 17, minWave: 12,
-               behavior: 'kiter', preferredRange: 280,
-               intents: [{ kind: 'rectAoe', icon: '💢', cooldown: 2, value: 5, length: 280, halfWidth: 35, desc: '2 回合后向前方矩形范围（长 280 / 宽 70）造成 5 伤' }] },
+               behavior: 'kiter', preferredRange: 220,
+               intents: [{ kind: 'rectAoe', icon: '💢', cooldown: 2, value: 5, length: 180, halfWidth: 35, desc: '2 回合后向前方矩形范围（长 180 / 宽 70）造成 5 伤' }] },
   // 穿透弩手：射出大型穿透弹（pen 4），打穿玩家与召唤物。2 回合间隔
   piercer:   { name: '穿透弩手',  icon: '🏹', maxHp: 9,  attack: 0, speed: 88, radius: 15, color: '#c08840', shape: 'triangle', xpReward: 12, value: 17, minWave: 11,
                behavior: 'kiter', preferredRange: 320,
@@ -2746,10 +2775,23 @@ class Enemy {
     const flash = this.hitFlash > 0;
     // 冻结：整体染蓝（覆盖原色，保留 hitFlash 的高亮）
     const frozen = this.freeze > 0;
-    const color = flash ? '#ffffff' : (frozen ? '#5fb4ff' : this.color);
+    const baseColor = flash ? '#ffffff' : (frozen ? '#5fb4ff' : this.color);
     ctx.strokeStyle = frozen ? '#1f5fa8' : 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 2;
-    ctx.fillStyle = color;
+    // v8.5：所有敌人 body 改用径向渐变（左上亮 → 右下暗），增加立体感 + 不同敌人差异
+    // flash / frozen 状态保留纯色（高亮 / 冻结视觉优先）
+    if (flash || frozen) {
+      ctx.fillStyle = baseColor;
+    } else {
+      const grad = ctx.createRadialGradient(
+        -this.radius * 0.35, -this.radius * 0.35, this.radius * 0.1,
+        0, 0, this.radius
+      );
+      grad.addColorStop(0,    _lightenColor(baseColor, 0.55));
+      grad.addColorStop(0.55, baseColor);
+      grad.addColorStop(1,    _darkenColor(baseColor, 0.35));
+      ctx.fillStyle = grad;
+    }
     if (this.shape === 'triangle') {
       ctx.beginPath();
       ctx.moveTo(0, -this.radius);
@@ -2765,12 +2807,26 @@ class Enemy {
       ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
       ctx.fill(); ctx.stroke();
     }
-    // 简易眼睛
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(-this.radius * 0.32, -this.radius * 0.18, 2.5, 0, Math.PI * 2);
-    ctx.arc(this.radius * 0.32, -this.radius * 0.18, 2.5, 0, Math.PI * 2);
-    ctx.fill();
+    // v8.5：身体中央叠 type.icon emoji 作为差异化标识（每种敌人 icon 各异 → 视觉秒辨认）
+    // 取代旧的"简易白点眼睛"。flash / frozen 状态也显示，但稍微变淡
+    if (this.type.icon) {
+      ctx.save();
+      ctx.font = `${this.radius * 1.5}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.7)';
+      ctx.shadowBlur = 4;
+      ctx.globalAlpha = (flash || frozen) ? 0.55 : 1;
+      ctx.fillText(this.type.icon, 0, 0);
+      ctx.restore();
+    } else {
+      // fallback 旧风格白点眼睛（type 没有 icon 的兜底）
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(-this.radius * 0.32, -this.radius * 0.18, 2.5, 0, Math.PI * 2);
+      ctx.arc(this.radius * 0.32, -this.radius * 0.18, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
     // HP bar
     const bw = this.radius * 2;
     ctx.fillStyle = '#000a';
