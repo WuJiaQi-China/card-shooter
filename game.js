@@ -1105,7 +1105,7 @@ const KEYWORDS_DICT = {
     { word: '数量',  cls: 'bullet',  title: '数量',  desc: '影响主炮发射子弹的数量。' },
     { word: '波次',  cls: 'bullet',  title: '波次',  desc: '影响主炮发射子弹的波次。' },
     { word: '骷髅',  cls: 'summon',  title: '骷髅',  desc: '特殊召唤物，回合结束时冲撞最近的敌人。' },
-    { word: '替换',  cls: 'shuffle', title: '替换',  desc: '在本关卡内，使用另一张卡牌代替本卡牌。战斗结束后复原。' },
+    { word: '替换',  cls: 'shuffle', title: '替换',  desc: '在对战中使用另一张卡牌代替它，对战后换回。' },
   ],
   en: [
     { word: 'Reveal',    cls: 'reveal',  title: 'Reveal',    desc: 'An aura effect that continuously triggers while the card is face-up.' },
@@ -1130,7 +1130,7 @@ const KEYWORDS_DICT = {
     { word: 'Bullets',   cls: 'bullet',  title: 'Bullets',   desc: 'Affects the number of bullets fired by the main cannon.' },
     { word: 'Wave',      cls: 'bullet',  title: 'Wave',      desc: 'Affects the number of waves fired by the main cannon.' },
     { word: 'Skeleton',  cls: 'summon',  title: 'Skeleton',  desc: 'A special summon that charges the nearest enemy at end of turn.' },
-    { word: 'Replace',   cls: 'shuffle', title: 'Replace',   desc: 'Within this stage, this card is substituted by another card. Restored after the battle.' },
+    { word: 'Replace',   cls: 'shuffle', title: 'Replace',   desc: 'Within a battle, substitutes this card with another; restored after the battle.' },
   ],
 };
 
