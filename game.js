@@ -6556,10 +6556,10 @@ function _decreeTier(tierKey, value) {
 
 // 把 1 张同 tier 临时 征召令 洗入手牌（口谕 onUse + 每回合开始触发）
 // 默认洗入为反面（与所有"无说明"的洗入卡一致）；玩家正常走 _updateFaceUp 在边缘翻正面
+// 临时只在"使用 / 弃置"时移除（与"临时"关键词定义一致），回合结束保留 → 没用上的征召令累积在手牌
 function _decreeShuffleIn(world, tierKey) {
   const card = mkCard('conscription_order', tierKey);
-  card._destroyAfterUse = true;         // 使用后永久移除
-  card._autoDiscardAtTurnEnd = true;    // 回合结束未用 → 同样移除（不残留手牌污染）
+  card._destroyAfterUse = true;         // 使用 / 弃置后永久移除
   world.deck.shuffleIntoHand(card);
   Events.emit('shuffledIn', card);
   Events.emit('deckChanged');
