@@ -3200,17 +3200,18 @@ class PlayerCannon {
   }
 
   // 每次发射调用：拉满 recoilT + spawn 炮台专属 muzzle flash + 火星
-  // 按 world.cannon.id 分派 (chain / fire / power) → 不同颜色 + 风格化粒子
+  // 按 world.cannon.id 分派 (chain / summon / power / fire-legacy) → 不同颜色 + 风格化粒子
   notifyFired(world) {
     this.recoilT = this.recoilDur;
     if (!world) return;
     const mx = this.x + Math.cos(this.angle) * (this.radius + 12);
     const my = this.y + Math.sin(this.angle) * (this.radius + 12);
     const cid = world.cannon?.id;
-    if (cid === 'fire')       this._muzzleFire(world, mx, my);
-    else if (cid === 'chain') this._muzzleChain(world, mx, my);
-    else if (cid === 'power') this._muzzlePower(world, mx, my);
-    else                      this._muzzleDefault(world, mx, my);
+    if (cid === 'fire')        this._muzzleFire(world, mx, my);
+    else if (cid === 'chain')  this._muzzleChain(world, mx, my);
+    else if (cid === 'power')  this._muzzlePower(world, mx, my);
+    else if (cid === 'summon') this._muzzleSummon(world, mx, my);
+    else                       this._muzzleDefault(world, mx, my);
   }
 
   // 默认（无炮台）：黄色闪光 + 4 颗火星
@@ -3292,6 +3293,25 @@ class PlayerCannon {
       world.particles.push(new Particle({
         x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
         life: 0.2, color: '#aed0ff', size: 2.4,
+      }));
+    }
+  }
+
+  // 召唤炮台：紫色魔法 puff —— 紫白闪光 + 旋转双环 + 紫色火花
+  _muzzleSummon(world, mx, my) {
+    world.particles.push(new Particle({ x: mx, y: my, life: 0.15, color: '#dd99ff', size: 18, type: 'flash' }));
+    world.particles.push(new Particle({ x: mx, y: my, life: 0.32, color: '#a060d0', size: 16, type: 'ring' }));
+    world.particles.push(new Particle({
+      x: mx + Math.cos(this.angle) * 6, y: my + Math.sin(this.angle) * 6,
+      life: 0.28, color: '#7a3aa8', size: 12, type: 'ring',
+    }));
+    // 紫色火花朝炮口方向
+    for (let i = 0; i < 7; i++) {
+      const a = this.angle + (Math.random() - 0.5) * 0.6;
+      const sp = 160 + Math.random() * 100;
+      world.particles.push(new Particle({
+        x: mx, y: my, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: 0.32, color: i % 2 === 0 ? '#dd99ff' : '#a060d0', size: 2.6,
       }));
     }
   }
@@ -4303,13 +4323,15 @@ const CANNON_DEFS = {
       }
     },
   },
-  rubber: {
-    id: 'rubber', name: '橡胶炮台', desc: '弹射+2，穿透+1。',
-    icon: '🟫', color: '#888',
-    baseColor: '#3a3a3a', strokeColor: '#101010', barrelColor: '#a0a0a0',
+  summon: {
+    id: 'summon', name: '召唤炮台', desc: '每发射2次，子弹获得1实体化。',
+    icon: '🪄', color: '#a060d0',
+    baseColor: '#4a2a6a', strokeColor: '#1a0830', barrelColor: '#c89edd',
     onFire(self, world, tpl) {
-      tpl.bound += 2;
-      tpl.penetrate += 1;
+      self._shotCount = ((self._shotCount || 0) + 1) % 2;
+      if (self._shotCount === 0) {
+        tpl.entityLayers += 1;
+      }
     },
   },
   power: {
@@ -4326,8 +4348,8 @@ const CANNON_DEFS = {
 const CANNON_TR = {
   chain:  { zh: { name: '锁链炮台', desc: '每发射3次，获得1层连携。（连携发射也算）' },
             en: { name: 'Chain Cannon', desc: 'Every 3 shots, gain 1 Chain stack. (Chain-fires count.)' } },
-  rubber: { zh: { name: '橡胶炮台', desc: '弹射+2，穿透+1。' },
-            en: { name: 'Rubber Cannon', desc: 'Bounce +2, Pierce +1.' } },
+  summon: { zh: { name: '召唤炮台', desc: '每发射2次，子弹获得1实体化。' },
+            en: { name: 'Summon Cannon', desc: 'Every 2 shots, the bullet gains +1 Entity layer.' } },
   power:  { zh: { name: '强能炮台', desc: '波次+1，主卡牌消耗+1。' },
             en: { name: 'Power Cannon', desc: 'Wave +1. Main card cost +1.' } },
 };
