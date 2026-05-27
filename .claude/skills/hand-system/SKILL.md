@@ -285,3 +285,23 @@ html[lang="en"]  .card-total::before { content: "Total "; }
 旧 bug：CSS 加了 `#modal-cannon, #modal-loot { position: relative; }` 想让里面的 `.cannon-lang-btn { position: absolute }` 锚定 → 但 `position: relative` 覆盖了基类 `.modal { position: fixed; inset: 0 }` → modal 退回到正常文档流，把 canvas 往下挤、面板挤到 canvas 下方。
 
 正确：`position: fixed` 本身也是 `position: absolute` 子元素的 containing block。不需要切到 `relative`。保留基类 `.modal { position: fixed }` 即可。
+
+### 13.4 法力回满的时机：必须在玩家回合**开始**，不是玩家回合**结束**
+v8.2 修复点 — 与回合时序有关，不严格属于 hand-system 但跟"法力 ↔ 出牌"语义直接相关。
+
+旧实现：`_afterPlayerTurnComplete()`（玩家结束回合时）做 `player.mana = maxMana` → 再 `setTurn('enemy')`。
+表面看合理（"下回合开始有满法力可用"），但实际有严重 bug：
+
+`setTurn('enemy')` 之后到敌人真正行动还要经过 ~1-3 秒：
+- 阶段 0：等场上所有非实体子弹清空（撞墙 / 命中 / 寿命）
+- 阶段 1：`_startEntityPhase` 我方实体效果（最多 ~810ms）
+- `_enemyPhaseDeferred` 等友方子弹落地（≥0.85s + 友弹安全阀 2s）
+- `enemyTurnTimer` 0.5s
+- `settle` 0.75s
+
+这整段窗口里，`turn === 'enemy'`，但 **`doFire` 不检查 turn**（只查 mana + 冷却）。玩家狂点鼠标依然能发射 —— 等于"偷了一发"。
+等真正敌方回合走完 + `setTurn('player')` 时，mana 已被偷射用空 → `auto-end-zero-mana` 立刻触发 → 又一个敌方回合 → **玩家看到的就是"敌方连续行动两次"**。
+
+正确做法：把 `mana = maxMana` 移到 `setTurn('player')` 内（仅在转入 player 时执行，转入 enemy 时**不**预先回满）。这样 enemy 回合期间 mana 留在 0（如果上回合用空），doFire 也发不出 → 关闭偷帧窗口。
+
+`_afterPlayerTurnComplete` 现在只负责 `setTurn('enemy')` + 重置 settle 状态，不碰 mana。

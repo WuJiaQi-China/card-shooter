@@ -7930,12 +7930,20 @@ class BattleManager {
       if (this.world._contCastActive && this.state === State.Battle) {
         _continuousCastShuffleIn(this.world);
       }
+      // v8.2 修复：法力在"玩家回合真正开始时"回满 —— 而不是在 _afterPlayerTurnComplete
+      // （玩家回合结束、即将进入敌方回合时）。
+      // 旧实现的 bug：法力回满后 setTurn('enemy')，但敌方真正行动还要等子弹清场 + 实体阶段
+      // + enemyPhaseDeferred (0.85s+) + enemyTurnTimer (0.5s) + settle (0.75s) ≈ 2-3 秒。
+      // 这段窗口里玩家鼠标点击仍能发射（doFire 不检查 turn，只检查 mana 与冷却），
+      // 等于偷了一发；等真正的敌方回合结束 + setTurn('player') 时 mana 已被用空 →
+      // auto-end-zero-mana 立刻触发 → 又进入一个敌方回合 → 玩家看到的就是"敌方连续 2 次"。
+      // 把回满挪到回合开始 = 关闭这个偷帧窗口。
+      p.mana = p.maxMana;
+      Events.emit('manaChanged', p.mana);
       // 回合开始缓冲：把 auto-end 计时器预置为负值，保证玩家至少有 ~1s 反应时间
       // 即使开局水晶不足以发牌（如被时空法师抽光、所有牌都贵）也不会瞬间被 auto-end 跳过。
       // 中途因发牌导致水晶不足 → else 分支已经把计时器清 0，仍走 0.25s 原速度，不影响节奏。
-      // v8.1 修复：auto-end-no-enemy 之前缓冲仅 0.5s → 在"上回合杀光敌人"的常见场景下
-      // 玩家会看到"敌人行动 1 次 → 法力似乎没回复 → 敌人又行动 1 次"的双回合体感。
-      // 把 no-enemy 缓冲拉长到 2.5s，给玩家看清法力回满 + 主动决定要不要消耗法力换金币。
+      // v8.1：auto-end-no-enemy 缓冲 0.5s → 2.5s（避免无敌人时连续自动跳回合的视觉错乱）
       this._autoEndSettleTime = -0.75;
       this._autoEndNoEnemySettleTime = -2.0;
     }
@@ -8253,10 +8261,11 @@ class BattleManager {
     this._afterPlayerTurnComplete();
   }
 
-  // 玩家回合"完整结束"之后的统一处理（不洗牌 — 手牌保留；只回满法力 + 进敌方回合）
+  // 玩家回合"完整结束"之后的统一处理（不洗牌 — 手牌保留；只进敌方回合）
   // 洗牌发生在商店关闭后（继续按钮内调 resetForBattle）
+  // v8.2：之前在此处回满法力，但会让玩家在"敌方未真正行动的子弹清场期"偷射一发；
+  //       已挪到 setTurn('player') 内（敌方真行动完才回满 → 关掉偷帧窗口）。
   _afterPlayerTurnComplete() {
-    this.world.player.mana = this.world.player.maxMana;
     this.setTurn('enemy');
     this.enemyTurnTimer = this.enemyTurnDuration;
     // 重置沉淀状态：每次进入敌方回合都从"未沉淀"开始
@@ -8265,6 +8274,7 @@ class BattleManager {
   }
 
   // 商店关闭后调用：直接进入新的玩家回合（敌方回合已经在商店之前结算完了）
+  // v8.2：法力由 setTurn('player') 自动回满，这里的显式赋值变成冗余但无害（设到同值）
   _startNewPlayerTurn() {
     this.world.player.mana = this.world.player.maxMana;
     this.setTurn('player');     // 重置护甲等
