@@ -1108,7 +1108,8 @@ html, body {
 }
 
 /* === 可合成候选卡的视觉信号 === */
-/* 1) 整张卡呼吸光环（紫金交替）+ 边框强烈脉冲 */
+/* 1) 整张卡呼吸光环（紫金交替）— 仅 box-shadow / filter 脉冲，不动 transform，
+   否则会持续覆盖 hover 的 scale(2.05) → mergeable 卡 hover 无法放大 */
 .modal-card.mergeable {
   animation: merge-pulse 1.1s ease-in-out infinite;
   z-index: 2;
@@ -1119,14 +1120,14 @@ html, body {
       inset 0 0 0 1px rgba(255, 215, 100, 0.5),
       0 0 14px rgba(201, 122, 255, 0.7),
       0 0 26px rgba(255, 215, 100, 0.4);
-    transform: translateY(0) scale(1);
+    filter: brightness(1);
   }
   50% {
     box-shadow:
       inset 0 0 0 1px rgba(255, 215, 100, 0.9),
       0 0 24px rgba(201, 122, 255, 1),
       0 0 42px rgba(255, 215, 100, 0.75);
-    transform: translateY(-2px) scale(1.02);
+    filter: brightness(1.08);
   }
 }
 

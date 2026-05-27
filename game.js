@@ -11644,22 +11644,17 @@ function setupLootPanel(world) {
       const el = modalCardEl(c);
       if (i === selectedIdx) el.classList.add('selected');
 
-      // 升级预览：购买可合成时，显示"→ 升级 tier"+ 可合成特效（脉冲边框 + 向上箭头）
+      // 升级预览：购买可合成时，加 .mergeable 类触发脉冲 + 上升箭头 + 火花特效
+      //   (旧的"→银 / →金"角标已移除 — 视觉本身已经说明可以合成，标签反而干扰 hover 放大)
       const mergeIdx = findMergeTarget(world.deck.bag, c);
       const upTier = nextTier(c.tier);
       const canMergeThis = mergeIdx >= 0 && upTier && CARD_DATA[c.familyId].tiers[upTier];
       if (canMergeThis) {
         el.classList.add('mergeable');
-        const tag = document.createElement('div');
-        tag.className = 'upgrade-preview';
-        tag.textContent = t('upgrade_preview', { tier: tierLabel(upTier) });
-        el.appendChild(tag);
-        // 渐变上升箭头（CSS 动画驱动 → 不需要每帧 spawn）
         const arrow = document.createElement('div');
         arrow.className = 'merge-arrow';
         arrow.textContent = '▲';
         el.appendChild(arrow);
-        // 4 颗循环粒子从卡底向上飘（CSS keyframes 控制）
         for (let k = 0; k < 4; k++) {
           const p = document.createElement('div');
           p.className = 'merge-spark';
