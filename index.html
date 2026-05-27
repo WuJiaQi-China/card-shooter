@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=45">
+<link rel="stylesheet" href="style.css?v=47">
 </head>
 <body>
 <div id="page-root">
@@ -24,12 +24,6 @@
 </aside>
 
 <div id="game-root">
-  <!-- 右上角浮动小组件：金币 / 炮台 / 设置按钮（替代旧的顶部 HUD 条） -->
-  <div id="top-right-widget">
-    <div class="trw-item trw-gold"><span id="gold" class="gold-badge">5</span></div>
-    <div class="trw-item trw-cannon hidden" id="cannon-hud"><span id="cannon-icon" class="cannon-icon">⚙</span><span id="cannon-name" class="cannon-name">—</span></div>
-    <button id="settings-btn" class="settings-btn">⚙</button>
-  </div>
   <!-- 兼容旧代码：$turn / $state 仍被 JS 引用，但视觉上不展示 -->
   <span id="turn" class="turn-player hidden-text">玩家</span>
   <span id="state" class="hidden-text">Idle</span>
@@ -164,6 +158,16 @@
     <div class="modal-hint" data-i18n="inv_sub">右键 = 设为主卡 · 拖拽 = 交换位置</div>
     <button class="modal-btn" id="continue-btn" data-i18n="continue">继续游戏</button>
   </div>
+</div>
+
+<!-- 右侧顶部小组件：金币 / 炮台 / 设置；与 #right-rail 左缘对齐，但放在视口顶部不挡波次预告 -->
+<div id="side-right-top">
+  <div class="srt-item srt-gold"><span id="gold" class="gold-badge">5</span></div>
+  <div class="srt-item srt-cannon hidden" id="cannon-hud">
+    <span id="cannon-icon" class="cannon-icon">⚙</span>
+    <span id="cannon-name" class="cannon-name">—</span>
+  </div>
+  <button id="settings-btn" class="settings-btn">⚙</button>
 </div>
 
 <!-- 右侧：下波预告面板 -->

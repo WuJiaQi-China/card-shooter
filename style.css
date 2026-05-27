@@ -171,37 +171,40 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 旧 #hud / .hud-block 已删除。新右上角浮动小组件 #top-right-widget 取而代之。
-   保留少量 hud-cannon / hud-settings 样式（cannon-name / settings-btn 等仍被复用）。 */
+/* 旧 #hud / .hud-block 已删除。金币 / 炮台 / 设置移到 #side-right-top 浮窗，
+   与 #right-rail 左缘对齐，置于视口顶部不挡波次预告。 */
 .hidden-text { display: none !important; }
 
-#top-right-widget {
-  position: absolute;
-  top: 6px;
-  right: 8px;
+#side-right-top {
+  position: fixed;
+  top: 10px;
+  /* 与 #right-rail 左缘对齐：right-rail left = calc(50% + 470px), width = 170px */
+  left: calc(50% + 470px);
+  width: 170px;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   z-index: 25;
-  background: rgba(20, 26, 34, 0.75);
-  border: 1px solid rgba(74, 88, 104, 0.5);
+  background: rgba(20, 26, 34, 0.85);
+  border: 1px solid rgba(74, 88, 104, 0.55);
   border-radius: 8px;
-  padding: 4px 8px;
+  padding: 8px 10px;
   font-size: 12px;
   backdrop-filter: blur(3px);
   color: #f1f4f8;
 }
-#top-right-widget .trw-item {
+#side-right-top .srt-item {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-weight: 600;
 }
-#top-right-widget .trw-icon { font-size: 14px; line-height: 1; }
-#top-right-widget .trw-item.hidden { display: none; }
-#top-right-widget .trw-cannon { gap: 5px; }
-#top-right-widget .trw-cannon .cannon-icon { font-size: 16px; }
-#top-right-widget .trw-cannon .cannon-name { font-size: 12px; font-weight: 700; }
+#side-right-top .srt-item.hidden { display: none; }
+#side-right-top .srt-cannon .cannon-icon { font-size: 16px; }
+#side-right-top .srt-cannon .cannon-name { font-size: 12px; font-weight: 700; }
+/* 设置按钮在 #side-right-top 内部 —— 撑满宽度 / 居中齿轮 */
+#side-right-top .settings-btn { width: 100%; height: 26px; }
 
 .bar {
   height: 5px;
@@ -443,26 +446,24 @@ html, body {
   font-size: 16px;
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.2s, color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .settings-btn:hover {
   background: #3a4452;
   border-color: #7eb1ff;
   color: #f1f4f8;
-  transform: rotate(30deg);
 }
 .settings-btn.active {
   background: #3a4452;
   border-color: #7eb1ff;
   color: #7eb1ff;
-  transform: rotate(60deg);
 }
 
-/* 设置面板：贴在右上角小组件下方，绝对定位浮层 */
+/* 设置面板：贴在 #side-right-top 下方（fixed 定位与之共用坐标系） */
 .settings-panel {
-  position: absolute;
-  top: 44px;
-  right: 8px;
+  position: fixed;
+  top: 110px;
+  left: calc(50% + 470px);
   background: rgba(20, 26, 34, 0.97);
   border: 1px solid #4a5868;
   border-radius: 8px;
