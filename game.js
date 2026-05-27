@@ -10501,6 +10501,8 @@ function fireOneWave(tpl, world) {
     }
     if (tpl.isArcane) clone.isArcane = true;
     if (tpl._fireOnHit) clone._fireOnHit = tpl._fireOnHit;
+    // 热气球金/钻：_noEntityDecay 在 PreActive 写到 tpl，需手动复制；否则 _tickEntityBullets 仍按默认衰减
+    if (tpl._noEntityDecay) clone._noEntityDecay = true;
     clone.triggerHooks(Phase.Spawned, { world });
     clone.activate(now);
     world.bullets.push(clone);
