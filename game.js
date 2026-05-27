@@ -1670,15 +1670,6 @@ class Bullet {
 
   destroy() {
     if (!this.alive) return;
-    // 实体化转化时把位置钳回画面内（含顶部 HUD 余量）— 避免在墙边 / 上方"死亡"瞬间转实体
-    //   后 HP bar / 实体化层数条跑出屏幕外看不见
-    const _clampToScreenForEntity = () => {
-      const w = this._world || window.__game;
-      if (!w) return;
-      this.y = clamp(this.y, this.radius + TOP_HUD_PAD, w.h - this.radius);
-      const tb = trapBounds(w, this.y);
-      this.x = clamp(this.x, tb.leftX + this.radius, tb.rightX - this.radius);
-    };
     // 骷髅 / 亡灵龙特殊：一次冲撞结束（弹射+穿透耗尽 + 撞墙 / lifetime）= 消耗 1 层实体化
     //   层数 >0 → 回到待机态（isEntity=true / speed=0），等下个敌方回合再冲
     //   层数 =0 → 真销毁（走下方 Destroyed 钩子）
@@ -1686,7 +1677,6 @@ class Bullet {
       this.entityLayers--;
       // 浮字 FX 由通用 buff-diff 侦测器统一负责
       if (this.entityLayers > 0) {
-        _clampToScreenForEntity();
         this.isEntity = true;
         this.speed = 0;
         this.penetrate = 0;
@@ -1700,7 +1690,6 @@ class Bullet {
     }
     // 实体化拦截：若还有实体化层数且尚未进入实体态 → 转为实体（不真销毁、不触发 Destroyed）
     if (this.entityLayers > 0 && !this.isEntity) {
-      _clampToScreenForEntity();
       this.isEntity = true;
       this.recentHits.clear();
       // 实体状态下不再有"待销毁的子弹"语义，清掉拖尾视觉
@@ -1938,12 +1927,13 @@ class Bullet {
     }
     ctx.restore();
     // 实体化层数血条（与敌人 HP bar 同款）—— 仅在有层数时显示
+    // 位置：球心偏下 40% radius（叠在身体下半），与敌人 HP bar 一致；顶在战场边缘也始终可见
     if (this.entityLayersMax > 0) {
       ctx.save();
       const bw = Math.max(20, this.radius * 2.5);
       const bh = 4;
       const bx = this.x - bw / 2;
-      const by = this.y - this.radius - 10;
+      const by = this.y + this.radius * 0.4;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
       ctx.fillRect(bx, by, bw, bh);
       ctx.fillStyle = this.isEntity ? '#5bd45b' : '#7eb1ff';
@@ -1952,12 +1942,12 @@ class Bullet {
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
       ctx.lineWidth = 1;
       ctx.strokeRect(bx, by, bw, bh);
-      // 层数文字（小号字体）
+      // 层数文字（小号字体）紧挨血条下方
       ctx.fillStyle = '#f1f4f8';
       ctx.font = 'bold 9px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(this.entityLayers + ' / ' + this.entityLayersMax, this.x, by - 5);
+      ctx.fillText(this.entityLayers + ' / ' + this.entityLayersMax, this.x, by + bh + 5);
       ctx.restore();
     }
   }
@@ -2365,11 +2355,6 @@ function _availableEnemies(waveNumber) {
   return out;
 }
 
-// 角色顶部 HUD 占位（HP bar / 火焰 / 冻结 / intent 角标）—— 角色 y 的钳位 min 用
-//   radius + TOP_HUD_PAD，保证被推到顶端时这些 UI 还能完整显示在战场范围内。
-//   HP bar 在 y - radius - 10～-14；火焰/冻结 文字在 y - radius - 22 / -36；留 ~4px 余量。
-const TOP_HUD_PAD = 40;
-
 let _enemyId = 0;
 class Enemy {
   constructor(x, y, typeKey = 'goblin', world = null) {
@@ -2562,11 +2547,10 @@ class Enemy {
     // 立即位移（视觉冲击）+ 设减速窗口（移动 *0.2 持续 ~0.18s）
     this.x += px;
     this.y += py;
-    // 钳位回梯形内：避免被击退到墙外 / 上方。Y 先 clamp（梯形宽度依赖 y），再按当前 y 钳 X。
-    // 顶部 min 加 TOP_HUD_PAD：让 HP bar + intent / 火焰 / 冻结角标也留在可见区内。
+    // 钳位回梯形内：避免被击退到墙外。Y 先 clamp（梯形宽度依赖 y），再按当前 y 钳 X。
     const w = this.world;
     if (w) {
-      this.y = clamp(this.y, this.radius + TOP_HUD_PAD, w.h - this.radius);
+      this.y = clamp(this.y, this.radius, w.h - this.radius);
       const tb = trapBounds(w, this.y);
       this.x = clamp(this.x, tb.leftX + this.radius, tb.rightX - this.radius);
     }
@@ -2741,9 +2725,8 @@ class Enemy {
       this.x += vx * dt;
       this.y += vy * dt;
       // 梯形内活动：先钳 Y，再按当前 y 钳 X（梯形宽度随 y 变化）
-      // 顶部 min 加 TOP_HUD_PAD：让 HP bar + intent / 火焰 / 冻结角标也留在可见区内。
-      if (this.y < this.radius + TOP_HUD_PAD) this.y = this.radius + TOP_HUD_PAD;
-      if (this.y > world.h - this.radius)     this.y = world.h - this.radius;
+      if (this.y < this.radius)             this.y = this.radius;
+      if (this.y > world.h - this.radius)   this.y = world.h - this.radius;
       const tb = trapBounds(world, this.y);
       if (this.x < tb.leftX + this.radius)  this.x = tb.leftX + this.radius;
       if (this.x > tb.rightX - this.radius) this.x = tb.rightX - this.radius;
@@ -2902,14 +2885,15 @@ class Enemy {
       ctx.arc(this.radius * 0.32, -this.radius * 0.18, 2.5, 0, Math.PI * 2);
       ctx.fill();
     }
-    // HP bar
-    const bw = this.radius * 2;
-    ctx.fillStyle = '#000a';
-    ctx.fillRect(-bw / 2, -this.radius - 10, bw, 4);
-    ctx.fillStyle = '#5bd45b';
-    ctx.fillRect(-bw / 2, -this.radius - 10, bw * (this.hp / this.maxHp), 4);
-    // Intent 角标（右下）
+    // Intent 角标（右下）— 先画，让下方 HP bar 覆盖在它上面
     this._drawIntentBadge(ctx);
+    // HP bar（中心偏下，叠在身体下半 → 顶在战场边缘也始终可见 + 遮挡 intent 角标）
+    const bw = this.radius * 2;
+    const hpBarY = this.radius * 0.4;
+    ctx.fillStyle = '#000a';
+    ctx.fillRect(-bw / 2, hpBarY, bw, 4);
+    ctx.fillStyle = '#5bd45b';
+    ctx.fillRect(-bw / 2, hpBarY, bw * (this.hp / this.maxHp), 4);
     // 火焰层数显示（头顶）
     if (this.fire > 0) {
       ctx.fillStyle = '#ff7030';
@@ -3528,8 +3512,7 @@ class Summon extends Unit {
       const tb = trapBounds(world, this.y);
       if (this.x < tb.leftX + this.radius)  this.x = tb.leftX + this.radius;
       if (this.x > tb.rightX - this.radius) this.x = tb.rightX - this.radius;
-      // 顶部 min 加 TOP_HUD_PAD：HP bar 等顶部 UI 也留在画面内
-      this.y = clamp(this.y, this.radius + TOP_HUD_PAD, world.h - this.radius);
+      this.y = clamp(this.y, this.radius, world.h - this.radius);
     }
     // 飞行单位漂浮（无人机）
     if (this.flies) {
@@ -3663,12 +3646,13 @@ class Summon extends Unit {
       ctx.arc(0, 0, this.radius + 4, 0, Math.PI * 2);
       ctx.stroke();
     }
-    // HP 条
+    // HP 条（中心偏下，与敌人 / 实体子弹一致）
     const bw = this.radius * 2;
+    const hpBarY = this.radius * 0.4;
     ctx.fillStyle = '#000a';
-    ctx.fillRect(-bw / 2, -this.radius - 9, bw, 3);
+    ctx.fillRect(-bw / 2, hpBarY, bw, 3);
     ctx.fillStyle = '#5bd45b';
-    ctx.fillRect(-bw / 2, -this.radius - 9, bw * (this.hp / this.maxHp), 3);
+    ctx.fillRect(-bw / 2, hpBarY, bw * (this.hp / this.maxHp), 3);
     ctx.restore();
   }
 }
@@ -3781,7 +3765,7 @@ function spawnSummon(world, kind, opts = {}) {
   // 梯形内
   const tb = trapBounds(world, sp.y);
   sp.x = clamp(sp.x, tb.leftX + sp.radius, tb.rightX - sp.radius);
-  sp.y = clamp(sp.y, sp.radius + TOP_HUD_PAD, world.h - sp.radius);
+  sp.y = clamp(sp.y, sp.radius, world.h - sp.radius);
   world.summons.push(sp);
   Events.emit('summonSpawned', sp);
   return sp;
@@ -3818,7 +3802,7 @@ function _spawnOneSkeleton(world, opts = {}) {
   const r = 8;
   const tb = trapBounds(world, y);
   x = clamp(x, tb.leftX + r, tb.rightX - r);
-  y = clamp(y, r + TOP_HUD_PAD, world.h - r);   // 顶部 HUD（实体化层数条 / HP bar）留出空间
+  y = clamp(y, r, world.h - r);
 
   const skel = new Bullet({
     x, y, angle: 0, speed: 0, lifetime: 9999,
@@ -4064,7 +4048,7 @@ function spawnUndeadDragon(world, opts = {}) {
   const r = 18;
   const tb = trapBounds(world, y);
   x = clamp(x, tb.leftX + r, tb.rightX - r);
-  y = clamp(y, r + TOP_HUD_PAD, world.h - r);   // 顶部 HUD 留出空间
+  y = clamp(y, r, world.h - r);
 
   const dragon = new Bullet({
     x, y, angle: 0, speed: 0, lifetime: 9999,
@@ -4191,7 +4175,7 @@ function spawnSwordSaint(world, opts = {}) {
   const r = 12;
   const tb = trapBounds(world, y);
   x = clamp(x, tb.leftX + r, tb.rightX - r);
-  y = clamp(y, r + TOP_HUD_PAD, world.h - r);   // 顶部 HUD 留出空间
+  y = clamp(y, r, world.h - r);
 
   const saint = new Bullet({
     x, y, angle: 0, speed: 0, lifetime: 9999,
