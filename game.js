@@ -2084,39 +2084,40 @@ const INTENT_ICON = {
 //   'support'       - 治疗 / 增益类：跟在前排队友身后，远离炮台保持安全距离。
 //
 // v8.1 平衡：所有 maxHp / value / xpReward 整体 ×1.5（向上取整），让单波敌人更少 + 更耐打 + 单杀奖励更高
-// 减缓"敌人多到打不完 / 攻击不爽" 的体感问题
+// v8.3 平衡：敌方回合压缩到 0.5s（旧 1.25s）→ 所有 speed × 2.5（向上取整）保持单回合移动距离不变
+//             同时 shrieker buffall 的 +15 速度 buff 也 × 2.5 → +38（相对加成保持原比例）
 const ENEMY_TYPES = {
   // —— 早期敌人（Tier 1）——
-  goblin:    { name: '哥布林',   icon: '👹', maxHp: 6,  attack: 1, speed: 90, radius: 16, color: '#7a8a4a', shape: 'circle', xpReward: 3, value: 5, minWave: 1,
+  goblin:    { name: '哥布林',   icon: '👹', maxHp: 6,  attack: 1, speed: 225, radius: 16, color: '#7a8a4a', shape: 'circle', xpReward: 3, value: 5, minWave: 1,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成 1 伤害，自爆' }] },
-  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 5,  attack: 0, speed: 40, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 5, value: 11, minWave: 1,
+  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 5,  attack: 0, speed: 100, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 5, value: 11, minWave: 1,
                behavior: 'kiter', preferredRange: 260,
                intents: [{ kind: 'ranged', icon: '🏹', cooldown: 2, value: 2, desc: '2 回合后射 1 颗弹（2 伤）' }] },
-  flier:     { name: '飞行兵',   icon: '🦇', maxHp: 8,  attack: 1, speed: 130, radius: 12, color: '#4adcd0', shape: 'triangle', xpReward: 5, value: 6, flies: true, minWave: 1,
+  flier:     { name: '飞行兵',   icon: '🦇', maxHp: 8,  attack: 1, speed: 325, radius: 12, color: '#4adcd0', shape: 'triangle', xpReward: 5, value: 6, flies: true, minWave: 1,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '飞行接触 1 伤' }] },
-  rusher:    { name: '突击兵',   icon: '💨', maxHp: 8,  attack: 2, speed: 180, radius: 13, color: '#ff5050', shape: 'circle', xpReward: 6, value: 8, minWave: 3,
+  rusher:    { name: '突击兵',   icon: '💨', maxHp: 8,  attack: 2, speed: 450, radius: 13, color: '#ff5050', shape: 'circle', xpReward: 6, value: 8, minWave: 3,
                behavior: 'rusher',
                intents: [{ kind: 'rush', icon: '👟', cooldown: 0, desc: '高速冲刺 2 伤撞击' }] },
 
   // —— 中期敌人（Tier 2）——
-  sniper:    { name: '狙击手',   icon: '🎯', maxHp: 9,  attack: 0, speed: 12, radius: 16, color: '#604070', shape: 'triangle', xpReward: 9, value: 11, minWave: 8,
+  sniper:    { name: '狙击手',   icon: '🎯', maxHp: 9,  attack: 0, speed: 30, radius: 16, color: '#604070', shape: 'triangle', xpReward: 9, value: 11, minWave: 8,
                behavior: 'kiter', preferredRange: 360,
                intents: [{ kind: 'sniper', icon: '🎯', cooldown: 3, value: 5, desc: '3 回合后高伤射击（5 伤）' }] },
-  bouncer:   { name: '弹射射手', icon: '⚪', maxHp: 8, attack: 0, speed: 45, radius: 15, color: '#80d0d0', shape: 'circle', xpReward: 8, value: 9, minWave: 5,
+  bouncer:   { name: '弹射射手', icon: '⚪', maxHp: 8, attack: 0, speed: 113, radius: 15, color: '#80d0d0', shape: 'circle', xpReward: 8, value: 9, minWave: 5,
                behavior: 'edge_kiter', preferredRange: 220, accuracyJitter: 0.22,
                intents: [{ kind: 'ranged', icon: '🏹', cooldown: 2, value: 1, bound: 3, desc: '2 回合后射弹射弹（弹 3）' }] },
-  tracker:   { name: '追踪兵',   icon: '🎯', maxHp: 9, attack: 0, speed: 45, radius: 15, color: '#80a0d0', shape: 'circle', xpReward: 8, value: 9, minWave: 7,
+  tracker:   { name: '追踪兵',   icon: '🎯', maxHp: 9, attack: 0, speed: 113, radius: 15, color: '#80a0d0', shape: 'circle', xpReward: 8, value: 9, minWave: 7,
                behavior: 'kiter', preferredRange: 260,
                intents: [{ kind: 'ranged', icon: '🎯', cooldown: 2, value: 1, tracking: true, desc: '2 回合后射追踪弹' }] },
-  healer:    { name: '治疗师',   icon: '💚', maxHp: 11, attack: 0, speed: 40, radius: 15, color: '#60c060', shape: 'circle', xpReward: 8, value: 9, minWave: 6,
+  healer:    { name: '治疗师',   icon: '💚', maxHp: 11, attack: 0, speed: 100, radius: 15, color: '#60c060', shape: 'circle', xpReward: 8, value: 9, minWave: 6,
                behavior: 'support', preferredRange: 340,
                intents: [{ kind: 'heal', icon: '➕', cooldown: 2, value: 3, desc: '2 回合后治疗最近敌人 +3 HP' }] },
-  bomber:    { name: '自爆球',   icon: '💣', maxHp: 6, attack: 6, speed: 100, radius: 14, color: '#ffa040', shape: 'circle', xpReward: 6, value: 8, minWave: 5,
+  bomber:    { name: '自爆球',   icon: '💣', maxHp: 6, attack: 6, speed: 250, radius: 14, color: '#ffa040', shape: 'circle', xpReward: 6, value: 8, minWave: 5,
                behavior: 'melee',
                intents: [{ kind: 'selfdest', icon: '💥', cooldown: 3, desc: '3 回合后自爆 6 伤 AOE' }] },
-  spammer:   { name: '弹幕兵',   icon: '🌌', maxHp: 9, attack: 0, speed: 45, radius: 15, color: '#8080c0', shape: 'circle', xpReward: 9, value: 11, minWave: 9,
+  spammer:   { name: '弹幕兵',   icon: '🌌', maxHp: 9, attack: 0, speed: 113, radius: 15, color: '#8080c0', shape: 'circle', xpReward: 9, value: 11, minWave: 9,
                behavior: 'kiter', preferredRange: 210,
                intents: [{ kind: 'rangedMulti', icon: '🏹', cooldown: 3, value: 1, count: 3, desc: '3 回合后 3 颗扇形弹（1 伤×3）' }] },
 
@@ -2124,36 +2125,36 @@ const ENEMY_TYPES = {
   summoner:  { name: '召唤师',   icon: '👻', maxHp: 12,  attack: 0, speed: 0, radius: 18, color: '#702070', shape: 'rect', xpReward: 12, value: 18, minWave: 12,
                behavior: 'kiter',
                intents: [{ kind: 'summon', icon: '👥', cooldown: 3, spawn: 'goblin', desc: '3 回合后召唤 1 哥布林' }] },
-  buffer:    { name: '指挥官',   icon: '👑', maxHp: 15, attack: 1, speed: 45, radius: 16, color: '#c08000', shape: 'rect', xpReward: 11, value: 11, minWave: 11,
+  buffer:    { name: '指挥官',   icon: '👑', maxHp: 15, attack: 1, speed: 113, radius: 16, color: '#c08000', shape: 'rect', xpReward: 11, value: 11, minWave: 11,
                behavior: 'support', preferredRange: 300,
                intents: [{ kind: 'buff', icon: '⬆', cooldown: 2, value: 1, desc: '2 回合后友军 +1 攻击' }] },
-  tank:      { name: '重甲兵',   icon: '🛡', maxHp: 23, attack: 3, speed: 35, radius: 22, color: '#444444', shape: 'circle', xpReward: 14, value: 18, minWave: 20,
+  tank:      { name: '重甲兵',   icon: '🛡', maxHp: 23, attack: 3, speed: 88, radius: 22, color: '#444444', shape: 'circle', xpReward: 14, value: 18, minWave: 20,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成 3 伤' }] },
-  mage:      { name: '法师',     icon: '🔮', maxHp: 9, attack: 0, speed: 28, radius: 15, color: '#a05ec0', shape: 'circle', xpReward: 11, value: 12, minWave: 13,
+  mage:      { name: '法师',     icon: '🔮', maxHp: 9, attack: 0, speed: 70, radius: 15, color: '#a05ec0', shape: 'circle', xpReward: 11, value: 12, minWave: 13,
                behavior: 'kiter', preferredRange: 220,
                intents: [{ kind: 'aoe', icon: '💢', cooldown: 3, value: 3, desc: '3 回合后 AOE 法术 3 伤' }] },
-  berserker: { name: '狂战士',   icon: '⚔', maxHp: 14,  attack: 2, speed: 100, radius: 17, color: '#d04040', shape: 'circle', xpReward: 11, value: 14, minWave: 15,
+  berserker: { name: '狂战士',   icon: '⚔', maxHp: 14,  attack: 2, speed: 250, radius: 17, color: '#d04040', shape: 'circle', xpReward: 11, value: 14, minWave: 15,
                behavior: 'melee',
                intents: [
                  { kind: 'selfbuff', icon: '⚔', cooldown: 1, value: 1, desc: '1 回合后 +1 攻击（叠加）' },
                  { kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成伤害' },
                ] },
-  splitter:  { name: '分裂者',   icon: '✂', maxHp: 12,  attack: 0, speed: 55, radius: 18, color: '#80c080', shape: 'circle', xpReward: 9, value: 12, onDeath: 'split', minWave: 16,
+  splitter:  { name: '分裂者',   icon: '✂', maxHp: 12,  attack: 0, speed: 138, radius: 18, color: '#80c080', shape: 'circle', xpReward: 9, value: 12, onDeath: 'split', minWave: 16,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触 / 死亡分裂 2 个小型' }] },
 
   // —— 精英 / 杂项 ——
-  slug:      { name: '慢虫',     icon: '🐌', maxHp: 11,  attack: 1, speed: 15, radius: 20, color: '#a08040', shape: 'rect', xpReward: 9, value: 12, minWave: 18,
+  slug:      { name: '慢虫',     icon: '🐌', maxHp: 11,  attack: 1, speed: 38, radius: 20, color: '#a08040', shape: 'rect', xpReward: 9, value: 12, minWave: 18,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '缓慢推进接触' }] },
-  shrieker:  { name: '尖叫者',   icon: '📢', maxHp: 11,  attack: 0, speed: 40, radius: 15, color: '#c0a040', shape: 'circle', xpReward: 8, value: 8, minWave: 13,
+  shrieker:  { name: '尖叫者',   icon: '📢', maxHp: 11,  attack: 0, speed: 100, radius: 15, color: '#c0a040', shape: 'circle', xpReward: 8, value: 8, minWave: 13,
                behavior: 'support', preferredRange: 320,
-               intents: [{ kind: 'buffall', icon: '📢', cooldown: 3, value: 15, desc: '3 回合后全敌人 +15 速度' }] },
-  slower:    { name: '时空法师', icon: '⏳', maxHp: 14, attack: 0, speed: 45, radius: 16, color: '#6080c0', shape: 'circle', xpReward: 9, value: 9, minWave: 14,
+               intents: [{ kind: 'buffall', icon: '📢', cooldown: 3, value: 38, desc: '3 回合后全敌人 +38 速度' }] },
+  slower:    { name: '时空法师', icon: '⏳', maxHp: 14, attack: 0, speed: 113, radius: 16, color: '#6080c0', shape: 'circle', xpReward: 9, value: 9, minWave: 14,
                behavior: 'support', preferredRange: 300,
                intents: [{ kind: 'debuff', icon: '⬇', cooldown: 2, desc: '2 回合后抽走玩家 1 法力' }] },
-  boss:      { name: '深渊魔王', icon: '👺', maxHp: 38, attack: 4, speed: 35, radius: 28, color: '#400040', shape: 'circle', xpReward: 30, value: 38, minWave: 25,
+  boss:      { name: '深渊魔王', icon: '👺', maxHp: 38, attack: 4, speed: 88, radius: 28, color: '#400040', shape: 'circle', xpReward: 30, value: 38, minWave: 25,
                behavior: 'kiter', preferredRange: 200,
                intents: [
                  { kind: 'ranged', icon: '🏹', cooldown: 1, value: 3, desc: '1 回合后射 3 伤弹' },
@@ -2162,15 +2163,15 @@ const ENEMY_TYPES = {
                ] },
   // —— 强力精英（v8 新增）—— 攻击间隔 ≥ 2，但单次效果厉害 ——
   // 守卫：melee，每回合开始重置免疫充能 1（吸收一次伤害后失效，下回合再恢复）
-  guardian:  { name: '守卫',     icon: '🛡', maxHp: 12,  attack: 2, speed: 55, radius: 18, color: '#7a8fa8', shape: 'rect', xpReward: 12, value: 15, minWave: 10,
+  guardian:  { name: '守卫',     icon: '🛡', maxHp: 12,  attack: 2, speed: 138, radius: 18, color: '#7a8fa8', shape: 'rect', xpReward: 12, value: 15, minWave: 10,
                behavior: 'melee', _maxImmuneCharges: 1,
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触 2 伤。每回合开始免疫 1 次伤害' }] },
   // 火炮法师：朝玩家方向投影矩形 AOE（长 280 / 宽 70）。2 回合间隔，单次大伤害
-  cannoneer: { name: '火炮法师',  icon: '🧙', maxHp: 9,  attack: 0, speed: 30, radius: 16, color: '#a04060', shape: 'triangle', xpReward: 12, value: 17, minWave: 12,
+  cannoneer: { name: '火炮法师',  icon: '🧙', maxHp: 9,  attack: 0, speed: 75, radius: 16, color: '#a04060', shape: 'triangle', xpReward: 12, value: 17, minWave: 12,
                behavior: 'kiter', preferredRange: 280,
                intents: [{ kind: 'rectAoe', icon: '💢', cooldown: 2, value: 5, length: 280, halfWidth: 35, desc: '2 回合后向前方矩形范围（长 280 / 宽 70）造成 5 伤' }] },
   // 穿透弩手：射出大型穿透弹（pen 4），打穿玩家与召唤物。2 回合间隔
-  piercer:   { name: '穿透弩手',  icon: '🏹', maxHp: 9,  attack: 0, speed: 35, radius: 15, color: '#c08840', shape: 'triangle', xpReward: 12, value: 17, minWave: 11,
+  piercer:   { name: '穿透弩手',  icon: '🏹', maxHp: 9,  attack: 0, speed: 88, radius: 15, color: '#c08840', shape: 'triangle', xpReward: 12, value: 17, minWave: 11,
                behavior: 'kiter', preferredRange: 320,
                intents: [{ kind: 'pierce', icon: '⟶', cooldown: 2, value: 3, penetrate: 4, desc: '2 回合后射出穿透弹（3 伤，可穿 4 个目标）' }] },
 
@@ -7885,7 +7886,9 @@ class BattleManager {
     // 回合制
     this.turn = 'player';            // 'player' | 'enemy'
     this.enemyTurnTimer = 0;
-    this.enemyTurnDuration = 0.5;    // 怪物回合持续时间（玩家也可同步射击）
+    // v8.3：敌方回合压缩到 0.3s + settle 0.2s = 0.5s 总（旧值 0.5+0.75=1.25s）
+    // 配套：ENEMY_TYPES.* speed × 2.5，让单回合移动距离保持不变（不变成乌龟）
+    this.enemyTurnDuration = 0.3;    // 怪物回合持续时间
     this.autoEndOnZeroMana = true;   // 默认开启：水晶用尽自动结束回合
     this.autoEndOnNoEnemy = true;    // 默认开启：场上无敌人时自动结束回合，剩余法力 1:1 转金币
     this.resumeAfterLoot = false;    // Loot 面板「继续」按钮：true=恢复战斗、false=开新战斗
@@ -8341,7 +8344,8 @@ class BattleManager {
         this.enemyTurnTimer -= dt;
         if (this.enemyTurnTimer <= 0) {
           this._enemySettling = true;
-          this._enemySettleTimer = 0.75;
+          // v8.3：settle 0.75 → 0.2（与 enemyTurnDuration 配套压缩到总 0.5s）
+          this._enemySettleTimer = 0.2;
           if (_noEnemiesNow) this._enemySettleTimer = 0;
         }
       } else {
