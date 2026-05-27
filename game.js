@@ -1343,15 +1343,14 @@ class Bullet {
         if (Math.abs(d) < bestAbs) { bestAbs = Math.abs(d); best = e; }
       }
       this._lockTarget = best;
-      // 奥数巨人优先：友方奥弹存在巨人时 override lock 为最近的巨人
+      // 奥数巨人优先：友方奥弹存在巨人时 override lock → 锁一个**随机**巨人（非最近）
+      // 锁定后整段飞行只追这个 → 视觉上像"主动飞向巨人"，不是被动靠最近匹配
       if (this.isArcane && this.team !== 'enemy') {
-        let bestG = null, bestGD = Infinity;
-        for (const b of (w.bullets || [])) {
-          if (!b.alive || !b._isArcaneGiant) continue;
-          const d = Math.hypot(b.x - this.x, b.y - this.y);
-          if (d < bestGD) { bestGD = d; bestG = b; }
+        const giants = (w.bullets || []).filter(b => b.alive && b._isArcaneGiant);
+        if (giants.length > 0) {
+          this._lockTarget = giants[randInt(0, giants.length - 1)];
+          this._seekingGiant = true;   // 标记此奥弹专注追巨人 → 跳过沿途敌人碰撞
         }
-        if (bestG) this._lockTarget = bestG;
       }
     }
   }
@@ -1359,6 +1358,8 @@ class Bullet {
   update(dt, now, world) {
     if (!this.alive) return;
     this._world = world;     // 给 Destroyed 钩子留下 world 引用
+    // 奥数巨人吸收瞬闪计时器（被奥弹接触时设到 0.22，draw 时 > 0 → body 加亮）
+    if (this._absorbFlashT > 0) this._absorbFlashT = Math.max(0, this._absorbFlashT - dt);
     // 风之眼：持续吸引附近敌人，任意阶段（含玩家回合 / 敌方回合 / 实体态）都生效。
     // 范围内距离越近吸引力越强（线性 falloff：边缘 0, 中心 maxPullSpeed）。
     if (this._eyeWind && this.team !== 'enemy') {
@@ -1386,13 +1387,21 @@ class Bullet {
     // 新模型：每帧把朝向直接朝目标转 ≤ trackTurnRate × dt 弧度；速度模长另由 trackAccel 控制。
     if (this.tracking) {
       let nearest = null;
-      // 奥数巨人优先：友方奥弹有巨人时永远优先追巨人（每帧覆盖 lockTarget）
+      // 奥数巨人优先：保留 activate 时锁定的 random 巨人；只有那只死了才重选一只
       if (this.isArcane && this.team !== 'enemy') {
-        let bestGD = Infinity;
-        for (const b of (world.bullets || [])) {
-          if (!b.alive || !b._isArcaneGiant) continue;
-          const d = Math.hypot(b.x - this.x, b.y - this.y);
-          if (d < bestGD) { bestGD = d; nearest = b; }
+        const lk = this._lockTarget;
+        if (lk && lk.alive && lk._isArcaneGiant) {
+          nearest = lk;
+        } else {
+          const giants = (world.bullets || []).filter(b => b.alive && b._isArcaneGiant);
+          if (giants.length > 0) {
+            nearest = giants[randInt(0, giants.length - 1)];
+            this._lockTarget = nearest;
+            this._seekingGiant = true;
+          } else {
+            // 巨人全死了 → 解锁，回落到原始 enemy lock 逻辑
+            this._seekingGiant = false;
+          }
         }
       }
       if (!nearest) {
@@ -1544,19 +1553,23 @@ class Bullet {
       // 接触命中：(bullet, enemy) pair 0.5s 内置冷却 → 同一敌人停留在体积内每过 0.5s 再次触发命中。
       // 子弹在敌人体积内时不会每帧反复命中（共享 recentHits 计时），但也不会被"未离开"完全屏蔽，
       // 慢速 / 追踪弹卡在敌人身上仍能持续造成伤害。
-      for (const e of world.enemies) {
-        if (!e.alive) continue;
-        if (e.spawnT > 0) continue;       // 出场 portal 期间不可命中
-        const dx = e.x - this.x, dy = e.y - this.y;
-        if (dx*dx + dy*dy > (e.radius + this.radius) ** 2) continue;
-        const last = this.recentHits.get(e.id);
-        if (last != null && now - last < this.pierceHitCooldown) continue;
-        this.recentHits.set(e.id, now);
-        // OnHit 先 → HitEnemy 后（让 debuff 类钩子先生效，让 fuelcell 读取最新 fire）
-        this.triggerHooks(Phase.OnHit, { enemy: e, world });
-        const handled = this.triggerHooks(Phase.HitEnemy, { enemy: e, world });
-        if (!handled) this._defaultHitEnemy(e, world);
-        if (!this.alive) break;
+      // 奥弹追巨人模式（_seekingGiant）：尽可能绕过敌人 → 跳过所有敌方碰撞
+      // 直到接触巨人被吸收（或巨人全死后回落到普通追踪 → 标志会被清掉）
+      if (!this._seekingGiant) {
+        for (const e of world.enemies) {
+          if (!e.alive) continue;
+          if (e.spawnT > 0) continue;       // 出场 portal 期间不可命中
+          const dx = e.x - this.x, dy = e.y - this.y;
+          if (dx*dx + dy*dy > (e.radius + this.radius) ** 2) continue;
+          const last = this.recentHits.get(e.id);
+          if (last != null && now - last < this.pierceHitCooldown) continue;
+          this.recentHits.set(e.id, now);
+          // OnHit 先 → HitEnemy 后（让 debuff 类钩子先生效，让 fuelcell 读取最新 fire）
+          this.triggerHooks(Phase.OnHit, { enemy: e, world });
+          const handled = this.triggerHooks(Phase.HitEnemy, { enemy: e, world });
+          if (!handled) this._defaultHitEnemy(e, world);
+          if (!this.alive) break;
+        }
       }
     }
   }
@@ -1767,8 +1780,10 @@ class Bullet {
     if (this._isArcaneGiant) {
       const tt = performance.now() / 1000;
       ctx.shadowBlur = 0;
+      // 吸收瞬闪：被奥弹接触时 _absorbFlashT > 0，叠加白色高亮覆盖
+      const absorbFlash = (this._absorbFlashT || 0) / 0.22;   // 1 → 0 衰减
       // 紫色径向渐变（内白外深紫）覆盖原球
-      const flashPulse = 0.65 + Math.sin(tt * 6) * 0.35;
+      const flashPulse = 0.65 + Math.sin(tt * 6) * 0.35 + absorbFlash * 0.4;
       const grad = ctx.createRadialGradient(0, 0, this.radius * 0.05, 0, 0, this.radius);
       grad.addColorStop(0,    `rgba(255, 245, 255, ${0.95 * flashPulse})`);
       grad.addColorStop(0.25, `rgba(230, 170, 255, ${0.9 * flashPulse})`);
@@ -1786,6 +1801,16 @@ class Bullet {
       ctx.beginPath();
       ctx.arc(0, 0, this.radius * (1.08 + Math.sin(tt * 9) * 0.05), 0, Math.PI * 2);
       ctx.stroke();
+      // 吸收瞬闪：白色 overlay halo（短暂）
+      if (absorbFlash > 0) {
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 22 * absorbFlash;
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.55 * absorbFlash})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius * (1 + absorbFlash * 0.15), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
       // 二层外光晕（更大更淡，紫色辉光）
       ctx.shadowColor = '#c97aff';
       ctx.shadowBlur = 18;
@@ -5227,6 +5252,8 @@ function _boneBlossomTier(skN, atkBoost, radiusMult, value, desc) {
 // 回合末激光（EntityTurn）：朝最近敌人发射；金 = 3 命中，钻 = 5 命中 + 累计加成。
 
 // 奥弹被巨人吸收：更新巨人计数器 + 触发各种累计强化
+//   + 视觉：紫色环 + spark + 巨人 body 闪光 + buff 数值飘字
+//   + 音效：arcaneSwoosh（紫色魔法吸入感）
 function _absorbIntoArcaneGiant(giant, missile, world) {
   const s = giant._giantStats = giant._giantStats || {
     count: 0, atkSum: 0, boundSum: 0, penSum: 0, fireSum: 0, freezePctSum: 0,
@@ -5246,30 +5273,61 @@ function _absorbIntoArcaneGiant(giant, missile, world) {
   const baseR = giant._baseRadius || 18;
   giant.radius += baseR * 0.1;
 
-  // 触发：每个维度循环判定，直到不再触发
+  // 触发：每个维度循环判定，直到不再触发；记录 deltas → 后面飘字
+  const buffDeltas = [];
+  let entGain = 0;
   while (s.count >= s.nextEnt) {
     s.nextEnt *= 1.1;
     giant.entityLayers += 1;
     giant.entityLayersMax = (giant.entityLayersMax || 0) + 1;
+    entGain += 1;
   }
-  while (s.atkSum >= s.nextLAtk) { s.nextLAtk *= 1.1; s.laserAtk += 1; }
-  while (s.boundSum >= s.nextLBound) { s.nextLBound *= 1.1; s.laserBound += 1; }
-  while (s.penSum >= s.nextLPen) { s.nextLPen *= 1.1; s.laserPen += 1; }
-  while (s.fireSum >= s.nextLFire) { s.nextLFire *= 1.1; s.laserFire += 1; }
+  if (entGain > 0) buffDeltas.push(['ent', entGain]);
+  let lAtkGain = 0;
+  while (s.atkSum >= s.nextLAtk) { s.nextLAtk *= 1.1; s.laserAtk += 1; lAtkGain += 1; }
+  if (lAtkGain > 0) buffDeltas.push(['atk', lAtkGain]);
+  let lBndGain = 0;
+  while (s.boundSum >= s.nextLBound) { s.nextLBound *= 1.1; s.laserBound += 1; lBndGain += 1; }
+  if (lBndGain > 0) buffDeltas.push(['bnd', lBndGain]);
+  let lPenGain = 0;
+  while (s.penSum >= s.nextLPen) { s.nextLPen *= 1.1; s.laserPen += 1; lPenGain += 1; }
+  if (lPenGain > 0) buffDeltas.push(['pen', lPenGain]);
+  let lFireGain = 0;
+  while (s.fireSum >= s.nextLFire) { s.nextLFire *= 1.1; s.laserFire += 1; lFireGain += 1; }
+  if (lFireGain > 0) buffDeltas.push(['fire', lFireGain]);
   while (s.freezePctSum >= s.nextLFreeze) { s.nextLFreeze *= 1.1; s.laserFreezePct += 1; }
+  // freezePct 没对应 _BUFF_FX type → 用 ent 蓝色凑用（或可以单独加 'freeze' type，未来扩展）
+
+  // 巨人 body 闪光：标记 _absorbFlashT（Bullet.update 每帧 -dt，draw 时 > 0 → 加亮）
+  giant._absorbFlashT = 0.22;
+
+  // 音效：紫色魔法吸入声
+  if (typeof playSfx === 'function') playSfx('arcaneSwoosh', 30);
 
   // 吸收视觉：紫色环 + 几颗 spark
   if (world) {
     world.particles.push(new Particle({
-      x: giant.x, y: giant.y, life: 0.28, color: '#c97aff', size: giant.radius * 0.9, type: 'ring',
+      x: giant.x, y: giant.y, life: 0.28, color: '#c97aff', size: giant.radius * 1.0, type: 'ring',
     }));
-    for (let k = 0; k < 6; k++) {
+    // 外层更亮的"接触瞬闪"环
+    world.particles.push(new Particle({
+      x: giant.x, y: giant.y, life: 0.18, color: '#ffffff', size: giant.radius * 0.7, type: 'ring',
+    }));
+    for (let k = 0; k < 8; k++) {
       const a = Math.PI * 2 * Math.random();
-      const sp = 70 + Math.random() * 60;
+      const sp = 70 + Math.random() * 80;
       world.particles.push(new Particle({
         x: missile.x, y: missile.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-        life: 0.3, color: '#c97aff', size: 2.5,
+        life: 0.3, color: k % 2 ? '#c97aff' : '#ffffff', size: 2.6,
       }));
+    }
+    // buff 数值飘字（实体加成 / 激光各种强化）— 在巨人头顶分散显示
+    if (buffDeltas.length > 0 && typeof _emitEntityBuffFX === 'function') {
+      buffDeltas.forEach((d, i) => {
+        // 横向错开（每条偏移 ~24px），避免重叠
+        const tempEntity = { x: giant.x + (i - (buffDeltas.length - 1) / 2) * 24, y: giant.y, radius: giant.radius };
+        _emitEntityBuffFX(world, tempEntity, d[0], d[1]);
+      });
     }
   }
 }
@@ -5401,15 +5459,19 @@ function _arcaneGiantTier(laserHits, value, descPrefix) {
     effects: () => [
       new Effect(Phase.PreActive, 0, ctx => {
         if (ctx.bullet._isSkeleton) return;
+        // PreActive 改 tpl 数值字段（fireOneWave 会复制到 clone）
         ctx.bullet.entityLayers += 3;
         ctx.bullet.attack = 0;                   // 巨人本身无接触伤害
         ctx.bullet.radius = Math.max(ctx.bullet.radius, 18);
-        ctx.bullet._isArcaneGiant = true;
-        ctx.bullet._baseRadius = ctx.bullet.radius;
-        ctx.bullet._laserHits = laserHits;
       }),
       new Effect(Phase.Spawned, 0, ctx => {
         if (ctx.bullet._isSkeleton) return;
+        // ⚠ Spawned 在每颗 clone 上跑（PreActive 只在 tpl 上跑，clone 不继承自定义 _ 字段）
+        // 所以 _isArcaneGiant / _baseRadius / _laserHits 必须在这里设 → 否则 clone 拿不到，
+        //   导致 Bullet.draw 颜色 cascade fallback 黄色 + 奥弹追踪找不到巨人。
+        ctx.bullet._isArcaneGiant = true;
+        ctx.bullet._baseRadius = ctx.bullet.radius;
+        ctx.bullet._laserHits = laserHits;
         (ctx.bullet._entityDecos = ctx.bullet._entityDecos || []).push('arcane');
       }),
       new Effect(Phase.EntityTurn, 0, ctx => {
