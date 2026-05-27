@@ -1670,6 +1670,15 @@ class Bullet {
 
   destroy() {
     if (!this.alive) return;
+    // 实体化转化时把位置钳回画面内（含顶部 HUD 余量）— 避免在墙边 / 上方"死亡"瞬间转实体
+    //   后 HP bar / 实体化层数条跑出屏幕外看不见
+    const _clampToScreenForEntity = () => {
+      const w = this._world || window.__game;
+      if (!w) return;
+      this.y = clamp(this.y, this.radius + TOP_HUD_PAD, w.h - this.radius);
+      const tb = trapBounds(w, this.y);
+      this.x = clamp(this.x, tb.leftX + this.radius, tb.rightX - this.radius);
+    };
     // 骷髅 / 亡灵龙特殊：一次冲撞结束（弹射+穿透耗尽 + 撞墙 / lifetime）= 消耗 1 层实体化
     //   层数 >0 → 回到待机态（isEntity=true / speed=0），等下个敌方回合再冲
     //   层数 =0 → 真销毁（走下方 Destroyed 钩子）
@@ -1677,6 +1686,7 @@ class Bullet {
       this.entityLayers--;
       // 浮字 FX 由通用 buff-diff 侦测器统一负责
       if (this.entityLayers > 0) {
+        _clampToScreenForEntity();
         this.isEntity = true;
         this.speed = 0;
         this.penetrate = 0;
@@ -1690,6 +1700,7 @@ class Bullet {
     }
     // 实体化拦截：若还有实体化层数且尚未进入实体态 → 转为实体（不真销毁、不触发 Destroyed）
     if (this.entityLayers > 0 && !this.isEntity) {
+      _clampToScreenForEntity();
       this.isEntity = true;
       this.recentHits.clear();
       // 实体状态下不再有"待销毁的子弹"语义，清掉拖尾视觉
@@ -3807,7 +3818,7 @@ function _spawnOneSkeleton(world, opts = {}) {
   const r = 8;
   const tb = trapBounds(world, y);
   x = clamp(x, tb.leftX + r, tb.rightX - r);
-  y = clamp(y, r, world.h - r);
+  y = clamp(y, r + TOP_HUD_PAD, world.h - r);   // 顶部 HUD（实体化层数条 / HP bar）留出空间
 
   const skel = new Bullet({
     x, y, angle: 0, speed: 0, lifetime: 9999,
@@ -4053,7 +4064,7 @@ function spawnUndeadDragon(world, opts = {}) {
   const r = 18;
   const tb = trapBounds(world, y);
   x = clamp(x, tb.leftX + r, tb.rightX - r);
-  y = clamp(y, r, world.h - r);
+  y = clamp(y, r + TOP_HUD_PAD, world.h - r);   // 顶部 HUD 留出空间
 
   const dragon = new Bullet({
     x, y, angle: 0, speed: 0, lifetime: 9999,
@@ -4180,7 +4191,7 @@ function spawnSwordSaint(world, opts = {}) {
   const r = 12;
   const tb = trapBounds(world, y);
   x = clamp(x, tb.leftX + r, tb.rightX - r);
-  y = clamp(y, r, world.h - r);
+  y = clamp(y, r + TOP_HUD_PAD, world.h - r);   // 顶部 HUD 留出空间
 
   const saint = new Bullet({
     x, y, angle: 0, speed: 0, lifetime: 9999,
