@@ -247,30 +247,41 @@ html, body {
   transition: left 0.35s cubic-bezier(.4, 0, .2, 1),
               transform 0.18s ease, filter 0.18s ease, z-index 0s 0s;
 }
-/* 战斗中手牌 hover 放大：~3.6× 面积（1.9× 线性）；脱离手牌行向上漂浮，避免被遮挡 */
+/* 战斗中手牌 hover 放大：仅缩放卡片本体 (.card)，不缩放 .card-total（避免"总 N" 也跟着放大）
+   尺寸与商店候选卡 / 背包卡一致（2.05×），锚定底部让卡片向上展开 → 露出名字 + 描述 */
 #hand-row .card-slot:hover {
-  transform: scale(1.9) translateY(-72px);
-  transform-origin: center bottom;
   z-index: 50;
-  filter: drop-shadow(0 8px 24px rgba(126, 177, 255, 0.55));
+  filter: drop-shadow(0 10px 36px rgba(126, 177, 255, 0.65));
+}
+#hand-row .card-slot:hover .card {
+  transform: scale(2.05);
+  transform-origin: center bottom;
+  transition: transform 0.18s ease;
+}
+#hand-row .card-slot .card {
+  transition: transform 0.18s ease;
 }
 /* 离场 / leaving 中的卡不响应 hover 放大 */
-#hand-row .card-slot.leaving:hover {
+#hand-row .card-slot.leaving:hover .card {
   transform: none;
+}
+#hand-row .card-slot.leaving:hover {
   filter: none;
 }
-/* 主卡区域也支持 hover 放大 */
+/* 主卡区域也支持 hover 放大（同样仅放大 .card 本体） */
 #hand-main {
   perspective: 900px;
 }
-#hand-main .card-slot {
-  transition: transform 0.18s ease, filter 0.18s ease;
+#hand-main .card-slot .card {
+  transition: transform 0.18s ease;
 }
 #hand-main .card-slot:hover {
-  transform: scale(1.9) translateY(-72px);
-  transform-origin: center bottom;
   z-index: 50;
-  filter: drop-shadow(0 8px 24px rgba(255, 216, 74, 0.55));
+  filter: drop-shadow(0 10px 36px rgba(255, 216, 74, 0.55));
+}
+#hand-main .card-slot:hover .card {
+  transform: scale(2.05);
+  transform-origin: center bottom;
 }
 
 /* 关键词悬浮容器 */
@@ -357,8 +368,10 @@ html, body {
   color: #f1f4f8;
 }
 
-/* 炮台选择 / 战利品面板内的语言切换按钮 — 让玩家在选炮台 / 起手 picks 阶段切换中英文 */
-#modal-cannon, #modal-loot { position: relative; }
+/* 炮台选择 / 战利品面板内的语言切换按钮 — 让玩家在选炮台 / 起手 picks 阶段切换中英文
+   注意：保留 position: fixed（继承自 .modal），fixed 同样能作为 position:absolute 子元素
+   (.cannon-lang-btn) 的 containing block，无需切换到 relative。把 position 换成 relative
+   会让 modal 在页面流里展开 → 战斗 canvas 被往下挤，炮台选择面板挤到下面（bug）。 */
 .cannon-lang-btn {
   position: absolute;
   top: 14px;
@@ -1187,6 +1200,20 @@ html, body {
   box-shadow: 0 0 0 1px #d4a44a, 0 0 16px rgba(201, 122, 255, 0.7);
 }
 
+/* 弃置计数已就绪（如勇闯龙巢弃置3次完成） —— 橙色呼吸边框，覆盖在 revealed 之上 */
+.card.discard-ready .card-front {
+  border-color: #ff9028 !important;
+  box-shadow: 0 0 14px rgba(255, 144, 40, 0.7) !important;
+  animation: discard-ready-pulse 1.2s ease-in-out infinite !important;
+}
+.card.main.discard-ready .card-front {
+  box-shadow: 0 0 0 1px #d4a44a, 0 0 18px rgba(255, 144, 40, 0.9) !important;
+}
+@keyframes discard-ready-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 144, 40, 0.55); }
+  50%      { box-shadow: 0 0 22px rgba(255, 144, 40, 1.0); }
+}
+
 /* 不可用卡：暗化覆盖（叠在展露之上） */
 .card.unusable .card-front {
   filter: grayscale(0.75) brightness(0.55);
@@ -1245,7 +1272,9 @@ html, body {
   border: 1px solid rgba(126, 177, 255, 0.5);
 }
 .card-total.show { visibility: visible; }
-.card-total::before { content: "总 "; opacity: 0.75; font-weight: 500; font-size: 10px; }
+/* "总 N" 前缀 i18n：html[lang] 由 setLang() 同步 → 中文显示"总 N"，英文显示"Total N" */
+html[lang^="zh"] .card-total::before { content: "总 "; opacity: 0.75; font-weight: 500; font-size: 10px; }
+html[lang="en"]  .card-total::before { content: "Total "; opacity: 0.75; font-weight: 500; font-size: 9px; letter-spacing: 0.5px; }
 
 /* 连携激活时（comboStacks > 0）：边缘卡总费用框加橙色脉冲光圈，
  * 暗示"本次发射 = 左+右+主 三张同发，总费 = 三卡相加" */
@@ -1900,11 +1929,13 @@ kbd {
   transition: transform 0.18s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
+/* 背包卡 hover 放大：沿用商店候选卡的 2.05× 缩放（视觉与 .modal-card 一致），
+   锚点保持 center 70% → 向上微漂浮，避免被下方按钮 / 网格行遮挡 */
 .bag-slot:hover {
-  transform: scale(1.35) translateY(-12px);
+  transform: scale(2.05);
   border-color: #7eb1ff;
-  box-shadow: 0 6px 30px rgba(126, 177, 255, 0.55);
-  z-index: 30;
+  box-shadow: 0 10px 36px rgba(126, 177, 255, 0.65);
+  z-index: 50;
 }
 
 .bag-slot.main {

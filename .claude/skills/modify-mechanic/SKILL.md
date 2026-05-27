@@ -188,10 +188,101 @@ applyAoe(world, source, {
 
 ```js
 spawnSkeleton(world, { x, y, entityLayers: 1, attackBonus: 0 });
+spawnSwordSaint(world, { attack, awakened });
+spawnUndeadDragon(world, { x, y });
 ```
 返回 `Bullet` 实例（已自动加 EntityTurn dash + Destroyed → emit summonDied）。
 
 **任何"会给骷髅 buff"的卡都不要靠 hook 继承传染** — 要么直接遍历 `world.bullets` 找 `_isSkeleton`，要么监听 `summonSpawned` 给未来召唤的骷髅打 buff。
+
+#### ⚠ 召唤 vs 实体化 — 设计分类（必读，v8 踩过坑）
+
+游戏里有两种"友方单位"，语义截然不同，**新加卡必须先想清楚走哪一支**：
+
+| 类别 | 关键字 | 来源 | 是否继承本回合 hooks（主卡 / 侧卡 effects）|
+|---|---|---|---|
+| 召唤 | "召唤" / "summon" | 凭空生成单位（骷髅、剑圣、亡灵龙、护盾兵…）| **不继承** — 单位行为完全由 spawnXxx 自己定义 |
+| 实体化子弹 | "实体化" / "Entity" | 子弹 entityLayers>0 → 撞墙 / lifetime 耗尽后停在原地变成单位 | **继承** — 单位 = 当时的那颗子弹，hooks 都在它身上 |
+
+为什么这么设计：
+- 实体化是"子弹的延续"：那颗子弹本来就有本回合 PreActive/Spawned hooks（注铅 +10 攻、爆骨花骷髅 buff 等），变成实体后这些 hook 仍属于它 → 自然继承
+- 召唤是"凭空生成新单位"：不应该读"玩家这回合出过什么牌"。否则会有"用 X 卡时手牌随便有个召唤效果就被 X 加成"的失控感
+
+实现守则：
+1. 召唤路径里**绝对不要**调 `world._turnHookCards` 或 `tpl.copyHooksFrom`；spawnXxx 只用 `new Bullet({...})` + `addHook(自己的 EntityTurn / Destroyed)` + `activate(now)`（activate 仅应用 permUpgrades，符合"永久升级对全友方生效"语义）
+2. 召唤的 dash / 攻击：用 `applyAoe(world, b, {damage: b.attack, ...})` 直接结算（不走 HitEnemy 钩子）；或用 `b.speed > 0 + isEntity=false` 走撞击流程，但要确认子弹模板里 hooks 为空（spawnSkeleton/spawnSwordSaint 都这么写）
+3. 召唤如果发射子弹：`new Bullet(...)` 后**不要** copyHooksFrom 任何模板
+4. 实体化子弹的 hook 入口：在 `_xxxTier()` 的 `effects: () => [...]` 里返回的 Effect 数组，发射时通过 `bulletTemplate.addHook(h)` 灌入
+
+### 2.9.b 展露触发的"一次性自动结算"卡（如造访剑圣）
+
+诉求："展露状态下，回合结束触发 1 次效果，然后弃置此牌"。坑点 + 解法：
+
+```js
+onReveal(card) {
+  if (card._xxHandler) return;
+  card._xxHandler = (t) => {
+    if (!card.faceUp) return;
+    if (t !== 'enemy') return;           // 玩家回合 → 敌方回合的瞬间
+    if (card._xxTriggered) return;        // 防重入（同次 emit 不会重复，但 setTimeout 等异步可能）
+    card._xxTriggered = true;
+    // 执行核心效果（召唤 / buff / etc.）
+    spawnXxx(world);
+    // 弃置自己：手动从 hand 移除 + 推入 discard。**toDiscard 不会自动从 hand 移除**。
+    const w = window.__game;
+    const idx = w.deck.hand.indexOf(card);
+    if (idx >= 0) {
+      w.deck.hand.splice(idx, 1);
+      card._lastAction = 'use';            // 控制离场动画（use / discard / buff）
+      w.deck.toDiscard(card);              // 内部调 _setFace(false) → 触发 onConceal → 解绑 handler
+    }
+  };
+  Events.on('turnChanged', card._xxHandler);
+},
+onConceal(card) {
+  if (card._xxHandler) {
+    Events.off('turnChanged', card._xxHandler);
+    card._xxHandler = null;
+  }
+  // 重要：清掉 triggered 标记 → 下次重洗回手牌再展露允许再触发一次
+  card._xxTriggered = false;
+},
+```
+
+常见 bug：
+- 漏弃置 → 每回合都触发（用户看到"召唤了一堆")
+- 弃置只调 toDiscard 不从 hand splice → 卡在 hand + discard 都出现
+- 漏 _xxTriggered 标记 → 弃置过程中 onConceal 异步触发，可能在同帧再触发一次
+- onConceal 不清 _xxTriggered → 重洗回手牌后再展露不触发（永远卡住）
+
+### 2.9.c "钻头"型穿透（穿过敌人时连续命中）
+
+诉求："穿透时不断造成伤害 + 击退"，让子弹钻穿敌人时多次结算。
+
+机制：每颗 Bullet 有 `pierceHitCooldown`（默认 0.5s）—— 同一颗 bullet × 同一只 enemy 在 0.5s 内只命中 1 次。把这个 CD 缩短即可。
+
+```js
+function _drillTier(pen, pierceCD, value) {
+  return {
+    cost: 3, value,
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += pen; }),
+      new Effect(Phase.Spawned, 0, ctx => {
+        ctx.bullet.pierceHitCooldown = pierceCD;   // 0.05 = 20Hz 重命中
+      }),
+    ],
+  };
+}
+```
+
+CD 取值参考（实测在 250 px/s + r=16 小敌人上）：
+- 0.10s → 一次穿过命中 2 次
+- 0.05s → 命中 3 次（铜银档"基础"钻头）
+- 0.025s → 命中 5 次（金钻档"快速"钻头）
+
+每次命中消耗 1 penetrate（默认 `_defaultHitEnemy` 逻辑），所以钻头要把 `penetrate` 给够（铜 3 / 银 5 / 金 5 / 钻 8）。
+
+参考 `_drillTier`。
 
 ### 2.10 子弹目标重定向（targeting override）
 

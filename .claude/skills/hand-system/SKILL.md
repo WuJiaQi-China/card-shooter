@@ -33,9 +33,11 @@ class CardDeck {
 - `card._autoDiscardAtTurnEnd` — 回合结束自动弃置（掘墓发现的骷髅）
 - `card._battleCostOverride` — 本场战斗 cost 覆盖（钻级终结技、挖掘洗入后的 0 费）
 - `card._costMod` — 临时 cost 修改（持久跨回合）
-- `card._foresightFaceUp` — 强制保持正面，即使不在边缘
+- `card._foresightFaceUp` — 强制保持正面，即使不在边缘（用一次后边缘规则会清零）
+- `card._alwaysFaceUp` — 永久正面（v8 起）：def 加 `alwaysFaceUp: true` → Card constructor 读取 → `_updateFaceUp` 也尊重该旗标。与 `_foresightFaceUp` 区别：alwaysFaceUp 不会自动清零（用于"造访剑圣 钻"这种"在手牌时始终为正面"的卡）
 - `card._lastAction` — 离开手牌时的动作（'use' / 'discard' / 'shatter' / 'buff'），驱动离场动画
 - `card._becomeArcaneFirework / _becomeCrypt` — 替换标记（持续施法 / 转生用）
+- `card._discardCount` — v8 起：弃置计数（勇闯龙巢"弃置 3 次召唤亡灵龙"用）；触发后归零。配 `_discardCounterReady`（橙色呼吸边框 + 翻面粒子提示）
 
 ---
 
@@ -256,3 +258,30 @@ onDiscard(_, world) {
 5. **改 effectiveCardCost 公式没同步 fireFromCards 的扣费逻辑** → UI 显示和实际扣费不一致
 6. **主卡不该进 discard** — 主卡使用后留在 bag[0]；如果你的新机制错误把它移走会破坏游戏
 7. **加新 deck API 没 expose 到 CardDeck class** → 卡的 onUse 调不到
+
+## 13. UI 缩放 + i18n（v8 修复点）
+
+### 13.1 卡牌 hover 缩放：只缩放 `.card`，不要缩放整个 `.card-slot`
+旧 bug：`.card-slot:hover { transform: scale(N) }` 会把卡片下方的 `.card-total`（"总 N" 消耗框）一起放大。
+
+正确做法（style.css 已是这样）：
+```css
+#hand-row .card-slot:hover { z-index: 50; filter: drop-shadow(...); }
+#hand-row .card-slot:hover .card { transform: scale(2.05); transform-origin: center bottom; }
+```
+`.card-total` 是 `.card-slot` 的另一个子元素 —— 不缩放，保持原位即可。
+
+### 13.2 "总 N" 消耗框的双语化
+`.card-total::before { content: "总 "; }` 这种 CSS pseudo-element 不能走 JS i18n。改用 `html[lang]` attribute selector（`document.documentElement.lang` 在 `applyI18nDom()` 内会被 setLang 同步成 `"zh-CN" / "en"`）：
+
+```css
+html[lang^="zh"] .card-total::before { content: "总 "; }
+html[lang="en"]  .card-total::before { content: "Total "; }
+```
+
+类似的"CSS 文案"双语化都走这套：判 `html[lang]`。
+
+### 13.3 modal 的 `position` 不要改成 `relative`
+旧 bug：CSS 加了 `#modal-cannon, #modal-loot { position: relative; }` 想让里面的 `.cannon-lang-btn { position: absolute }` 锚定 → 但 `position: relative` 覆盖了基类 `.modal { position: fixed; inset: 0 }` → modal 退回到正常文档流，把 canvas 往下挤、面板挤到 canvas 下方。
+
+正确：`position: fixed` 本身也是 `position: absolute` 子元素的 containing block。不需要切到 `relative`。保留基类 `.modal { position: fixed }` 即可。

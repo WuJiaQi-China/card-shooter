@@ -105,6 +105,34 @@ FX.shake(world, intensity, duration)
 1. **AOE 半径 = 实际伤害圈半径** — 玩家看到的 ring 必须跟伤害判定一致。`FX.explode` 已支持传入 r，自定义 AOE 时务必把视觉 ring 跟 `applyAoe` 的 radius 对齐。
 2. **不在炮台位置 spawn 特效** — 旧设计有 `FX.muzzle / FX.cardUse / FX.cardUseGreen` 已经被用户明确移除，**不要再加回来**。要表达"卡用了"用其它视觉（卡的离场动画 `.leave-use` 等）。
 3. **粒子数量节制** — 每次效果 5~20 个粒子是合理上限。超过会卡顿。
+4. **buff 浮字必须在炮台 ±60° 前锥之外** — 用 v8 起的 `_emitCannonBuffFX` 入口，arc 强制 180° 后半圆 + jitter ≤ ±7°；自己写新 cannon FX 时也遵守这条（不挡瞄准视线）
+
+### 2.6 增益 FX 系统（v8 起，做新 buff 视觉前必读）
+
+游戏所有"被 buff"的反馈通过两套自动系统，**不要直接 push FloatingText 到 world.particles**：
+
+| 场景 | 入口函数 | 触发 |
+|---|---|---|
+| 玩家发射时炮台拿到的 buff | `_emitCannonBuffFX(world, items)` | `fireFromCards.continueFire()` 自动调；用 `_computePerCardBuffItems` 算每张卡贡献 |
+| 实体身上 attack / entityLayers 变化 | `_emitEntityBuffFX` / `_emitEntityLayerLossFX` | `_tickEntityBuffDiff(world)` 每帧自动跑 — 不需手动调 |
+
+加新 buff 视觉的标准方式：
+- 想给某种"用卡获得 X"加图标 → 在 `_BUFF_FX` 字典里加新 type 项 `{emoji, color, glow}`，更新 `_computePerCardBuffItems` 的 diff 字段（如 `tracking` 跟踪、`speed` 速度等）
+- 想给"实体身上某种变化"加图标 → 在 `_tickEntityBuffDiff` 里加新字段 snapshot + diff（同样 `_BUFF_FX` 字典加项）
+
+`_BUFF_FX` 当前配色（v8）：
+- atk ⚔ 红 / pen 🎯 青 / bnd 🏐 蓝 / cnt 🔫 金 / wav 〰 紫 / ent 🛡 淡蓝 / fire 🔥 橙
+- ent_loss 🛡 灰（减号）
+
+### 2.7 SwordSlashLens — 透镜剑光（剑圣单体攻击）
+
+`SwordSlashLens` 是 v8 起新增的"两头尖、中间宽"梭形剑光粒子。用对称双二次贝塞尔构造梭形，外层发光 + 内层白色高光，0.36s 衰减。
+
+参数：`new SwordSlashLens(cx, cy, angle, length, width, color)`
+- angle 决定剑光方向；典型用法 `slashLen = enemy.radius * 2.6`，`slashWidth = enemy.radius * 0.42`（≈6:1 长宽比 → 经典剑光感）
+- color：银 `#dde3ec`（普通）/ 金 `#ffd84a`（觉醒）
+
+新加"单体斩击"型攻击时优先用 SwordSlashLens，不要用 `applyAoe` cone（cone 是扇形 AOE，与"单体打一刀"语义不同）。
 
 ---
 

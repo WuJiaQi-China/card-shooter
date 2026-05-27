@@ -154,6 +154,10 @@ function _xxxTier(/* tier 差异参数 */ paramA, paramB, value) {
 | 浮点阈值 + 边际递减触发（每 10 个 → +1 加成，下次需要 11 个） | `while (sum >= nextThr) { nextThr *= 1.1; bonus += 1; }` | `_absorbIntoArcaneGiant` |
 | 巨型激光（一次性穿透光束） | 构造高速（speed 1600）短寿命（lifetime 0.6）大穿透 Bullet + 沿线 12 颗 ring 粒子 | `_fireArcaneGiantLaser` |
 | 让 X 类子弹改 target / 重定向 | 在 `Bullet.activate()` 锁定后 override + `Bullet.update()` tracking 段每帧覆盖 nearest | 见 `card-shooter-overview` §3.8 |
+| desc 随状态变化（如弃置剩余次数）| `desc: (card) => ({zh: \`...${state}...\`, en: ...})` —— 函数式 desc，每次渲染 re-eval | `_braveDragonLairTier` |
+| 弃置 N 次触发召唤 + 重置 | `onDiscard` 自增 `card._discardCount`；达 threshold → 召唤 + 归零；threshold-1 时设 `_discardCounterReady` | `_braveDragonLairTier` |
+| 卡始终为正面（不受边缘 / 中间限制）| def 加 `alwaysFaceUp: true` —— Card constructor 读 def，`_updateFaceUp()` 自动 honor | `_swordSaintVisitTier` 钻 |
+| 钻头型穿透（穿透时连续命中同一敌人）| `new Effect(Phase.Spawned, 0, ctx => { ctx.bullet.pierceHitCooldown = 0.05; })` —— 缩短"穿过敌人时的同敌重命中 CD" | `_drillTier` |
 
 ### 关键 helper 函数（写新卡常用）
 
@@ -299,6 +303,8 @@ python "C:\Users\31937\Desktop\卡牌射击-web\build_xlsx.py"
 5. **新骷髅卡没进 SKELETON_FAMILY_IDS** → 叫魂的"骷髅关键词额外召唤"识别不到
 6. **改完没 preview_eval** → 字段错位 / undefined 抛出在战斗中才暴露
 7. **`onReveal` 注册了监听器，`onConceal` 忘了解绑** → 翻面切换时事件累积，造成"buff 越叠越多"的 bug
+8. **手写浮字 FX 调 `_emitEntityBuffFX`** → 已废弃。游戏有自动 buff-diff 侦测器，写卡时只改 `b.attack += N` / `b.entityLayers += N`，浮字自动出。详见 `card-shooter-overview` §3.9
+9. **动态 desc 改完没 emit deckChanged** → desc 文本变了但 UI 不刷新，玩家看到旧数字（`_braveDragonLairTier.onDiscard` 末尾必须 emit）
 
 ---
 

@@ -1585,6 +1585,7 @@ class Bullet {
       // 冻结的敌人：实体化子弹与之碰撞不扣层数（无视消耗）
       if (!(e.freeze > 0)) {
         this.entityLayers--;
+        // 浮字 FX 由通用 buff-diff 侦测器统一负责
         if (this.entityLayers <= 0) {
           this.triggerHooks(Phase.Destroyed, { world });
           this.alive = false;
@@ -1598,6 +1599,7 @@ class Bullet {
   takeDamage(amount) {
     if (!this.alive || !this.isEntity) return false;
     this.entityLayers--;
+    // 浮字 FX 由通用 buff-diff 侦测器统一负责
     if (this.entityLayers <= 0) {
       this.triggerHooks(Phase.Destroyed, { world: this._world });
       this.alive = false;
@@ -1626,11 +1628,12 @@ class Bullet {
 
   destroy() {
     if (!this.alive) return;
-    // 骷髅特殊：一次冲撞结束（弹射+穿透耗尽 + 撞墙 / lifetime）= 消耗 1 层实体化
+    // 骷髅 / 亡灵龙特殊：一次冲撞结束（弹射+穿透耗尽 + 撞墙 / lifetime）= 消耗 1 层实体化
     //   层数 >0 → 回到待机态（isEntity=true / speed=0），等下个敌方回合再冲
     //   层数 =0 → 真销毁（走下方 Destroyed 钩子）
-    if (this._isSkeleton && !this.isEntity) {
+    if ((this._isSkeleton || this._isUndeadDragon) && !this.isEntity) {
       this.entityLayers--;
+      // 浮字 FX 由通用 buff-diff 侦测器统一负责
       if (this.entityLayers > 0) {
         this.isEntity = true;
         this.speed = 0;
@@ -1659,9 +1662,14 @@ class Bullet {
   draw(ctx) {
     if (!this.alive) return;
     // 敌方子弹：红色；蝙蝠子弹：紫黑；玩家弹：黄色；奥弹：紫色；骷髅：紫白
+    // 召唤型友方实体（与一般弹/骷髅区分）：
+    //   亡灵龙 → 暗紫（搭配下方绿色辉光内核）
+    //   觉醒剑圣 → 金色 / 普通剑圣 → 银白
     const color = this._batBullet ? '#5a1f7a'
                 : this.team === 'enemy' ? '#ff5050'
                 : this.isArcane ? '#c97aff'
+                : this._isUndeadDragon ? '#5a2a8c'
+                : this._isSwordSaint ? (this._awakened ? '#ffd84a' : '#dde3ec')
                 : this._isSkeleton ? '#aebfd8'
                 : '#ffd84a';
     // 拖尾：从最旧到次新，圆点逐渐变淡变小（juice）
@@ -1724,6 +1732,63 @@ class Bullet {
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.fill();
+    // 亡灵龙：紫色外壳 + 绿色不死辉光内核（搭配独特配色让玩家秒辨认）
+    if (this._isUndeadDragon) {
+      const tt = performance.now() / 1000;
+      ctx.shadowBlur = 0;
+      // 绿色内核（脉动）
+      const corePulse = 0.7 + Math.sin(tt * 3) * 0.3;
+      ctx.fillStyle = '#3aff8c';
+      ctx.globalAlpha = 0.65 * corePulse;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // 紫色描边
+      ctx.strokeStyle = '#c97aff';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius * 0.9, 0, Math.PI * 2);
+      ctx.stroke();
+      // 偶发绿色烟雾粒子（不死气息）
+      if (this._world && Math.random() < 0.18) {
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.2;
+        const sp = 20 + Math.random() * 40;
+        this._world.particles.push(new Particle({
+          x: this.x + (Math.random() - 0.5) * this.radius,
+          y: this.y,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+          life: 0.5 + Math.random() * 0.3,
+          color: Math.random() < 0.6 ? '#3aff8c' : '#c97aff',
+          size: 1.8 + Math.random() * 1.0,
+        }));
+      }
+    }
+    // 剑圣 / 觉醒剑圣：内层亮核 + 旋转描边光环
+    if (this._isSwordSaint) {
+      const tt = performance.now() / 1000;
+      ctx.shadowBlur = 0;
+      // 亮内核（觉醒为金白，普通为冷银）
+      const innerColor = this._awakened ? '#fff4c0' : '#ffffff';
+      const corePulse = 0.85 + Math.sin(tt * 4) * 0.15;
+      ctx.globalAlpha = 0.7 * corePulse;
+      ctx.fillStyle = innerColor;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.radius * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      // 旋转剑气环：旋转的虚线弧，暗示"瞬移备战"
+      const ringR = this.radius + 3;
+      const rotA = (tt * 1.8) % (Math.PI * 2);
+      ctx.strokeStyle = this._awakened ? '#ffd84a' : '#aed0ff';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([6, 4]);
+      ctx.lineDashOffset = -rotA * 8;
+      ctx.beginPath();
+      ctx.arc(0, 0, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     // 蝙蝠子弹：紫黑球 + 🦇 emoji 居中标识（无碰撞影响，纯视觉）
     if (this._batBullet) {
       ctx.shadowBlur = 0;
@@ -1854,6 +1919,54 @@ function _drawEntityDecos(ctx, bullet) {
     ctx.restore();
   }
 
+  // 🐉 亡灵龙：球体顶部漂浮，紫/绿双色阴影交替（不死辉光）
+  const dragons = grouped.dragon || 0;
+  if (dragons > 0) {
+    const baseFont = Math.max(22, Math.min(36, r * 1.7));
+    const dist = r + 12;
+    const sway = Math.sin(t * 1.8) * 5;
+    const colorMix = 0.5 + Math.sin(t * 1.3) * 0.5;   // 0..1 在紫绿间渐变
+    const glowColor = colorMix > 0.5 ? '#3aff8c' : '#c97aff';
+    ctx.save();
+    ctx.font = baseFont + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 16;
+    ctx.fillText('🐉', 0, -dist + sway);
+    // 二次叠绘提升光晕饱和度（不同色 → 紫绿双色拖影）
+    ctx.shadowColor = colorMix > 0.5 ? '#c97aff' : '#3aff8c';
+    ctx.shadowBlur = 10;
+    ctx.fillText('🐉', 0, -dist + sway);
+    ctx.restore();
+  }
+
+  // 🤺 剑圣：球体顶部漂浮（觉醒金 / 普通银白），快速摆动暗示战斗姿态
+  // 注意：剑圣的"觉醒"标记从 bullet._awakened 读，而非靠装饰 type 区分。
+  //   渲染靠 bullet.color cascade（球体本身金/银已经区分了），这里再加同色光晕统一气质
+  const saints = grouped.saint || 0;
+  if (saints > 0) {
+    const baseFont = Math.max(18, Math.min(28, r * 1.5));
+    const dist = r + 9;
+    const sway = Math.sin(t * 3.2) * 4;       // 比骷髅更快的"剑舞"摆动
+    const isAwakened = bullet._awakened;
+    const glow = isAwakened ? '#ffd84a' : '#aed0ff';
+    ctx.save();
+    ctx.font = baseFont + 'px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = isAwakened ? 14 : 10;
+    ctx.fillText('🤺', 0, -dist + sway);
+    if (isAwakened) {
+      // 觉醒态：额外白色高光叠加 → 神圣感
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 8;
+      ctx.fillText('🤺', 0, -dist + sway);
+    }
+    ctx.restore();
+  }
+
   // 🪽 翅膀：左右一对；N 对 → 上下错开堆叠（错位 5px / 对）
   const wings = grouped.wings || 0;
   for (let i = 0; i < wings; i++) {
@@ -1969,75 +2082,78 @@ const INTENT_ICON = {
 //   'kiter'         - 远程：向主炮台靠近至 preferredRange 后停住；过近时后撤。射击仍打最近 ally。
 //   'edge_kiter'    - 弹射射手：kiter 基础上有侧向 drift 偏向地图边缘 + accuracyJitter 准头差。
 //   'support'       - 治疗 / 增益类：跟在前排队友身后，远离炮台保持安全距离。
+//
+// v8.1 平衡：所有 maxHp / value / xpReward 整体 ×1.5（向上取整），让单波敌人更少 + 更耐打 + 单杀奖励更高
+// 减缓"敌人多到打不完 / 攻击不爽" 的体感问题
 const ENEMY_TYPES = {
   // —— 早期敌人（Tier 1）——
-  goblin:    { name: '哥布林',   icon: '👹', maxHp: 4,  attack: 1, speed: 90, radius: 16, color: '#7a8a4a', shape: 'circle', xpReward: 2, value: 3, minWave: 1,
+  goblin:    { name: '哥布林',   icon: '👹', maxHp: 6,  attack: 1, speed: 90, radius: 16, color: '#7a8a4a', shape: 'circle', xpReward: 3, value: 5, minWave: 1,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成 1 伤害，自爆' }] },
-  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 3,  attack: 0, speed: 40, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 3, value: 7, minWave: 1,
+  archer:    { name: '弓箭手',   icon: '🏹', maxHp: 5,  attack: 0, speed: 40, radius: 14, color: '#a08060', shape: 'triangle', xpReward: 5, value: 11, minWave: 1,
                behavior: 'kiter', preferredRange: 260,
                intents: [{ kind: 'ranged', icon: '🏹', cooldown: 2, value: 2, desc: '2 回合后射 1 颗弹（2 伤）' }] },
-  flier:     { name: '飞行兵',   icon: '🦇', maxHp: 5,  attack: 1, speed: 130, radius: 12, color: '#4adcd0', shape: 'triangle', xpReward: 3, value: 4, flies: true, minWave: 1,
+  flier:     { name: '飞行兵',   icon: '🦇', maxHp: 8,  attack: 1, speed: 130, radius: 12, color: '#4adcd0', shape: 'triangle', xpReward: 5, value: 6, flies: true, minWave: 1,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '飞行接触 1 伤' }] },
-  rusher:    { name: '突击兵',   icon: '💨', maxHp: 5,  attack: 2, speed: 180, radius: 13, color: '#ff5050', shape: 'circle', xpReward: 4, value: 5, minWave: 3,
+  rusher:    { name: '突击兵',   icon: '💨', maxHp: 8,  attack: 2, speed: 180, radius: 13, color: '#ff5050', shape: 'circle', xpReward: 6, value: 8, minWave: 3,
                behavior: 'rusher',
                intents: [{ kind: 'rush', icon: '👟', cooldown: 0, desc: '高速冲刺 2 伤撞击' }] },
 
   // —— 中期敌人（Tier 2）——
-  sniper:    { name: '狙击手',   icon: '🎯', maxHp: 6,  attack: 0, speed: 12, radius: 16, color: '#604070', shape: 'triangle', xpReward: 6, value: 7, minWave: 8,
+  sniper:    { name: '狙击手',   icon: '🎯', maxHp: 9,  attack: 0, speed: 12, radius: 16, color: '#604070', shape: 'triangle', xpReward: 9, value: 11, minWave: 8,
                behavior: 'kiter', preferredRange: 360,
                intents: [{ kind: 'sniper', icon: '🎯', cooldown: 3, value: 5, desc: '3 回合后高伤射击（5 伤）' }] },
-  bouncer:   { name: '弹射射手', icon: '⚪', maxHp: 5, attack: 0, speed: 45, radius: 15, color: '#80d0d0', shape: 'circle', xpReward: 5, value: 6, minWave: 5,
+  bouncer:   { name: '弹射射手', icon: '⚪', maxHp: 8, attack: 0, speed: 45, radius: 15, color: '#80d0d0', shape: 'circle', xpReward: 8, value: 9, minWave: 5,
                behavior: 'edge_kiter', preferredRange: 220, accuracyJitter: 0.22,
                intents: [{ kind: 'ranged', icon: '🏹', cooldown: 2, value: 1, bound: 3, desc: '2 回合后射弹射弹（弹 3）' }] },
-  tracker:   { name: '追踪兵',   icon: '🎯', maxHp: 6, attack: 0, speed: 45, radius: 15, color: '#80a0d0', shape: 'circle', xpReward: 5, value: 6, minWave: 7,
+  tracker:   { name: '追踪兵',   icon: '🎯', maxHp: 9, attack: 0, speed: 45, radius: 15, color: '#80a0d0', shape: 'circle', xpReward: 8, value: 9, minWave: 7,
                behavior: 'kiter', preferredRange: 260,
                intents: [{ kind: 'ranged', icon: '🎯', cooldown: 2, value: 1, tracking: true, desc: '2 回合后射追踪弹' }] },
-  healer:    { name: '治疗师',   icon: '💚', maxHp: 7, attack: 0, speed: 40, radius: 15, color: '#60c060', shape: 'circle', xpReward: 5, value: 6, minWave: 6,
+  healer:    { name: '治疗师',   icon: '💚', maxHp: 11, attack: 0, speed: 40, radius: 15, color: '#60c060', shape: 'circle', xpReward: 8, value: 9, minWave: 6,
                behavior: 'support', preferredRange: 340,
                intents: [{ kind: 'heal', icon: '➕', cooldown: 2, value: 3, desc: '2 回合后治疗最近敌人 +3 HP' }] },
-  bomber:    { name: '自爆球',   icon: '💣', maxHp: 4, attack: 6, speed: 100, radius: 14, color: '#ffa040', shape: 'circle', xpReward: 4, value: 5, minWave: 5,
+  bomber:    { name: '自爆球',   icon: '💣', maxHp: 6, attack: 6, speed: 100, radius: 14, color: '#ffa040', shape: 'circle', xpReward: 6, value: 8, minWave: 5,
                behavior: 'melee',
                intents: [{ kind: 'selfdest', icon: '💥', cooldown: 3, desc: '3 回合后自爆 6 伤 AOE' }] },
-  spammer:   { name: '弹幕兵',   icon: '🌌', maxHp: 6, attack: 0, speed: 45, radius: 15, color: '#8080c0', shape: 'circle', xpReward: 6, value: 7, minWave: 9,
+  spammer:   { name: '弹幕兵',   icon: '🌌', maxHp: 9, attack: 0, speed: 45, radius: 15, color: '#8080c0', shape: 'circle', xpReward: 9, value: 11, minWave: 9,
                behavior: 'kiter', preferredRange: 210,
                intents: [{ kind: 'rangedMulti', icon: '🏹', cooldown: 3, value: 1, count: 3, desc: '3 回合后 3 颗扇形弹（1 伤×3）' }] },
 
   // —— 后期敌人（Tier 3）——
-  summoner:  { name: '召唤师',   icon: '👻', maxHp: 8,  attack: 0, speed: 0, radius: 18, color: '#702070', shape: 'rect', xpReward: 8, value: 12, minWave: 12,
+  summoner:  { name: '召唤师',   icon: '👻', maxHp: 12,  attack: 0, speed: 0, radius: 18, color: '#702070', shape: 'rect', xpReward: 12, value: 18, minWave: 12,
                behavior: 'kiter',
                intents: [{ kind: 'summon', icon: '👥', cooldown: 3, spawn: 'goblin', desc: '3 回合后召唤 1 哥布林' }] },
-  buffer:    { name: '指挥官',   icon: '👑', maxHp: 10, attack: 1, speed: 45, radius: 16, color: '#c08000', shape: 'rect', xpReward: 7, value: 7, minWave: 11,
+  buffer:    { name: '指挥官',   icon: '👑', maxHp: 15, attack: 1, speed: 45, radius: 16, color: '#c08000', shape: 'rect', xpReward: 11, value: 11, minWave: 11,
                behavior: 'support', preferredRange: 300,
                intents: [{ kind: 'buff', icon: '⬆', cooldown: 2, value: 1, desc: '2 回合后友军 +1 攻击' }] },
-  tank:      { name: '重甲兵',   icon: '🛡', maxHp: 15, attack: 3, speed: 35, radius: 22, color: '#444444', shape: 'circle', xpReward: 9, value: 12, minWave: 20,
+  tank:      { name: '重甲兵',   icon: '🛡', maxHp: 23, attack: 3, speed: 35, radius: 22, color: '#444444', shape: 'circle', xpReward: 14, value: 18, minWave: 20,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成 3 伤' }] },
-  mage:      { name: '法师',     icon: '🔮', maxHp: 6, attack: 0, speed: 28, radius: 15, color: '#a05ec0', shape: 'circle', xpReward: 7, value: 8, minWave: 13,
+  mage:      { name: '法师',     icon: '🔮', maxHp: 9, attack: 0, speed: 28, radius: 15, color: '#a05ec0', shape: 'circle', xpReward: 11, value: 12, minWave: 13,
                behavior: 'kiter', preferredRange: 220,
                intents: [{ kind: 'aoe', icon: '💢', cooldown: 3, value: 3, desc: '3 回合后 AOE 法术 3 伤' }] },
-  berserker: { name: '狂战士',   icon: '⚔', maxHp: 9,  attack: 2, speed: 100, radius: 17, color: '#d04040', shape: 'circle', xpReward: 7, value: 9, minWave: 15,
+  berserker: { name: '狂战士',   icon: '⚔', maxHp: 14,  attack: 2, speed: 100, radius: 17, color: '#d04040', shape: 'circle', xpReward: 11, value: 14, minWave: 15,
                behavior: 'melee',
                intents: [
                  { kind: 'selfbuff', icon: '⚔', cooldown: 1, value: 1, desc: '1 回合后 +1 攻击（叠加）' },
                  { kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触造成伤害' },
                ] },
-  splitter:  { name: '分裂者',   icon: '✂', maxHp: 8,  attack: 0, speed: 55, radius: 18, color: '#80c080', shape: 'circle', xpReward: 6, value: 8, onDeath: 'split', minWave: 16,
+  splitter:  { name: '分裂者',   icon: '✂', maxHp: 12,  attack: 0, speed: 55, radius: 18, color: '#80c080', shape: 'circle', xpReward: 9, value: 12, onDeath: 'split', minWave: 16,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触 / 死亡分裂 2 个小型' }] },
 
   // —— 精英 / 杂项 ——
-  slug:      { name: '慢虫',     icon: '🐌', maxHp: 7,  attack: 1, speed: 15, radius: 20, color: '#a08040', shape: 'rect', xpReward: 6, value: 8, minWave: 18,
+  slug:      { name: '慢虫',     icon: '🐌', maxHp: 11,  attack: 1, speed: 15, radius: 20, color: '#a08040', shape: 'rect', xpReward: 9, value: 12, minWave: 18,
                behavior: 'melee',
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '缓慢推进接触' }] },
-  shrieker:  { name: '尖叫者',   icon: '📢', maxHp: 7,  attack: 0, speed: 40, radius: 15, color: '#c0a040', shape: 'circle', xpReward: 5, value: 5, minWave: 13,
+  shrieker:  { name: '尖叫者',   icon: '📢', maxHp: 11,  attack: 0, speed: 40, radius: 15, color: '#c0a040', shape: 'circle', xpReward: 8, value: 8, minWave: 13,
                behavior: 'support', preferredRange: 320,
                intents: [{ kind: 'buffall', icon: '📢', cooldown: 3, value: 15, desc: '3 回合后全敌人 +15 速度' }] },
-  slower:    { name: '时空法师', icon: '⏳', maxHp: 9, attack: 0, speed: 45, radius: 16, color: '#6080c0', shape: 'circle', xpReward: 6, value: 6, minWave: 14,
+  slower:    { name: '时空法师', icon: '⏳', maxHp: 14, attack: 0, speed: 45, radius: 16, color: '#6080c0', shape: 'circle', xpReward: 9, value: 9, minWave: 14,
                behavior: 'support', preferredRange: 300,
                intents: [{ kind: 'debuff', icon: '⬇', cooldown: 2, desc: '2 回合后抽走玩家 1 法力' }] },
-  boss:      { name: '深渊魔王', icon: '👺', maxHp: 25, attack: 4, speed: 35, radius: 28, color: '#400040', shape: 'circle', xpReward: 20, value: 25, minWave: 25,
+  boss:      { name: '深渊魔王', icon: '👺', maxHp: 38, attack: 4, speed: 35, radius: 28, color: '#400040', shape: 'circle', xpReward: 30, value: 38, minWave: 25,
                behavior: 'kiter', preferredRange: 200,
                intents: [
                  { kind: 'ranged', icon: '🏹', cooldown: 1, value: 3, desc: '1 回合后射 3 伤弹' },
@@ -2046,15 +2162,15 @@ const ENEMY_TYPES = {
                ] },
   // —— 强力精英（v8 新增）—— 攻击间隔 ≥ 2，但单次效果厉害 ——
   // 守卫：melee，每回合开始重置免疫充能 1（吸收一次伤害后失效，下回合再恢复）
-  guardian:  { name: '守卫',     icon: '🛡', maxHp: 8,  attack: 2, speed: 55, radius: 18, color: '#7a8fa8', shape: 'rect', xpReward: 8, value: 10, minWave: 10,
+  guardian:  { name: '守卫',     icon: '🛡', maxHp: 12,  attack: 2, speed: 55, radius: 18, color: '#7a8fa8', shape: 'rect', xpReward: 12, value: 15, minWave: 10,
                behavior: 'melee', _maxImmuneCharges: 1,
                intents: [{ kind: 'melee', icon: '🗡', cooldown: 0, desc: '接触 2 伤。每回合开始免疫 1 次伤害' }] },
   // 火炮法师：朝玩家方向投影矩形 AOE（长 280 / 宽 70）。2 回合间隔，单次大伤害
-  cannoneer: { name: '火炮法师',  icon: '🧙', maxHp: 6,  attack: 0, speed: 30, radius: 16, color: '#a04060', shape: 'triangle', xpReward: 8, value: 11, minWave: 12,
+  cannoneer: { name: '火炮法师',  icon: '🧙', maxHp: 9,  attack: 0, speed: 30, radius: 16, color: '#a04060', shape: 'triangle', xpReward: 12, value: 17, minWave: 12,
                behavior: 'kiter', preferredRange: 280,
                intents: [{ kind: 'rectAoe', icon: '💢', cooldown: 2, value: 5, length: 280, halfWidth: 35, desc: '2 回合后向前方矩形范围（长 280 / 宽 70）造成 5 伤' }] },
   // 穿透弩手：射出大型穿透弹（pen 4），打穿玩家与召唤物。2 回合间隔
-  piercer:   { name: '穿透弩手',  icon: '🏹', maxHp: 6,  attack: 0, speed: 35, radius: 15, color: '#c08840', shape: 'triangle', xpReward: 8, value: 11, minWave: 11,
+  piercer:   { name: '穿透弩手',  icon: '🏹', maxHp: 9,  attack: 0, speed: 35, radius: 15, color: '#c08840', shape: 'triangle', xpReward: 12, value: 17, minWave: 11,
                behavior: 'kiter', preferredRange: 320,
                intents: [{ kind: 'pierce', icon: '⟶', cooldown: 2, value: 3, penetrate: 4, desc: '2 回合后射出穿透弹（3 伤，可穿 4 个目标）' }] },
 
@@ -2159,6 +2275,13 @@ class Enemy {
 
   takeDamage(amount) {
     if (!this.alive) return false;
+    // 调试无敌：HP 不掉，仅闪伤害数字与红光（dummy 模式用）
+    if (this._invincible) {
+      this.hitFlash = 0.15;
+      const w = window.__game;
+      if (w && amount > 0) FX.damage(w, this.x, this.y - this.radius, amount);
+      return true;
+    }
     // 守卫类：每回合开始重置 _immuneCharges。还有 charges → 完全吸收本次伤害
     if ((this._immuneCharges || 0) > 0 && amount > 0) {
       this._immuneCharges -= 1;
@@ -2333,6 +2456,8 @@ class Enemy {
     } else {
       this.hitScale = 1;
     }
+    // 调试傀儡：不动、不打人、不递减 intent（仅供玩家在屏幕中央打着玩）
+    if (this._isDebugDummy) return;
     // 出场 portal：冻结所有移动 / intent / 碰撞，仅倒计 spawnT
     if (this.spawnT > 0) {
       this.spawnT = Math.max(0, this.spawnT - dt);
@@ -2930,6 +3055,9 @@ class PlayerCannon {
   getActionCdRemaining(now) { return Math.max(0, this.actionCdEnds - now); }
 
   spend(mana) {
+    // 调试无限费用：始终成功且不扣 mana
+    const wDbg = window.__game;
+    if (wDbg && wDbg._debugInfiniteCost) return true;
     if (this.mana < mana) return false;
     this.mana -= mana;
     // 法力消耗特效：蓝色粒子从玩家炸开 + 「-N」文字在 mana bar
@@ -3567,6 +3695,418 @@ function _spawnOneSkeleton(world, opts = {}) {
   return skel;
 }
 
+// ─── 增益 / 减益视觉特效（统一入口）────────────────────────────────
+// 每种 buff/debuff 类型有自己的 emoji + 配色，分散位置避免相互叠盖。
+// 在 fireFromCards / 实体增益（战旗 / 战鼓 / 令箭）/ 实体层数变化时调用。
+const _BUFF_FX = {
+  atk:  { emoji: '⚔',  color: '#ff7878', glow: '#ff5050' },   // 伤害（红）
+  pen:  { emoji: '🎯', color: '#3ed5e8', glow: '#1ab8d0' },   // 穿透（青）
+  bnd:  { emoji: '🏐', color: '#7eb1ff', glow: '#4a82d4' },   // 弹射（蓝）
+  cnt:  { emoji: '🔫', color: '#ffd84a', glow: '#ffa64a' },   // 数量（金）
+  wav:  { emoji: '〰', color: '#c97aff', glow: '#a060d0' },   // 波次（紫）
+  ent:  { emoji: '🛡', color: '#aed0ff', glow: '#7eb1ff' },   // 实体化（淡蓝）
+  fire: { emoji: '🔥', color: '#ff7030', glow: '#ffae00' },   // 燃烧（橙）
+};
+const _DEBUFF_FX = {
+  ent_loss: { emoji: '🛡', color: '#9aa6b4', glow: '#5a6878', sign: '-' },   // 实体层数减少（灰）
+};
+function _spawnBuffFloat(world, x, y, type, amount, isDebuff = false) {
+  if (!world || !world.particles || amount <= 0) return;
+  const cfg = (isDebuff ? _DEBUFF_FX[type] : _BUFF_FX[type]);
+  if (!cfg) return;
+  const sign = cfg.sign || '+';
+  world.particles.push(new FloatingText(x, y, `${cfg.emoji}${sign}${amount}`, {
+    color: cfg.color, glow: cfg.glow, size: 14, life: 1.0, vy: -75,
+  }));
+}
+// fireFromCards 用：玩家发射时，按"每张卡分别贡献"列出 buff items 飘出 icon。
+// 例：主卡 +1 攻 + 副卡 +3 攻 → 飘两个 ⚔+1 + ⚔+3（而非合并为 ⚔+4）
+//
+// items 形如 [['atk', 1], ['atk', 3], ['pen', 2], ...] —— 调用方按卡片维度构造。
+// 位置：炮台两侧 + 后方 180° 弧（excludes 炮口前 ±90°），避免挡住瞄准视线。
+function _emitCannonBuffFX(world, items) {
+  if (!world || !world.player) return;
+  if (!items || items.length === 0) return;
+  const p = world.player;
+  const backAngle = p.angle + Math.PI;
+  const arc = Math.PI;                 // 180°（excludes 前 180° 半圆）
+  const baseDist = (p.radius || 24) + 18;
+  items.forEach((it, i) => {
+    // 在 [-arc/2, +arc/2] 等距分布；单项时取 0（正后方）
+    const t = items.length > 1 ? i / (items.length - 1) : 0.5;
+    const relAng = -arc / 2 + arc * t;
+    const jitter = (Math.random() - 0.5) * 0.25;   // ±7° 随机抖动
+    const ang = backAngle + relAng + jitter;
+    const dist = baseDist + Math.random() * 10;
+    const x = p.x + Math.cos(ang) * dist;
+    const y = p.y + Math.sin(ang) * dist - 4;       // 略向上偏，提高可见度
+    _spawnBuffFloat(world, x, y, it[0], it[1]);
+  });
+}
+// 按 useList 计算"每张卡 PreActive 贡献了什么"。
+// 实现：为每张卡建一颗 dry Bullet（共享 tpl 当前基线值），把该卡 hooks 跑一遍，
+// 与基线做 diff → 得到该卡的 atk/pen/bnd/cnt/wav/ent/fire 增量。
+// 之后 fireFromCards 再做"真实"的 PreActive 一次（在 tpl 上），把所有卡的增量真正累计上去。
+function _computePerCardBuffItems(world, tpl, useList) {
+  const items = [];
+  if (!world || !useList) return items;
+  const base = {
+    attack: tpl.attack, bound: tpl.bound, penetrate: tpl.penetrate,
+    bulletCount: tpl.bulletCount, waveCount: tpl.waveCount,
+    entityLayers: tpl.entityLayers, fireOnHit: tpl._fireOnHit || 0,
+  };
+  for (const c of useList) {
+    if (!c) continue;
+    const hooks = c.initializeEffects ? c.initializeEffects() : [];
+    if (!hooks || hooks.length === 0) continue;
+    // 仅取 PreActive 钩子（其它阶段不影响 tpl 基线）
+    const preHooks = hooks.filter(h => h.phase === Phase.PreActive);
+    if (preHooks.length === 0) continue;
+    const dry = new Bullet({
+      x: tpl.x, y: tpl.y, angle: tpl.angle,
+      speed: tpl.speed, lifetime: tpl.lifetime,
+      attack: base.attack, bound: base.bound, penetrate: base.penetrate,
+      bulletCount: base.bulletCount, waveCount: base.waveCount,
+      entityLayers: base.entityLayers, radius: tpl.radius,
+    });
+    dry._fireOnHit = base.fireOnHit;
+    for (const h of preHooks) dry.hooks.push(h);
+    dry.triggerHooks(Phase.PreActive, { world });
+    const dAtk = dry.attack - base.attack;
+    const dPen = dry.penetrate - base.penetrate;
+    const dBnd = dry.bound - base.bound;
+    const dCnt = dry.bulletCount - base.bulletCount;
+    const dWav = dry.waveCount - base.waveCount;
+    const dEnt = dry.entityLayers - base.entityLayers;
+    const dFire = (dry._fireOnHit || 0) - base.fireOnHit;
+    if (dAtk > 0) items.push(['atk', dAtk]);
+    if (dPen > 0) items.push(['pen', dPen]);
+    if (dBnd > 0) items.push(['bnd', dBnd]);
+    if (dCnt > 0) items.push(['cnt', dCnt]);
+    if (dWav > 0) items.push(['wav', dWav]);
+    if (dEnt > 0) items.push(['ent', dEnt]);
+    if (dFire > 0) items.push(['fire', dFire]);
+  }
+  return items;
+}
+// 实体被 buff 时（战旗 / 战鼓 / 令箭等）：在该实体身上飘出对应数字
+function _emitEntityBuffFX(world, entity, type, amount) {
+  if (!world || !entity) return;
+  _spawnBuffFloat(world, entity.x, entity.y - (entity.radius || 12) - 8, type, amount);
+}
+// 实体层数 -N 时：灰色减号飘字
+function _emitEntityLayerLossFX(world, entity, amount) {
+  if (!world || !entity || amount <= 0) return;
+  _spawnBuffFloat(world, entity.x, entity.y - (entity.radius || 12) - 8, 'ent_loss', amount, true);
+}
+
+// 通用 buff-diff 侦测器：每帧对比所有友方实体的 attack / entityLayers 与上帧 snapshot
+//   ↑ 增加 → 在实体身上飘 ⚔/🛡 浮字（被 buff 反馈）
+//   ↓ 减少 → 飘灰色 🛡- 浮字（layer 减少反馈）
+// 适用：任何修改 b.attack / b.entityLayers 的来源都自动触发 FX，
+//      新增卡牌时不需要在卡定义里手动调 _emitXxx 助手 — 改属性就有 FX。
+function _tickEntityBuffDiff(world) {
+  if (!world || !world.bullets) return;
+  for (const b of world.bullets) {
+    // 只关心"友方且当前是实体或将变实体"的子弹
+    if (!b.alive || b.team === 'enemy') continue;
+    if (!(b.entityLayersMax > 0)) continue;
+    // 初始化 snapshot（第一帧不报 FX，仅记录基线）
+    if (b._buffSnapAttack == null) {
+      b._buffSnapAttack = b.attack;
+      b._buffSnapEntityLayers = b.entityLayers;
+      continue;
+    }
+    const dAtk = b.attack - b._buffSnapAttack;
+    const dEnt = b.entityLayers - b._buffSnapEntityLayers;
+    if (dAtk > 0) _emitEntityBuffFX(world, b, 'atk', dAtk);
+    if (dEnt > 0) _emitEntityBuffFX(world, b, 'ent', dEnt);
+    else if (dEnt < 0) _emitEntityLayerLossFX(world, b, -dEnt);
+    b._buffSnapAttack = b.attack;
+    b._buffSnapEntityLayers = b.entityLayers;
+  }
+}
+
+// 亡灵龙：超大型友方实体子弹。10 实体化 / 10 攻击。
+// 每个敌方回合 → 冲撞生命值最高的敌人，命中时附加冻结 + 周围 2 范围伤害 + 2 燃烧。
+// 与骷髅同样走 "destroy 里扣层 + EntityTurn 起冲" 的模式（_isUndeadDragon 标记）。
+function spawnUndeadDragon(world, opts = {}) {
+  const player = world.player;
+  let x, y;
+  if (opts.x != null && opts.y != null) {
+    x = opts.x + rand(-8, 8); y = opts.y + rand(-8, 8);
+  } else {
+    const ang = rand(-Math.PI * 0.75, -Math.PI * 0.25);
+    const dist = 100 + rand(0, 40);
+    x = player.x + Math.cos(ang) * dist;
+    y = player.y + Math.sin(ang) * dist;
+  }
+  const r = 18;
+  const tb = trapBounds(world, y);
+  x = clamp(x, tb.leftX + r, tb.rightX - r);
+  y = clamp(y, r, world.h - r);
+
+  const dragon = new Bullet({
+    x, y, angle: 0, speed: 0, lifetime: 9999,
+    attack: 10, bound: 0, penetrate: 0,
+    bulletCount: 1, waveCount: 1, radius: r,
+    entityLayers: 10,
+  });
+  dragon.team = 'ally';
+  dragon.kind = 'undeadDragon';
+  dragon._isUndeadDragon = true;
+  dragon._entityDecos = ['dragon'];
+
+  // EntityTurn：冲向生命值最高的敌人
+  dragon.addHook(new Effect(Phase.EntityTurn, 0, ctx => {
+    const b = ctx.bullet, w = ctx.world;
+    const alive = w.enemies.filter(e => e.alive && (e.spawnT == null || e.spawnT <= 0));
+    if (alive.length === 0) {
+      b.entityLayers--;
+      if (b.entityLayers <= 0) {
+        b.triggerHooks(Phase.Destroyed, { world: w });
+        b.alive = false;
+      }
+      return;
+    }
+    let t = alive[0];
+    for (const e of alive) if (e.hp > t.hp) t = e;
+    b.angle = angleBetween(b.x, b.y, t.x, t.y);
+    b.speed = 360;
+    b.lifetime = 2.4;
+    b.born = performance.now() / 1000;
+    b.isEntity = false;
+    b.penetrate = 0;
+    b.bound = 0;
+    b.recentHits.clear();
+    b.trail.length = 0;
+  }));
+
+  // HitEnemy：命中时冻结 + 周围 2 范围伤害 + 2 燃烧 + 紫绿不死爆裂视觉
+  dragon.addHook(new Effect(Phase.HitEnemy, -1, ctx => {
+    const e = ctx.enemy, w = ctx.world, b = ctx.bullet;
+    applyFreeze(e, 1);
+    applyFire(e, 2);
+    applyAoe(w, b, {
+      damage: 2, mult: 1.5, target: 'enemies',
+      exclude: e, knockback: false,
+      onHit: (en) => applyFire(en, 2),
+      color: '#c97aff',
+    });
+    // 命中点叠加：绿色不死气息 + 紫色冰晶碎片（区别于普通爆炸的红橙色）
+    for (let k = 0; k < 18; k++) {
+      const a = Math.PI * 2 * Math.random();
+      const sp = 90 + Math.random() * 140;
+      w.particles.push(new Particle({
+        x: e.x, y: e.y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+        life: 0.5 + Math.random() * 0.25,
+        color: k % 3 === 0 ? '#3aff8c' : (k % 2 ? '#c97aff' : '#7a5ac0'),
+        size: 3.0,
+      }));
+    }
+    // 顶部小骷髅飘字 — 不死龙的标识符
+    if (Math.random() < 0.8) {
+      w.particles.push(new FloatingText(e.x, e.y - e.radius - 6, '💀', {
+        color: '#c97aff', glow: '#3aff8c',
+      }));
+    }
+  }));
+
+  dragon.addHook(new Effect(Phase.Destroyed, 0, ctx => {
+    Events.emit('summonDied', ctx.bullet);
+  }));
+
+  dragon.triggerHooks(Phase.PreActive, { world });
+  dragon.triggerHooks(Phase.Spawned, { world });
+  dragon.activate(performance.now() / 1000);
+  dragon.isEntity = true;
+  // 入场特效：紫绿粒子大爆 + 双层光环 + 上飘绿色烟柱 + 大震屏
+  for (let i = 0; i < 36; i++) {
+    const a = Math.PI * 2 * Math.random();
+    const sp = 80 + Math.random() * 130;
+    world.particles.push(new Particle({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30,
+      life: 0.6 + Math.random() * 0.2,
+      color: i % 3 === 0 ? '#3aff8c' : (i % 2 ? '#c97aff' : '#7a3ec0'),
+      size: 3.6,
+    }));
+  }
+  // 双环：内紫 / 外绿
+  world.particles.push(new Particle({ x, y, life: 0.85, color: '#c97aff', size: 56, type: 'ring' }));
+  world.particles.push(new Particle({ x, y, life: 0.65, color: '#3aff8c', size: 38, type: 'ring' }));
+  // 上飘绿色不死烟柱（6 颗）
+  for (let i = 0; i < 6; i++) {
+    world.particles.push(new Particle({
+      x: x + (i - 2.5) * 5, y: y,
+      vx: 0, vy: -70 - Math.random() * 50,
+      life: 0.9, color: '#3aff8c', size: 3.2,
+    }));
+  }
+  // 顶部 💀 飘字（强化"不死"标签）
+  world.particles.push(new FloatingText(x, y - r - 10, '💀', { color: '#c97aff', glow: '#3aff8c' }));
+  FX.shake(world, 10, 0.36);
+  world.bullets.push(dragon);
+  Events.emit('summonSpawned', dragon);
+  return dragon;
+}
+
+// 剑圣 / 觉醒剑圣：召唤类单位（不继承主卡牌效果）。每个敌方回合"瞬移到敌人身边 5 次"，
+// 每次到位后挥剑（小范围 cone AOE，damage = saint.attack）。
+//   awakened=true（金/钻）：每次挥剑后斩杀 60px 内 <10% HP 的敌人。
+//   注意：召唤 = 凭空生成单位 → 与"实体化子弹（子弹变实体，会继承本回合 hooks）"不同。
+//   剑圣的攻击属性 / 行为完全由 spawnSwordSaint 自己定义，不读 world._turnHookCards / 主卡 buff。
+function spawnSwordSaint(world, opts = {}) {
+  const { attack = 5, awakened = false } = opts;
+  const player = world.player;
+  let x, y;
+  if (opts.x != null && opts.y != null) {
+    x = opts.x; y = opts.y;
+  } else {
+    const ang = rand(-Math.PI * 0.7, -Math.PI * 0.3);
+    const dist = 90 + rand(0, 40);
+    x = player.x + Math.cos(ang) * dist;
+    y = player.y + Math.sin(ang) * dist;
+  }
+  const r = 12;
+  const tb = trapBounds(world, y);
+  x = clamp(x, tb.leftX + r, tb.rightX - r);
+  y = clamp(y, r, world.h - r);
+
+  const saint = new Bullet({
+    x, y, angle: 0, speed: 0, lifetime: 9999,
+    attack, bound: 0, penetrate: 0,
+    bulletCount: 1, waveCount: 1, radius: r,
+    entityLayers: 5,
+  });
+  saint.team = 'ally';
+  saint.kind = 'swordSaint';
+  saint._isSwordSaint = true;
+  saint._awakened = !!awakened;          // 渲染时根据此切换金 / 银配色
+  saint._entityDecos = awakened ? ['saint', 'sword', 'sword'] : ['saint', 'sword'];
+
+  // EntityTurn：5 次连续单体攻击（每次瞬移至随机敌人身旁 + 银色透镜剑光斩击）；间隔 180ms
+  // 单体攻击 = 只伤害 target 一人（非范围）；命中时绘制 SwordSlashLens（两头尖中间宽的剑光梭形）
+  saint.addHook(new Effect(Phase.EntityTurn, 0, ctx => {
+    const b = ctx.bullet, w = ctx.world;
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => {
+        if (!b.alive) return;
+        const alive = w.enemies.filter(e => e.alive && (e.spawnT == null || e.spawnT <= 0));
+        if (alive.length === 0) return;
+        const target = alive[randInt(0, alive.length - 1)];
+        // 瞬移到敌人侧面 + 残影 trail（12 段交替色）
+        const fromX = b.x, fromY = b.y;
+        const angTo = Math.atan2(target.y - fromY, target.x - fromX);
+        const reach = (target.radius || 16) + b.radius + 4;
+        const destX = target.x - Math.cos(angTo) * reach;
+        const destY = target.y - Math.sin(angTo) * reach;
+        const trailColorA = awakened ? '#ffd84a' : '#dde3ec';
+        const trailColorB = awakened ? '#fff4c0' : '#aed0ff';
+        const steps = 12;
+        for (let k = 0; k <= steps; k++) {
+          const t = k / steps;
+          w.particles.push(new Particle({
+            x: fromX + (destX - fromX) * t,
+            y: fromY + (destY - fromY) * t,
+            life: 0.28, color: k % 2 ? trailColorA : trailColorB, size: 5.5 - k * 0.3,
+          }));
+        }
+        // 起 / 落点闪环
+        w.particles.push(new Particle({ x: fromX, y: fromY, life: 0.22, color: trailColorB, size: 18, type: 'ring' }));
+        b.x = destX; b.y = destY;
+        w.particles.push(new Particle({ x: destX, y: destY, life: 0.3, color: '#ffffff', size: 22, type: 'ring' }));
+
+        // 单体攻击：直接对 target takeDamage（不走 HitEnemy 钩子 → 不应用主卡 buff）
+        const dmg = b.attack;
+        const dealt = target.takeDamage(dmg);
+        if (dealt) {
+          FX.damage(w, target.x, target.y - target.radius, dmg);
+          if (typeof target.applyKnockback === 'function') {
+            target.applyKnockback(b.x, b.y, clamp(3 + dmg * 0.6, 3, 10));
+          }
+        }
+
+        // 剑光斩击特效：透镜（两头尖、中间宽）落在敌人身上，方向随每刀微随机
+        const slashAngle = angTo + (Math.random() - 0.5) * 0.7;
+        const slashLen = (target.radius || 16) * 2.6;
+        const slashWidth = (target.radius || 16) * 0.42;
+        w.particles.push(new SwordSlashLens(
+          target.x, target.y, slashAngle, slashLen, slashWidth, trailColorA
+        ));
+        // 命中火星沿斩击方向溅射
+        for (let k = 0; k < 10; k++) {
+          const aa = slashAngle + (Math.random() - 0.5) * 0.6;
+          const sp = 90 + Math.random() * 90;
+          w.particles.push(new Particle({
+            x: target.x, y: target.y,
+            vx: Math.cos(aa) * sp, vy: Math.sin(aa) * sp,
+            life: 0.32 + Math.random() * 0.18,
+            color: awakened ? '#ffd84a' : '#ffffff', size: 2.2,
+          }));
+        }
+        FX.shake(w, awakened ? 4 : 3, 0.12);
+        // 觉醒：每次攻击后斩杀 60px 内 <10% HP 的敌人
+        if (awakened) {
+          for (const e of w.enemies) {
+            if (!e.alive || e === target) continue;
+            const d = Math.hypot(e.x - target.x, e.y - target.y);
+            if (d > 60) continue;
+            if (e.maxHp > 0 && e.hp / e.maxHp >= 0.10) continue;
+            const killHp = e.hp;
+            e.takeDamage(99999);
+            FX.damage(w, e.x, e.y - e.radius, killHp);
+            for (let k = 0; k < 10; k++) {
+              const a = Math.PI * 2 * Math.random();
+              w.particles.push(new Particle({
+                x: e.x, y: e.y, vx: Math.cos(a) * 110, vy: Math.sin(a) * 110,
+                life: 0.35, color: '#ffd84a', size: 2.6,
+              }));
+            }
+          }
+        }
+      }, i * 180);
+    }
+  }));
+
+  saint.addHook(new Effect(Phase.Destroyed, 0, ctx => {
+    Events.emit('summonDied', ctx.bullet);
+  }));
+
+  saint.triggerHooks(Phase.PreActive, { world });
+  saint.triggerHooks(Phase.Spawned, { world });
+  saint.activate(performance.now() / 1000);
+  saint.isEntity = true;
+  // 入场视觉：金/银双层粒子爆裂 + 同色光环
+  const primary = awakened ? '#ffd84a' : '#dde3ec';
+  const secondary = awakened ? '#fff4c0' : '#aed0ff';
+  for (let i = 0; i < 22; i++) {
+    const a = Math.PI * 2 * Math.random();
+    const sp = 70 + Math.random() * 100;
+    world.particles.push(new Particle({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
+      life: 0.5, color: i % 2 ? primary : secondary, size: 3.0,
+    }));
+  }
+  // 双环：内环厚 / 外环薄
+  world.particles.push(new Particle({ x, y, life: 0.6, color: primary, size: 40, type: 'ring' }));
+  world.particles.push(new Particle({ x, y, life: 0.45, color: secondary, size: 26, type: 'ring' }));
+  if (awakened) {
+    // 觉醒额外金色"光柱"上升 — 4 颗向上飘
+    for (let i = 0; i < 4; i++) {
+      world.particles.push(new Particle({
+        x: x + (i - 1.5) * 6, y: y,
+        vx: 0, vy: -90 - Math.random() * 40,
+        life: 0.7, color: '#ffd84a', size: 3.4,
+      }));
+    }
+  }
+  FX.shake(world, 6, 0.22);
+  world.bullets.push(saint);
+  Events.emit('summonSpawned', saint);
+  return saint;
+}
+
 // 召唤物的子弹波次发射（同款流程仿 fireOneWave，但 source = 召唤物，team = ally）
 function _fireSummonWave(tpl, world) {
   const n = Math.max(1, tpl.bulletCount);
@@ -3731,6 +4271,9 @@ class Card {
     this.faceUp = false;
     this._family = family;
     this._def = def;
+    // 永久正面：当此牌在手牌中，始终为正面（不受边缘 / _foresightFaceUp 限制）。
+    // 用于"造访剑圣 钻"等需要持续展露才生效的卡牌。
+    this._alwaysFaceUp = !!def.alwaysFaceUp;
     this.def = { art: { emoji: family.emoji || '⚙' }, hasRevealFx: !!def.hasRevealFx };
   }
 
@@ -3744,7 +4287,9 @@ class Card {
     return this.familyName;
   }
   get desc() {
-    const d = this._def.desc;
+    let d = this._def.desc;
+    if (!d) return '';
+    if (typeof d === 'function') d = d(this);
     if (!d) return '';
     return typeof d === 'string' ? d : (d[LANG.current] || d.zh || d.en || '');
   }
@@ -4680,6 +5225,7 @@ function _warBannerTier(auraDmg, spawnDmg, value) {
       for (const b of world.bullets) {
         if (b.alive && b.isEntity && b.team !== 'enemy') {
           b.attack = (b.attack || 0) + auraDmg;
+          // 浮字 FX 由 Bullet 的属性差异侦测器统一负责（见 main loop 末尾的 buff-diff 段）
         }
       }
     },
@@ -4692,6 +5238,7 @@ function _warBannerTier(auraDmg, spawnDmg, value) {
         if (!s._isSkeleton && !s.isEntity) return;
         s.attack = (s.attack || 0) + spawnDmg;
         s.entityLayers = (s.entityLayers || 0) + 1;
+        // FX 同上：由通用属性 diff 侦测，不在此显式 spawn 浮字
       };
       Events.on('summonSpawned', card._wbHandler);
     },
@@ -5293,7 +5840,196 @@ function _finisherTier(atk, bound, pen, diamondRefund, value) {
 const SKELETON_FAMILY_IDS = new Set([
   'crypt', 'skeleton_horn', 'bone_blossom', 'skeleton_lord',
   'necromancer', 'soulcall', 'reincarnation', 'excavate_tomb',
+  'brave_dragon_lair',
 ]);
+
+// ─── v8 新卡：令箭 / 战鼓 / 钻头 / 造访剑圣 / 勇闯龙巢 ─────────────────
+
+// 令箭：穿透+N。穿透时，count 个随机友方实体化单位获得实体化+1。
+function _orderArrowTier(pen, count, value) {
+  return {
+    cost: 2, value,
+    desc: {
+      zh: `穿透+${pen}。穿透时，${count}个随机友方实体化单位获得实体化+1。`,
+      en: `Pierce+${pen}. On pierce, ${count} random friendly Entity unit${count > 1 ? 's' : ''} gain +1 Entity layer.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += pen; }),
+      // priority 6：先于 default HitEnemy 检查；判定"还会继续穿透"= penetrate >= 1
+      new Effect(Phase.HitEnemy, 6, ctx => {
+        if (ctx.bullet.penetrate < 1) return;
+        const w = ctx.world;
+        const pool = w.bullets.filter(b =>
+          b.alive && b.isEntity && b.team !== 'enemy' && b.entityLayers > 0
+        );
+        for (let i = 0; i < count && pool.length > 0; i++) {
+          const idx = randInt(0, pool.length - 1);
+          const e = pool.splice(idx, 1)[0];
+          e.entityLayers = (e.entityLayers || 0) + 1;
+          if (e.entityLayersMax != null && e.entityLayers > e.entityLayersMax) {
+            e.entityLayersMax = e.entityLayers;
+          }
+          w.particles.push(new Particle({ x: e.x, y: e.y, life: 0.4, color: '#ffd84a', size: 18, type: 'ring' }));
+          for (let k = 0; k < 6; k++) {
+            const a = Math.PI * 2 * Math.random();
+            w.particles.push(new Particle({
+              x: e.x, y: e.y, vx: Math.cos(a) * 70, vy: Math.sin(a) * 70,
+              life: 0.32, color: '#ffd84a', size: 2.6,
+            }));
+          }
+          // ⚠ 浮字 FX 由 Bullet 属性 diff 侦测器统一负责
+        }
+      }),
+    ],
+  };
+}
+
+// 战鼓：弹射+N（金/钻 额外伤害+atk）。弹射时，将子弹自身总伤害加成至 targetCount 个随机友方实体。
+function _warDrumTier(bound, atkBonus, targetCount, value) {
+  const parts = [`弹射+${bound}`];
+  const partsEn = [`Bounce+${bound}`];
+  if (atkBonus > 0) { parts.push(`伤害+${atkBonus}`); partsEn.push(`Damage+${atkBonus}`); }
+  return {
+    cost: 2, value,
+    desc: {
+      zh: `${parts.join('，')}。弹射时，会将伤害加成至${targetCount}个随机友方实体化单位。`,
+      en: `${partsEn.join(', ')}. On bounce, grants bonus damage equal to its own total damage to ${targetCount} random friendly Entity unit${targetCount > 1 ? 's' : ''}.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => {
+        ctx.bullet.bound += bound;
+        if (atkBonus > 0) ctx.bullet.attack += atkBonus;
+      }),
+      new Effect(Phase.HitWall, 5, ctx => {
+        if (ctx.bullet.bound <= 0) return;
+        const w = ctx.world || window.__game;
+        if (!w) return;
+        const totalAtk = ctx.bullet.attack || 0;
+        if (totalAtk <= 0) return;
+        const pool = w.bullets.filter(b =>
+          b.alive && b.isEntity && b.team !== 'enemy' && b.entityLayers > 0
+        );
+        for (let i = 0; i < targetCount && pool.length > 0; i++) {
+          const idx = randInt(0, pool.length - 1);
+          const e = pool.splice(idx, 1)[0];
+          e.attack = (e.attack || 0) + totalAtk;
+          w.particles.push(new Particle({ x: e.x, y: e.y, life: 0.4, color: '#ff9028', size: 16, type: 'ring' }));
+          for (let k = 0; k < 7; k++) {
+            const a = Math.PI * 2 * Math.random();
+            w.particles.push(new Particle({
+              x: e.x, y: e.y, vx: Math.cos(a) * 75, vy: Math.sin(a) * 75,
+              life: 0.34, color: '#ff9028', size: 2.6,
+            }));
+          }
+          // ⚠ 浮字 FX 由 Bullet 属性 diff 侦测器统一负责
+        }
+      }),
+    ],
+  };
+}
+
+// 钻头：穿透+N。通过缩短"穿透碰撞内置 CD"（pierceHitCooldown 默认 0.5s）→ 0.1 / 0.05s，
+// 让穿透时不断造成伤害 + 击退，营造"钻头"高速钻穿的效果。
+function _drillTier(pen, pierceCD, value) {
+  const speedWord = pierceCD <= 0.05 ? '快速' : '';
+  const speedWordEn = pierceCD <= 0.05 ? ' rapidly' : '';
+  return {
+    cost: 3, value,
+    desc: {
+      zh: `穿透+${pen}。穿透时会${speedWord}消耗穿透次数并造成伤害。`,
+      en: `Pierce+${pen}. While piercing, consumes Pierce charges${speedWordEn} and deals damage.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.penetrate += pen; }),
+      new Effect(Phase.Spawned, 0, ctx => {
+        ctx.bullet.pierceHitCooldown = pierceCD;
+      }),
+    ],
+  };
+}
+
+// 造访剑圣：伤害+2。展露：玩家回合结束时召唤 1 个剑圣并弃置此牌（一次性触发，
+// 重洗回手牌再次展露才会再触发）。金/钻 → 觉醒剑圣（+斩杀<10% HP 周围敌人）。
+//   alwaysFaceUp 钻级：此牌在手牌中始终为正面。
+//   设计取舍：bag[0] 主卡不能被弃置（永远在卡槽 → 无意义）→ 主卡位置时本机制 no-op。
+function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
+  const summonZh = awakened ? '觉醒剑圣' : '剑圣';
+  const summonEn = awakened ? 'Awakened Sword Saint' : 'Sword Saint';
+  const headZh = alwaysFaceUp ? '当此牌在手牌中，始终为正面。' : '';
+  const headEn = alwaysFaceUp ? 'This card is always face-up while in hand. ' : '';
+  return {
+    cost: 1, value, hasRevealFx: true, alwaysFaceUp,
+    desc: {
+      zh: `伤害+2。${headZh}展露：回合结束时召唤${summonZh}。`,
+      en: `Damage+2. ${headEn}Reveal: at end of turn, summon ${summonEn}.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 2; }),
+    ],
+    onReveal(card) {
+      if (card._saintHandler) return;
+      card._saintHandler = (t) => {
+        if (!card.faceUp) return;
+        if (t !== 'enemy') return;   // 玩家回合结束 → 进入敌方回合的瞬间
+        const w = window.__game;
+        if (!w) return;
+        // 防重入（同回合内 turnChanged 不会重复触发，但 setTimeout 等异步路径有保险）
+        if (card._saintTriggered) return;
+        card._saintTriggered = true;
+        spawnSwordSaint(w, { attack: awakened ? 7 : 5, awakened });
+        // 弃置此牌（仅当在手牌内 — 主卡 / 已不在手牌的情况 no-op）
+        const idx = w.deck.hand.indexOf(card);
+        if (idx >= 0) {
+          w.deck.hand.splice(idx, 1);
+          card._lastAction = 'use';
+          // toDiscard 内会调 _setFace(false) → 触发 onConceal → 解绑 _saintHandler
+          w.deck.toDiscard(card);
+        }
+        // 下次再被展露（重洗后）需要重新累计 → onConceal 里把 _saintTriggered 清掉
+      };
+      Events.on('turnChanged', card._saintHandler);
+    },
+    onConceal(card) {
+      if (card._saintHandler) {
+        Events.off('turnChanged', card._saintHandler);
+        card._saintHandler = null;
+      }
+      // 翻反面时清掉 triggered 标记 → 下次展露允许重新累计 + 触发
+      card._saintTriggered = false;
+    },
+  };
+}
+
+// 勇闯龙巢：召唤2骷髅。弃置 threshold 次（含被效果弃置）以召唤亡灵龙；召唤后计数归零，重新累计。
+//   desc 是函数 → 每次渲染计算剩余次数；剩余 1 次（即将触发）→ _discardCounterReady 引导 UI 橙色高亮 + 翻面粒子。
+function _braveDragonLairTier(threshold, value) {
+  return {
+    cost: 2, value, hasRevealFx: true,
+    desc: (card) => {
+      const remaining = Math.max(0, threshold - (card._discardCount || 0));
+      return {
+        zh: `召唤2个骷髅。弃置此牌${remaining}次以召唤强大的亡灵龙！`,
+        en: `Summon 2 Skeletons. Discard this card ${remaining} more time${remaining === 1 ? '' : 's'} to summon a mighty Undead Dragon!`,
+      };
+    },
+    effects: () => [],
+    onUse(_, world) {
+      for (let i = 0; i < 2; i++) spawnSkeleton(world);
+    },
+    // 统一 hook：onDiscard 在三种弃置路径都会触发（手动弃 / discardRandomFromHand / autoDiscard）
+    onDiscard(card, world) {
+      card._discardCount = (card._discardCount || 0) + 1;
+      if (card._discardCount >= threshold) {
+        spawnUndeadDragon(world);
+        card._discardCount = 0;
+        card._discardCounterReady = false;
+      } else if (card._discardCount >= threshold - 1) {
+        card._discardCounterReady = true;
+      }
+      Events.emit('deckChanged');
+    },
+  };
+}
 
 // 火力覆盖：纯数量加成。
 function _firepowerTier(damage, count, value) {
@@ -5640,8 +6376,8 @@ const CARD_DATA = {
       diamond: {
         cost: 3, value: 50, hasRevealFx: true,
         desc: {
-          zh: '触发所有燃烧效果。展露：如果所有敌人都处于燃烧状态，立刻免费使用。',
-          en: 'Detonate all Burn. Reveal: if every enemy is burning, immediately use for free.',
+          zh: '触发所有燃烧效果。展露：如果有10个敌人处于燃烧状态，立刻免费使用。',
+          en: 'Detonate all Burn. Reveal: if 10 enemies are burning, immediately use for free.',
         },
         effects: () => [],
         onUse(_, world) { detonateFire(world, _, 2); },
@@ -5651,9 +6387,8 @@ const CARD_DATA = {
             const w = window.__game;
             if (!w) return;
             if (!card.faceUp) return;
-            const enemies = w.enemies.filter(e => e.alive);
-            if (enemies.length === 0) return;
-            if (!enemies.every(e => (e.fire || 0) > 0)) return;
+            const burning = w.enemies.filter(e => e.alive && (e.fire || 0) > 0).length;
+            if (burning < 10) return;
             queueMicrotask(() => {
               if (!card._revealHandler) return;
               if (!w.deck.hand.includes(card) || !card.faceUp) return;
@@ -5897,9 +6632,9 @@ const CARD_DATA = {
     emoji: '✦',
     name: { zh: '奥术强化', en: 'Arcane Boost' },
     tiers: {
-      silver:  _arcaneboostTier(4, 1, 18),
-      gold:    _arcaneboostTier(5, 1, 23),
-      diamond: _arcaneboostTier(6, 2, 30),
+      silver:  _arcaneboostTier(1, 1, 18),
+      gold:    _arcaneboostTier(2, 1, 23),
+      diamond: _arcaneboostTier(3, 1, 30),
     },
   },
 
@@ -6151,6 +6886,61 @@ const CARD_DATA = {
     },
   },
 
+  // ─── v8 新卡：令箭 / 战鼓 / 钻头 / 造访剑圣 / 勇闯龙巢 ─────────────────
+  order_arrow: {
+    emoji: '🏹',
+    name: { zh: '令箭', en: 'Order Arrow' },
+    tiers: {
+      bronze:  _orderArrowTier(1, 1, 13),
+      silver:  _orderArrowTier(2, 1, 18),
+      gold:    _orderArrowTier(3, 1, 23),
+      diamond: _orderArrowTier(3, 2, 30),
+    },
+  },
+
+  war_drum: {
+    emoji: '🥁',
+    name: { zh: '战鼓', en: 'War Drum' },
+    tiers: {
+      bronze:  _warDrumTier(2, 0, 1, 13),
+      silver:  _warDrumTier(4, 0, 1, 18),
+      gold:    _warDrumTier(4, 2, 1, 23),
+      diamond: _warDrumTier(4, 2, 2, 30),
+    },
+  },
+
+  drill: {
+    emoji: '🔩',
+    name: { zh: '钻头', en: 'Drill' },
+    tiers: {
+      // pierceHitCooldown 默认 0.5s（同一颗 bullet × 同一只 enemy 的"穿透中重复命中"间隔）
+      // v8.1：用户反馈钻头多次攻击效果不明显 → 再减半 → 攻击小型敌人时一次穿过可触发多发命中
+      bronze:  _drillTier(3, 0.05,  23),
+      silver:  _drillTier(5, 0.05,  30),
+      gold:    _drillTier(5, 0.025, 39),
+      diamond: _drillTier(8, 0.025, 50),
+    },
+  },
+
+  sword_saint_visit: {
+    emoji: '🗡',
+    name: { zh: '造访剑圣', en: 'Visit Sword Saint' },
+    tiers: {
+      silver:  _swordSaintVisitTier(false, false, 8),
+      gold:    _swordSaintVisitTier(true,  false, 10),
+      diamond: _swordSaintVisitTier(true,  true,  13),
+    },
+  },
+
+  brave_dragon_lair: {
+    emoji: '🐉',
+    name: { zh: '勇闯龙巢', en: "Brave Dragon's Lair" },
+    tiers: {
+      gold:    _braveDragonLairTier(3, 23),
+      diamond: _braveDragonLairTier(2, 30),
+    },
+  },
+
   lighter: {
     emoji: '🔥',
     name: { zh: '打火机', en: 'Lighter' },
@@ -6366,7 +7156,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 3, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹伤害+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Damage +1. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.dmg = (world._arcaneEvo.dmg || 0) + 1; },
@@ -6379,7 +7169,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 3, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹穿透+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Pierce +1. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.pen = (world._arcaneEvo.pen || 0) + 1; },
@@ -6392,7 +7182,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 3, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹施加1层燃烧。移除此牌。', en: 'For this battle, your Arcane Missiles apply 1 Burn on hit. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.fire = (world._arcaneEvo.fire || 0) + 1; },
@@ -6405,7 +7195,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 3, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹弹射+1。移除此牌。', en: 'For this battle, your Arcane Missiles gain Bounce +1. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.bound = (world._arcaneEvo.bound || 0) + 1; },
@@ -6418,7 +7208,7 @@ const CARD_DATA = {
     excludedFromShop: true,
     tiers: {
       bronze: {
-        cost: 2, value: 1, destroyOnUse: true, arcEvoDerived: true,
+        cost: 3, value: 1, destroyOnUse: true, arcEvoDerived: true,
         desc: { zh: '本局对战中，你的奥弹有25%概率施加冻结。移除此牌。', en: 'For this battle, your Arcane Missiles have 25% chance to apply Freeze. Remove this card.' },
         effects: () => [],
         onUse(_, world) { world._arcaneEvo = world._arcaneEvo || {}; world._arcaneEvo.freezeChance = (world._arcaneEvo.freezeChance || 0) + 0.25; },
@@ -6919,8 +7709,8 @@ class CardDeck {
         c._foresightFaceUp = false;
         this._setFace(c, true);
       } else {
-        // 非边缘：仅当 _foresightFaceUp 标记仍存在（卡是直接在中央被翻正面的）时保持正面
-        this._setFace(c, !!c._foresightFaceUp);
+        // 非边缘：仅当 _foresightFaceUp / _alwaysFaceUp 仍存在时保持正面
+        this._setFace(c, !!c._foresightFaceUp || !!c._alwaysFaceUp);
       }
     }
   }
@@ -6930,6 +7720,7 @@ class CardDeck {
     card.faceUp = faceUp;
     if (faceUp) card.onReveal();
     else card.onConceal();
+    Events.emit('cardFlipped', { card, faceUp });
   }
 
   // 使用左侧 / 右侧；side: 'left' | 'right'。返回拿到的卡或 null
@@ -7142,8 +7933,11 @@ class BattleManager {
       // 回合开始缓冲：把 auto-end 计时器预置为负值，保证玩家至少有 ~1s 反应时间
       // 即使开局水晶不足以发牌（如被时空法师抽光、所有牌都贵）也不会瞬间被 auto-end 跳过。
       // 中途因发牌导致水晶不足 → else 分支已经把计时器清 0，仍走 0.25s 原速度，不影响节奏。
+      // v8.1 修复：auto-end-no-enemy 之前缓冲仅 0.5s → 在"上回合杀光敌人"的常见场景下
+      // 玩家会看到"敌人行动 1 次 → 法力似乎没回复 → 敌人又行动 1 次"的双回合体感。
+      // 把 no-enemy 缓冲拉长到 2.5s，给玩家看清法力回满 + 主动决定要不要消耗法力换金币。
       this._autoEndSettleTime = -0.75;
-      this._autoEndNoEnemySettleTime = -0.5;
+      this._autoEndNoEnemySettleTime = -2.0;
     }
     // 进入敌方回合：三阶段串行（射击残余 → 我方 → 敌方）
     //   阶段 0（射击残余）：等场上所有非实体的我方子弹打完（撞墙 / 命中 / 寿命 / 变实体）。
@@ -7232,13 +8026,14 @@ class BattleManager {
         .filter(h => h.phase === Phase.EntityTurn)
         .sort((x, y) => x.priority - y.priority);
       const n = entityHooks.length;
-      // 骷髅特殊：层数在 destroy() 里按"一次冲撞 -1"消耗，不在每回合开头自动 -1。
+      // 骷髅 / 亡灵龙特殊：层数在 destroy() 里按"一次冲撞 -1"消耗，不在每回合开头自动 -1。
       // 这里只触发它的 EntityTurn 钩子（= 设速度起冲）。
-      const isSkeleton = b._isSkeleton;
+      const isSkeleton = b._isSkeleton || b._isUndeadDragon;
       if (n === 0) {
         if (isSkeleton) continue;
         // 无 EntityTurn 钩子（纯坦克实体）→ 仅扣一层即可
         b.entityLayers--;
+        // 浮字 FX 由通用 buff-diff 侦测器统一负责
         if (b.entityLayers <= 0) {
           b.triggerHooks(Phase.Destroyed, { world: w });
           b.alive = false;
@@ -7260,6 +8055,7 @@ class BattleManager {
       setTimeout(() => {
         if (!b.alive) return;
         b.entityLayers--;
+        // 浮字 FX 由通用 buff-diff 侦测器统一负责
         if (b.entityLayers <= 0) {
           b.triggerHooks(Phase.Destroyed, { world: w });
           b.alive = false;
@@ -8275,6 +9071,33 @@ function spawnCardLeaveBurst(slot, action) {
   }
 }
 
+// 弃置计数就绪 → 翻正面时迸射橙色粒子（提示玩家：下次弃置触发召唤）
+function spawnDiscardReadyFlipFX(slot) {
+  if (!slot) return;
+  const r = slot.getBoundingClientRect();
+  if (r.width === 0) return;
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const layer = ensureFxLayer();
+  const palette = ['#ff9028', '#ffd84a', '#ff6b1f'];
+  const count = 20;
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'fx-card-particle';
+    const c = palette[i % palette.length];
+    el.style.background = c;
+    el.style.boxShadow = `0 0 8px ${c}`;
+    const a = Math.PI * 2 * (i / count) + Math.random() * 0.35;
+    const dist = 46 + Math.random() * 28;
+    el.style.left = cx + 'px';
+    el.style.top = cy + 'px';
+    el.style.setProperty('--tx', Math.cos(a) * dist + 'px');
+    el.style.setProperty('--ty', Math.sin(a) * dist - 10 + 'px');
+    layer.appendChild(el);
+    setTimeout(() => el.remove(), 720);
+  }
+}
+
 // 金币：3 阶段动画 — 爆开 → 短暂悬浮 → 飞向金币条；到达时累计 +N 文字
 // 渲染：HTML <div> 在 fx-layer 中，按 canvas 坐标投影到屏幕位置（每帧）
 // opts.noScatter: 跳过 phase 0/1（散落 + 悬浮），直接进 fly。法力 → 金币用。
@@ -8522,6 +9345,64 @@ class SlashArc {
     ctx.moveTo(this.cx, this.cy);
     ctx.lineTo(this.cx + Math.cos(a2) * r, this.cy + Math.sin(a2) * r);
     ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// 剑光斩击（"两头尖、中间稍宽"的透镜状）：用于剑圣单体攻击的命中视觉
+// 用对称的两条二次贝塞尔构造梭形：两端在 (cx ± cos*half, cy ± sin*half)，
+// 中点向两侧鼓起 width（控制点偏移 = width × 1.6 让顶点更尖、中间更饱满）。
+class SwordSlashLens {
+  constructor(cx, cy, angle, length, width, color) {
+    this.cx = cx; this.cy = cy;
+    this.angle = angle;
+    this.length = length;
+    this.width = width;
+    this.color = color || '#dde3ec';
+    this.maxLife = 0.36;
+    this.life = this.maxLife;
+    this.alive = true;
+    this.type = 'slashlens';
+  }
+  update(dt) {
+    this.life -= dt;
+    if (this.life <= 0) this.alive = false;
+  }
+  draw(ctx) {
+    const t = this.life / this.maxLife;       // 1 → 0
+    // 出场快闪：前 30% 拉满，后 70% 慢淡出
+    const alpha = t > 0.7 ? 1 : Math.min(1, t / 0.7);
+    const cosA = Math.cos(this.angle), sinA = Math.sin(this.angle);
+    const half = this.length / 2;
+    const x1 = this.cx - cosA * half, y1 = this.cy - sinA * half;
+    const x2 = this.cx + cosA * half, y2 = this.cy + sinA * half;
+    // 垂直方向（用于鼓胀控制点）
+    const px = -sinA, py = cosA;
+    // 控制点偏移 = width × 1.6 让透镜顶端更尖锐（贝塞尔顶点 = 控制点偏移的 1/2）
+    const ctrlW = this.width * 1.6;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // 外层银色发光
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(this.cx + px * ctrlW, this.cy + py * ctrlW, x2, y2);
+    ctx.quadraticCurveTo(this.cx - px * ctrlW, this.cy - py * ctrlW, x1, y1);
+    ctx.closePath();
+    ctx.fill();
+    // 内层白色高光（更细的同形）
+    ctx.globalAlpha = alpha * 0.95;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ffffff';
+    const ctrlWInner = ctrlW * 0.45;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(this.cx + px * ctrlWInner, this.cy + py * ctrlWInner, x2, y2);
+    ctx.quadraticCurveTo(this.cx - px * ctrlWInner, this.cy - py * ctrlWInner, x1, y1);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 }
@@ -8844,8 +9725,13 @@ function fireFromCards(world, cards, side, opts = {}) {
   // 发现关键词：onUse 中触发 triggerDiscover() 时，发射流程暂停 → 弹窗结算后再继续
   // 把"PreActive → fireOneWave → 卡入弃牌堆 → 替换 → 连击 → 冷却"打包成一个延续函数
   const continueFire = () => {
+    // 按"每张卡分别贡献"算 buff items（主卡 +1 + 副卡 +3 → 两条 ⚔ 浮字，分开显示）
+    // 必须在真实 PreActive 之前算 — 此时 tpl 是基线状态，dry 跑出来的 delta 才是单卡贡献
+    const buffItems = _computePerCardBuffItems(world, tpl, useList);
     // PreActive 一次（带 world，让连击 / 共鸣弹等可读 world.combo）
     tpl.triggerHooks(Phase.PreActive, { world });
+    // 在炮台两侧 / 后方分散飘出每个 buff item（已按单卡拆分）
+    _emitCannonBuffFX(world, buffItems);
 
     // 一波几颗、几波
     const waves = Math.max(1, tpl.waveCount);
@@ -9217,6 +10103,8 @@ function setupUI(world) {
     cardEl.classList.toggle('face-down', !card.faceUp);
     cardEl.classList.toggle('main', !!opts.main);
     cardEl.classList.toggle('revealed', !!(card.faceUp && card.def?.hasRevealFx));
+    // 弃置计数就绪（如勇闯龙巢弃置3次满）→ 橙色呼吸边框
+    cardEl.classList.toggle('discard-ready', !!card._discardCounterReady);
     // 临时卡：蓝色边框 + 半透明（与发现/挖掘洗入的 _destroyAfterUse 牌一致的视觉提示）
     cardEl.classList.toggle('temporary', !!card._destroyAfterUse);
     // 稀有度
@@ -9358,6 +10246,20 @@ function setupUI(world) {
   Events.on('deckChanged', renderHand);
   // 换炮台 → 主卡显示费用变化（强能炮台 +1）需要重渲
   Events.on('cannonChanged', renderHand);
+  // 卡牌翻正面 → 若标记了 _discardCounterReady（如勇闯龙巢即将触发召唤）→ 迸射橙色粒子提示
+  Events.on('cardFlipped', ({ card, faceUp }) => {
+    if (!faceUp || !card || !card._discardCounterReady) return;
+    setTimeout(() => {
+      // 在手牌中查
+      const slots = Array.from($handRow.children);
+      let slot = slots.find(s => s.__cardRef === card);
+      // 主卡也支持
+      if (!slot && $main && $main.firstChild && $main.firstChild.__cardRef === card) {
+        slot = $main.firstChild;
+      }
+      if (slot) spawnDiscardReadyFlipFX(slot);
+    }, 80);
+  });
   // 卡牌描述字体自适应：所有改卡场景统一在下一帧扫描所有 .card-desc，溢出则缩字号
   Events.on('deckChanged', scheduleFitCardDescs);
   Events.on('bagChanged', scheduleFitCardDescs);
@@ -11259,13 +12161,20 @@ function main() {
     }
 
     world.player.update(dt);
+    // 调试冻结时间：跳过 battle.update + 敌人 AI（玩家仍可发射 / 子弹继续飞）
+    const dbgFreeze = !!world._debugFreezeTime;
     // 鼠标按压持续发射（doFire 内部按 fireInterval 0.5s 节流，连按多帧无副作用）
     if (world.battle.state === State.Battle) {
       if (heldButtons.left)  doFire(world, 'left');
       if (heldButtons.right) doFire(world, 'right');
-      for (const e of world.enemies) e.update(dt, world);
+      if (!dbgFreeze) for (const e of world.enemies) e.update(dt, world);
       for (const s of world.summons) s.update(dt, world);
       for (const b of world.bullets) b.update(dt, now, world);
+      // ─── 通用属性 diff：检测友方实体的 attack / entityLayers 在本帧的变化，
+      //     自动在被 buff 的实体头上飘出 ⚔/🛡 浮字。
+      //     这样无论 buff 来自哪种卡（战旗 / 战鼓 / 令箭 / 未来新卡）都自动生效，
+      //     不需要每张卡显式调用 _emitEntityBuffFX。
+      _tickEntityBuffDiff(world);
     }
     // 粒子始终更新（用真实 dt，让伤害数字 / 击中粒子继续动）
     for (const p of world.particles) p.update(realDt);
@@ -11284,7 +12193,7 @@ function main() {
     for (let i = world.bullets.length - 1; i >= 0; i--) {
       if (!world.bullets[i].alive) world.bullets.splice(i, 1);
     }
-    world.battle.update(dt);
+    if (!dbgFreeze) world.battle.update(dt);
 
     ui.update();
     render(ctx, world);
@@ -11306,6 +12215,197 @@ function main() {
   window.__absorbIntoArcaneGiant = _absorbIntoArcaneGiant;
   window.__fireArcaneGiantLaser = _fireArcaneGiantLaser;
   window.__Bullet = Bullet;
+  window.__spawnUndeadDragon = spawnUndeadDragon;
+  window.__spawnSwordSaint = spawnSwordSaint;
+
+  // ─── 隐藏调试控制台（默认隐藏，按 ` (反引号) 切换） ───
+  setupDebugConsole(world);
+}
+
+function setupDebugConsole(world) {
+  // 面板容器
+  const panel = document.createElement('div');
+  panel.id = 'debug-console';
+  panel.style.cssText = `
+    position: fixed; right: 10px; bottom: 10px; z-index: 9999;
+    width: 340px; max-height: 80vh; overflow-y: auto;
+    background: rgba(14, 18, 24, 0.96); border: 1px solid #ff9028;
+    border-radius: 8px; padding: 10px 12px; color: #d6dbe2;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 11.5px; display: none; box-shadow: 0 0 16px rgba(255,144,40,0.4);
+  `;
+  panel.innerHTML = `
+    <div style="font-weight:700;color:#ff9028;font-size:13px;margin-bottom:8px;letter-spacing:1px;">
+      🛠 DEBUG · 按 \` 关闭
+    </div>
+    <div class="dbg-row">
+      <button class="dbg-btn" data-act="freeze">⏸ 无限时间</button>
+      <button class="dbg-btn" data-act="cost">💎 无限费用</button>
+    </div>
+    <div class="dbg-row">
+      <button class="dbg-btn" data-act="clear">💀 清空敌人</button>
+      <button class="dbg-btn" data-act="dummy">🎯 中央无敌假人</button>
+    </div>
+    <div class="dbg-row">
+      <button class="dbg-btn" data-act="refill">⚡ 回满法力</button>
+      <button class="dbg-btn" data-act="dragon">🐉 召唤亡灵龙</button>
+    </div>
+    <div style="border-top:1px dashed #3a4452;margin:10px 0 8px;"></div>
+    <div style="margin-bottom:4px;color:#ffd84a;font-weight:600;">🎒 背包编辑</div>
+    <div class="dbg-row" style="gap:4px;">
+      <select id="dbg-family" style="flex:1;font-size:11px;padding:3px;background:#1c232c;color:#d6dbe2;border:1px solid #3a4452;"></select>
+      <select id="dbg-tier" style="font-size:11px;padding:3px;background:#1c232c;color:#d6dbe2;border:1px solid #3a4452;">
+        <option value="bronze">铜</option>
+        <option value="silver">银</option>
+        <option value="gold">金</option>
+        <option value="diamond" selected>钻</option>
+      </select>
+      <button class="dbg-btn" data-act="addCard" style="flex:0 0 auto;">+加入背包</button>
+    </div>
+    <div id="dbg-bag-list" style="margin-top:8px;display:flex;flex-direction:column;gap:3px;"></div>
+  `;
+  // 按钮通用样式（inject 一次性 CSS）
+  if (!document.getElementById('debug-console-css')) {
+    const s = document.createElement('style');
+    s.id = 'debug-console-css';
+    s.textContent = `
+      #debug-console .dbg-row {display:flex;gap:6px;margin-bottom:5px;}
+      #debug-console .dbg-btn {
+        flex:1;padding:5px 8px;background:#2a3242;color:#d6dbe2;
+        border:1px solid #3a4452;border-radius:4px;font-size:11px;cursor:pointer;
+      }
+      #debug-console .dbg-btn:hover {background:#3a4452;border-color:#ff9028;}
+      #debug-console .dbg-btn.on {background:#ff9028;color:#1a1a1a;border-color:#ff9028;}
+      #debug-console .dbg-bag-row {
+        display:flex;align-items:center;gap:6px;padding:3px 6px;
+        background:#1c232c;border:1px solid #2a3242;border-radius:4px;font-size:10.5px;
+      }
+      #debug-console .dbg-bag-row .dbg-bag-tier {min-width:32px;font-weight:700;text-align:center;border-radius:3px;padding:1px 4px;font-size:10px;}
+      #debug-console .dbg-bag-row .tier-bronze {background:#7a5a32;color:#fff;}
+      #debug-console .dbg-bag-row .tier-silver {background:#7a8898;color:#fff;}
+      #debug-console .dbg-bag-row .tier-gold {background:#c8983a;color:#1a1a1a;}
+      #debug-console .dbg-bag-row .tier-diamond {background:#7eb1ff;color:#1a1a1a;}
+      #debug-console .dbg-bag-row .dbg-bag-name {flex:1;}
+      #debug-console .dbg-bag-row .dbg-rm {
+        color:#ef7878;cursor:pointer;font-weight:700;font-size:13px;padding:0 4px;
+      }
+      #debug-console .dbg-bag-row .dbg-rm:hover {color:#ff5050;}
+    `;
+    document.head.appendChild(s);
+  }
+  document.body.appendChild(panel);
+
+  // 家族下拉填充：按字母排序
+  const familySel = panel.querySelector('#dbg-family');
+  const fids = Object.keys(CARD_DATA).sort();
+  for (const fid of fids) {
+    const fam = CARD_DATA[fid];
+    const nm = (typeof fam.name === 'string') ? fam.name : (fam.name?.zh || fid);
+    const opt = document.createElement('option');
+    opt.value = fid;
+    opt.textContent = `${fam.emoji || '⚙'} ${nm} (${fid})`;
+    familySel.appendChild(opt);
+  }
+
+  // 渲染背包当前列表
+  function renderBag() {
+    const list = panel.querySelector('#dbg-bag-list');
+    list.innerHTML = '';
+    const bag = world.deck.bag || [];
+    if (bag.length === 0) {
+      list.innerHTML = '<div style="color:#6f7986;font-style:italic;">背包为空</div>';
+      return;
+    }
+    bag.forEach((c, i) => {
+      const row = document.createElement('div');
+      row.className = 'dbg-bag-row';
+      const tierLabel = { bronze: '铜', silver: '银', gold: '金', diamond: '钻' }[c.tier] || c.tier;
+      const fam = c._family;
+      const nm = (typeof fam.name === 'string') ? fam.name : (fam.name?.zh || c.familyId);
+      const isMain = i === 0 ? '★ ' : '';
+      row.innerHTML = `
+        <span class="dbg-bag-tier tier-${c.tier}">${tierLabel}</span>
+        <span class="dbg-bag-name">${isMain}${fam.emoji || '⚙'} ${nm}</span>
+        <span class="dbg-rm" title="移除">✕</span>
+      `;
+      row.querySelector('.dbg-rm').addEventListener('click', () => {
+        world.deck.bag.splice(i, 1);
+        Events.emit('bagChanged');
+        renderBag();
+      });
+      list.appendChild(row);
+    });
+  }
+
+  // 按钮通用动作
+  panel.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === 'freeze') {
+      world._debugFreezeTime = !world._debugFreezeTime;
+      btn.classList.toggle('on', world._debugFreezeTime);
+    } else if (act === 'cost') {
+      world._debugInfiniteCost = !world._debugInfiniteCost;
+      btn.classList.toggle('on', world._debugInfiniteCost);
+      if (world._debugInfiniteCost) {
+        world.player.mana = world.player.maxMana;
+        Events.emit('manaChanged', world.player.mana);
+      }
+    } else if (act === 'clear') {
+      for (const e of world.enemies) { e.alive = false; e.hp = 0; }
+    } else if (act === 'dummy') {
+      const dummy = new Enemy(world.w / 2, world.h / 2 - 40, 'goblin', world);
+      dummy._invincible = true;
+      dummy._isDebugDummy = true;
+      dummy.maxHp = 999999;
+      dummy.hp = 999999;
+      dummy.radius = 32;
+      dummy.color = '#7eb1ff';
+      dummy.attack = 0;
+      dummy.spawnT = 0;
+      world.enemies.push(dummy);
+    } else if (act === 'refill') {
+      world.player.mana = world.player.maxMana;
+      Events.emit('manaChanged', world.player.mana);
+    } else if (act === 'dragon') {
+      spawnUndeadDragon(world);
+    } else if (act === 'addCard') {
+      const fid = familySel.value;
+      const tier = panel.querySelector('#dbg-tier').value;
+      const fam = CARD_DATA[fid];
+      if (!fam || !fam.tiers[tier]) {
+        // 容错：找该家族最低存在 tier
+        const fallback = ['bronze','silver','gold','diamond'].find(t => fam.tiers[t]);
+        if (!fallback) return;
+        world.deck.bag.push(mkCard(fid, fallback));
+      } else {
+        world.deck.bag.push(mkCard(fid, tier));
+      }
+      Events.emit('bagChanged');
+      renderBag();
+    }
+  });
+
+  // bagChanged 也刷新（外部操作如商店购买）
+  Events.on('bagChanged', renderBag);
+  renderBag();
+
+  // 切换显隐：` (反引号) 键
+  window.addEventListener('keydown', (e) => {
+    if (e.key === '`' || e.code === 'Backquote') {
+      // 避免与输入框冲突
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      const showing = panel.style.display === 'block';
+      panel.style.display = showing ? 'none' : 'block';
+      if (!showing) renderBag();
+    }
+  });
+
+  // 暴露给控制台手动操作
+  window.__debugPanel = panel;
 }
 
 main();
