@@ -244,6 +244,33 @@ html, body {
 #hand-row .card-slot {
   position: absolute;
   top: 0;
+  transition: left 0.35s cubic-bezier(.4, 0, .2, 1),
+              transform 0.18s ease, filter 0.18s ease, z-index 0s 0s;
+}
+/* 战斗中手牌 hover 放大：~3.6× 面积（1.9× 线性）；脱离手牌行向上漂浮，避免被遮挡 */
+#hand-row .card-slot:hover {
+  transform: scale(1.9) translateY(-72px);
+  transform-origin: center bottom;
+  z-index: 50;
+  filter: drop-shadow(0 8px 24px rgba(126, 177, 255, 0.55));
+}
+/* 离场 / leaving 中的卡不响应 hover 放大 */
+#hand-row .card-slot.leaving:hover {
+  transform: none;
+  filter: none;
+}
+/* 主卡区域也支持 hover 放大 */
+#hand-main {
+  perspective: 900px;
+}
+#hand-main .card-slot {
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+#hand-main .card-slot:hover {
+  transform: scale(1.9) translateY(-72px);
+  transform-origin: center bottom;
+  z-index: 50;
+  filter: drop-shadow(0 8px 24px rgba(255, 216, 74, 0.55));
 }
 
 /* 关键词悬浮容器 */
@@ -257,13 +284,13 @@ html, body {
   position: absolute;
   background: rgba(20, 26, 34, 0.97);
   border: 1px solid #4a5868;
-  border-radius: 6px;
-  padding: 8px 10px;
-  width: 200px;
+  border-radius: 8px;
+  padding: 12px 16px;
+  width: 280px;
   color: #d6dbe2;
-  font-size: 12px;
-  line-height: 1.4;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
   animation: kw-pop-in 0.18s ease forwards;
 }
 @keyframes kw-pop-in {
@@ -272,9 +299,10 @@ html, body {
 }
 .kw-pop .kw-title {
   font-weight: 700;
-  font-size: 13px;
-  margin-bottom: 4px;
+  font-size: 16px;
+  margin-bottom: 6px;
 }
+.kw-pop .kw-body { font-size: 13px; }
 .kw-pop.kw-arcane .kw-title { color: #c97aff; }
 .kw-pop.kw-bounce .kw-title { color: #3ed5e8; }
 .kw-pop.kw-summon .kw-title { color: #d4a44a; }
@@ -329,6 +357,28 @@ html, body {
   color: #f1f4f8;
 }
 
+/* 炮台选择 / 战利品面板内的语言切换按钮 — 让玩家在选炮台 / 起手 picks 阶段切换中英文 */
+#modal-cannon, #modal-loot { position: relative; }
+.cannon-lang-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(60, 80, 110, 0.85);
+  border: 1px solid #6b88ad;
+  border-radius: 6px;
+  color: #e8f0ff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cannon-lang-btn:hover {
+  background: rgba(80, 110, 150, 1.0);
+  border-color: #aed0ff;
+}
+
 /* 炮台选择卡（在 #modal-cannon 内） */
 .modal-card.cannon-card {
   border: 2px solid #4a5868;
@@ -336,8 +386,9 @@ html, body {
   transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
 }
 .modal-card.cannon-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55);
+  transform: scale(1.6) translateY(-6px);   /* ~2.56× 面积（cannon 卡更大本身已经 ~1.4 倍 modal-card 字号）*/
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+  z-index: 50;
 }
 .modal-card.cannon-card .card-art {
   font-size: 40px;
@@ -867,6 +918,18 @@ html, body {
   opacity: 0.25;
   pointer-events: none;
 }
+/* 剔除按钮含价格 ✕ + 💰N → 宽一点，竖向排两行 */
+.bag-slot-remove {
+  width: auto;
+  min-width: 30px;
+  padding: 2px 4px;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 10px;
+  line-height: 1.05;
+}
+.bag-slot-remove .x { font-size: 11px; }
+.bag-slot-remove .cost { font-size: 9px; opacity: 0.85; color: #ffd47a; }
 @keyframes bag-remove-pulse {
   0%, 100% { box-shadow: 0 0 10px rgba(255, 90, 90, 0.55); }
   50% { box-shadow: 0 0 14px rgba(255, 90, 90, 0.95); }
@@ -925,14 +988,14 @@ html, body {
   box-shadow: 0 0 14px rgba(255, 216, 74, 0.45);
 }
 
-/* 永久升级按钮区（满级商店后）：2×2 网格，放在概率条下方 */
+/* 永久升级按钮区（满级商店后）：放在右侧栏稀有度概率条下方，2×2 紧凑网格
+   保留 max-width 让它不溢出 loot-controls 列；让 UI 不再被推出窗口 */
 .perm-upgrades {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  justify-content: center;
-  margin: 8px auto;
-  max-width: 280px;
+  gap: 6px;
+  margin: 6px 0 0 0;
+  max-width: 100%;
 }
 .perm-upgrades.hidden { display: none; }
 .perm-upgrade-btn {
@@ -940,14 +1003,14 @@ html, body {
   color: #ffffff;
   border: 2px solid #c97aff;
   border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 4px 6px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   box-shadow: 0 0 8px rgba(201, 122, 255, 0.4);
   transition: transform 0.1s, box-shadow 0.15s;
 }
@@ -959,8 +1022,8 @@ html, body {
   filter: grayscale(0.6) brightness(0.6);
   cursor: not-allowed;
 }
-.perm-upgrade-btn .pu-name { font-size: 13px; }
-.perm-upgrade-btn .pu-meta { font-size: 11px; opacity: 0.85; }
+.perm-upgrade-btn .pu-name { font-size: 11px; line-height: 1.15; }
+.perm-upgrade-btn .pu-meta { font-size: 10px; opacity: 0.85; }
 .perm-upgrade-btn .pu-count {
   position: absolute;
   top: -6px;
@@ -1656,16 +1719,17 @@ kbd {
   font-size: 13px;
   position: relative;
   cursor: pointer;
-  transform-origin: center 70%;
+  /* 缩放锚点：中心点（默认上移 25% 让放大后向下扩展更明显）。可被 JS 动态覆盖以避免边缘溢出。 */
+  transform-origin: center center;
   transition: transform 0.2s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.2s ease;
 }
 
-/* hover 放大（不影响 .selected 的特殊变换） */
+/* hover 放大：scale(2.05) ≈ 4.2× 面积；translateY 让卡向"画面中心方向"漂浮，避免被下方手牌挡住 */
 .modal-card:not(.selected):hover {
-  transform: scale(1.35) translateY(-12px);
+  transform: scale(2.05);
   border-color: #7eb1ff;
-  box-shadow: 0 6px 30px rgba(126, 177, 255, 0.55);
-  z-index: 30;
+  box-shadow: 0 10px 36px rgba(126, 177, 255, 0.65);
+  z-index: 50;
 }
 
 .modal-card .card-name {
@@ -2018,6 +2082,36 @@ kbd {
 }
 .discover-cards .modal-card:active {
   transform: translateY(-2px) scale(0.99);
+}
+
+/* 队列提示：叫魂同时弃出多张发现牌时，显示剩余待发现及其源卡 */
+.discover-queue {
+  pointer-events: auto;
+  color: #aef0fb;
+  font-size: 13px;
+  letter-spacing: 1px;
+  opacity: 0.9;
+  background: rgba(20, 28, 40, 0.55);
+  border: 1px solid rgba(94, 178, 255, 0.4);
+  border-radius: 8px;
+  padding: 8px 14px;
+  max-width: 480px;
+  text-align: center;
+  line-height: 1.5;
+}
+.discover-queue.hidden { display: none; }
+.discover-queue .queue-head {
+  color: #c97aff;
+  font-weight: 600;
+  margin-right: 6px;
+}
+.discover-queue .queue-item {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 1px 8px;
+  background: rgba(94, 178, 255, 0.12);
+  border-radius: 6px;
+  color: #e5f1ff;
 }
 
 /* ─── 临时卡（_destroyAfterUse）视觉：蓝色边框 + 75% 不透明度 ─────────

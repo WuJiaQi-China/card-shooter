@@ -29,14 +29,14 @@
     <div class="hud-block"><span class="label" data-i18n="hud_state">状态</span><span id="state">Idle</span></div>
     <div class="hud-block hud-gold"><span class="label" data-i18n="hud_gold">金币</span><span id="gold" class="gold-badge">5</span></div>
     <div class="hud-block hud-cannon hidden" id="cannon-hud"><span class="label" data-i18n="cannon_hud_label">炮台</span><span id="cannon-icon" class="cannon-icon">⚙</span><span id="cannon-name" class="cannon-name">—</span></div>
-    <div class="hud-block hud-settings"><button id="settings-btn" class="settings-btn" title="设置" aria-label="设置">⚙</button></div>
+    <div class="hud-block hud-settings"><button id="settings-btn" class="settings-btn">⚙</button></div>
   </div>
 
   <!-- 设置面板：点击右上角齿轮按钮打开 -->
   <div id="settings-panel" class="settings-panel hidden" role="dialog" aria-modal="false">
     <div class="settings-header">
       <span class="settings-title" data-i18n="settings_title">设置</span>
-      <button id="settings-close-btn" class="settings-close" aria-label="关闭">✕</button>
+      <button id="settings-close-btn" class="settings-close">✕</button>
     </div>
     <div class="settings-row">
       <span class="settings-label" data-i18n="settings_lang">语言</span>
@@ -110,6 +110,8 @@
 
   <!-- 起始炮台选择模态：游戏开始 / 阵亡重开时弹出，必选 -->
   <div id="modal-cannon" class="modal hidden">
+    <!-- 右上角语言切换：让玩家在开局阶段也能切语言（之前只能在战斗 HUD 切） -->
+    <button id="cannon-lang-btn" class="cannon-lang-btn" type="button">EN</button>
     <div class="modal-title"><span id="cannon-select-title" data-i18n="cannon_select_title">选择起始炮台</span></div>
     <div class="modal-cards" id="cannon-options"></div>
     <div class="modal-sub" id="cannon-select-sub" data-i18n="cannon_select_sub">选择后无法更改（本局有效）</div>
@@ -129,25 +131,28 @@
     <div class="discover-title" id="discover-title">发现</div>
     <div class="discover-sub" id="discover-sub">选择一张卡</div>
     <div class="discover-cards" id="discover-cards"></div>
+    <div class="discover-queue hidden" id="discover-queue"></div>
   </div>
 
   <!-- 战利品面板：候选区 + 背包 + 继续；
        新布局：候选卡左侧 / 刷新+升级+概率右侧；背包主卡单独左 + 8 张 2 行 4 列 -->
   <div id="modal-loot" class="modal hidden">
+    <!-- 右上角语言切换：让玩家在 startup picks 阶段也能切语言 -->
+    <button id="loot-lang-btn" class="cannon-lang-btn" type="button">EN</button>
     <div class="modal-title">
       <span data-i18n="loot_title">升级！可选一张新卡加入背包</span>
     </div>
-    <!-- 顶部三段：[商店候选] [刷新/升级] [概率] -->
+    <!-- 顶部三段：[商店候选] [刷新/升级 + 永久升级] [概率] -->
     <div class="loot-top">
       <div class="modal-cards" id="loot-candidates"></div>
       <div class="loot-controls">
         <button class="modal-btn modal-btn-secondary" id="reroll-btn" data-i18n="reroll_init">刷新（× 0）</button>
         <button class="modal-btn modal-btn-shop" id="shop-level-btn" data-i18n="shop_btn_init">商店 Lv 1 (0/1)</button>
+        <div id="shop-prob-bar" class="shop-prob-bar"></div>
+        <!-- 永久升级：满级商店后才显示，4 项 buff（damage / pierce / bound / speed） -->
+        <div id="perm-upgrades" class="perm-upgrades hidden"></div>
       </div>
-      <div id="shop-prob-bar" class="shop-prob-bar"></div>
     </div>
-    <!-- 永久升级：满级商店后无限购买 4 项 buff（damage / pierce / bound / speed） -->
-    <div id="perm-upgrades" class="perm-upgrades hidden"></div>
     <div class="modal-sub" id="loot-hint" data-i18n="loot_hint_pick">点击候选卡 → 再点背包槽完成替换（或直接继续）</div>
     <!-- 背包：左 主卡 + 右 其它 8 张 2 行 4 列 -->
     <div class="loot-bag-area">
@@ -174,6 +179,6 @@
 
 </div><!-- /#page-root -->
 
-<script src="game.js?v=72"></script>
+<script src="game.js?v=74"></script>
 </body>
 </html>
