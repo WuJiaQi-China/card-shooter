@@ -6189,29 +6189,50 @@ function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
 
 // 勇闯龙巢：召唤2骷髅。弃置 threshold 次（含被效果弃置）以召唤亡灵龙；召唤后计数归零，重新累计。
 //   desc 是函数 → 每次渲染计算剩余次数；剩余 1 次（即将触发）→ _discardCounterReady 引导 UI 橙色高亮 + 翻面粒子。
+// 勇闯龙巢：计数器在**本关内**全 family 共享（v8.6 重构）。
+//   旧实现：每张卡独立 _discardCount → 必须同一张卡反复弃置 N 次才触发
+//   新实现：world._discardCounters[familyId] 跨卡片共享
+//           → 玩家发现 2 张勇闯龙巢钻级（threshold=2），分别弃 1 次也能召唤
+//   threshold 取该被弃卡的 tier 自带值（gold=3 / diamond=2），后弃决定本次判定
+//   _discardCounterReady（橙色呼吸边框 + 翻面粒子）施加到 hand / discard 中所有同 family 卡 → 统一视觉
 function _braveDragonLairTier(threshold, value) {
+  const FAMILY = 'brave_dragon_lair';
   return {
     cost: 2, value, hasRevealFx: true,
     desc: (card) => {
-      const remaining = Math.max(0, threshold - (card._discardCount || 0));
+      const w = window.__game;
+      const shared = (w && w._discardCounters && w._discardCounters[FAMILY]) || 0;
+      const remaining = Math.max(0, threshold - shared);
       return {
-        zh: `召唤2个骷髅。弃置此牌${remaining}次以召唤强大的亡灵龙！`,
-        en: `Summon 2 Skeletons. Discard this card ${remaining} more time${remaining === 1 ? '' : 's'} to summon a mighty Undead Dragon!`,
+        zh: `召唤2个骷髅。本关勇闯龙巢累计弃置${remaining}次以召唤强大的亡灵龙！`,
+        en: `Summon 2 Skeletons. Discard Brave Dragon's Lair ${remaining} more time${remaining === 1 ? '' : 's'} this stage to summon a mighty Undead Dragon!`,
       };
     },
     effects: () => [],
     onUse(_, world) {
       for (let i = 0; i < 2; i++) spawnSkeleton(world);
     },
-    // 统一 hook：onDiscard 在三种弃置路径都会触发（手动弃 / discardRandomFromHand / autoDiscard）
+    // onDiscard 在三种弃置路径都会触发（手动弃 / discardRandomFromHand / autoDiscard）
     onDiscard(card, world) {
-      card._discardCount = (card._discardCount || 0) + 1;
-      if (card._discardCount >= threshold) {
+      world._discardCounters = world._discardCounters || {};
+      world._discardCounters[FAMILY] = (world._discardCounters[FAMILY] || 0) + 1;
+      const shared = world._discardCounters[FAMILY];
+      const markFamily = (ready) => {
+        // 把"就绪"状态打到 hand / discard / bag 里所有同 family 卡上，让 UI 统一显示
+        const pools = [world.deck.hand, world.deck.discard, world.deck.bag];
+        for (const pool of pools) {
+          for (const c of pool) {
+            if (c && c.familyId === FAMILY) c._discardCounterReady = ready;
+          }
+        }
+      };
+      if (shared >= threshold) {
         spawnUndeadDragon(world);
-        card._discardCount = 0;
-        card._discardCounterReady = false;
-      } else if (card._discardCount >= threshold - 1) {
-        card._discardCounterReady = true;
+        world._discardCounters[FAMILY] = 0;
+        markFamily(false);
+      } else if (shared >= threshold - 1) {
+        // 剩 1 次就触发 → 橙色呼吸边框 + 翻面粒子（所有同 family 卡都标记）
+        markFamily(true);
       }
       Events.emit('deckChanged');
     },
@@ -8748,6 +8769,7 @@ class BattleManager {
     w._contCastActive = false;   // 持续施法 本局状态清空
     w._contCastRolls = 0;
     w._reincarnateActive = false; // 转生 本局状态清空
+    w._discardCounters = {};     // 勇闯龙巢等"本关共享弃置计数"清空
     _clearDiscoverState(w);       // 发现弹窗 残留清理
     w._turnHookCards = [];       // 本回合用过的卡（奥弹/骷髅继承）清空
     w.inventoryDiscount = 0;
@@ -8983,6 +9005,7 @@ class World {
     this.permUpgrades = { damage: 0, pierce: 0, bound: 0, speed: 0 };
     this.removedFamilyIds = new Set();
     this._shotBuffs = [];
+    this._discardCounters = {};     // 勇闯龙巢等"本关共享弃置计数"清空
     // 法力换金币进度：阵亡重开才清；关卡间保留余数
     this._manaConversionProgress = 0;
     this.combo.reset();

@@ -155,7 +155,8 @@ function _xxxTier(/* tier 差异参数 */ paramA, paramB, value) {
 | 巨型激光（一次性穿透光束） | 构造高速（speed 1600）短寿命（lifetime 0.6）大穿透 Bullet + 沿线 12 颗 ring 粒子 | `_fireArcaneGiantLaser` |
 | 让 X 类子弹改 target / 重定向 | 在 `Bullet.activate()` 锁定后 override + `Bullet.update()` tracking 段每帧覆盖 nearest | 见 `card-shooter-overview` §3.8 |
 | desc 随状态变化（如弃置剩余次数）| `desc: (card) => ({zh: \`...${state}...\`, en: ...})` —— 函数式 desc，每次渲染 re-eval | `_braveDragonLairTier` |
-| 弃置 N 次触发召唤 + 重置 | `onDiscard` 自增 `card._discardCount`；达 threshold → 召唤 + 归零；threshold-1 时设 `_discardCounterReady` | `_braveDragonLairTier` |
+| 弃置 N 次触发召唤（本关 family 共享计数）| `world._discardCounters[familyId]++`；达 threshold → 召唤 + 归零；threshold-1 时把 `_discardCounterReady` 打到 hand/discard/bag 内所有同 family 卡 | `_braveDragonLairTier` |
+| 跨卡 / 跨回合共享的本关状态 | `world._discardCounters` 之类挂在 world 上，`_startNextStage` + `resetForNewGame` 内清零 | `_braveDragonLairTier` |
 | 卡始终为正面（不受边缘 / 中间限制）| def 加 `alwaysFaceUp: true` —— Card constructor 读 def，`_updateFaceUp()` 自动 honor | `_swordSaintVisitTier` 钻 |
 | 钻头型穿透（穿透时连续命中同一敌人）| `new Effect(Phase.Spawned, 0, ctx => { ctx.bullet.pierceHitCooldown = 0.05; })` —— 缩短"穿过敌人时的同敌重命中 CD" | `_drillTier` |
 
