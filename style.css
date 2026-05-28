@@ -260,12 +260,17 @@ html, body {
   filter: drop-shadow(0 10px 36px rgba(126, 177, 255, 0.65));
 }
 #hand-row .card-slot:hover .card {
-  transform: scale(2.05);
+  transform: translateZ(0) scale(2.05);
   transform-origin: center bottom;
   transition: transform 0.18s ease;
 }
+/* will-change + 提前进入合成层：scale 放大时按目标分辨率重新栅格化，文字保持锐利 */
 #hand-row .card-slot .card {
   transition: transform 0.18s ease;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+  transform: translateZ(0);
 }
 /* 离场 / leaving 中的卡不响应 hover 放大 */
 #hand-row .card-slot.leaving:hover .card {
@@ -280,13 +285,17 @@ html, body {
 }
 #hand-main .card-slot .card {
   transition: transform 0.18s ease;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+  transform: translateZ(0);
 }
 #hand-main .card-slot:hover {
   z-index: 50;
   filter: drop-shadow(0 10px 36px rgba(255, 216, 74, 0.55));
 }
 #hand-main .card-slot:hover .card {
-  transform: scale(2.05);
+  transform: translateZ(0) scale(2.05);
   transform-origin: center bottom;
 }
 
@@ -398,8 +407,13 @@ html, body {
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
 }
+.modal-card.cannon-card {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+}
 .modal-card.cannon-card:hover {
-  transform: scale(1.6) translateY(-6px);   /* ~2.56× 面积（cannon 卡更大本身已经 ~1.4 倍 modal-card 字号）*/
+  transform: translateZ(0) scale(1.6) translateY(-6px);   /* ~2.56× 面积（cannon 卡更大本身已经 ~1.4 倍 modal-card 字号）*/
   box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
   z-index: 50;
 }
@@ -1226,6 +1240,9 @@ html, body {
   line-height: 1.2;
   margin-bottom: 4px;
   text-align: center;
+  /* 限制 2 行内显示 + overflow:hidden → _fitCardName 检测溢出后自动缩字号 */
+  max-height: 2.4em;
+  overflow: hidden;
 }
 
 .card-desc {

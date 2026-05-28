@@ -1228,16 +1228,15 @@ function currentKeywords() {
 }
 
 // 把 desc 文本里的关键词包裹为 <span class="kw kw-X">...</span>，并返回出现过的关键词列表
-// 自适应卡牌描述字体：当 .card-desc 文字溢出可视区域时，逐步缩小字号直至适配（或触底）。
-// 在 .card-desc 上读取 CSS 默认字号作为上限，最小 7px。
-function _fitCardDesc(el) {
+// 自适应卡牌字体：当 .card-desc / .card-name 文字溢出可视区域时，逐步缩小字号直至适配（或触底）。
+// 在元素上读取 CSS 默认字号作为上限，最小 minSize。
+function _fitTextEl(el, minSize) {
   if (!el) return;
   // 清掉上一次的 inline font-size，重新从 CSS 默认开始
   el.style.fontSize = '';
   const cs = window.getComputedStyle(el);
   const defaultPx = parseFloat(cs.fontSize) || 12;
   let size = defaultPx;
-  const minSize = 7;
   // 每步 -0.5px，直到没有溢出或触底
   let guard = 30;
   while (guard-- > 0 && size > minSize
@@ -1246,34 +1245,46 @@ function _fitCardDesc(el) {
     el.style.fontSize = size.toFixed(1) + 'px';
   }
 }
+function _fitCardDesc(el) { _fitTextEl(el, 7); }
+function _fitCardName(el) { _fitTextEl(el, 8); }
 function _fitAllCardDescs(container) {
   if (!container) return;
-  const descs = container.querySelectorAll('.card-desc');
-  descs.forEach(_fitCardDesc);
+  container.querySelectorAll('.card-desc').forEach(_fitCardDesc);
+  container.querySelectorAll('.card-name').forEach(_fitCardName);
 }
-// 单帧防抖：多次连续调用合并成一次 RAF 扫描。任意 render 路径都可以触发。
+// 单帧防抖：多次连续调用合并成一次扫描。用 setTimeout 而非 RAF —— tab hidden 时 RAF 暂停。
 let _fitScheduled = false;
 function scheduleFitCardDescs() {
   if (_fitScheduled) return;
   _fitScheduled = true;
-  requestAnimationFrame(() => {
+  setTimeout(() => {
     _fitScheduled = false;
     _fitAllCardDescs(document);
-  });
+  }, 16);
 }
 
 function renderDescWithKeywords(desc) {
   let html = escapeHtml(desc);
   const seen = [];
   for (const kw of currentKeywords()) {
-    // 英文需要词边界（避免 'Fire' 匹配 'Firebomb' 之类）；中文不需要
+    // 英文：大小写不敏感 + 单词关键词允许常见屈折后缀（-s/-es/-ed/-ing/-er/-d）
+    //   "When discarded" / "discover 1 ..." / "temporary card" 等都能命中
+    // 中文：直接子串匹配
     const isEnWord = /^[A-Za-z]/.test(kw.word);
-    const pattern = isEnWord
-      ? new RegExp('\\b' + kw.word.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b', 'g')
-      : new RegExp(kw.word, 'g');
+    const escaped = kw.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let pattern;
+    if (isEnWord) {
+      const isSingleWord = /^[A-Za-z]+$/.test(kw.word);
+      pattern = isSingleWord
+        ? new RegExp('\\b' + escaped + '(?:es|ed|ing|er|s|d)?\\b', 'gi')
+        : new RegExp('\\b' + escaped + '\\b', 'gi');
+    } else {
+      pattern = new RegExp(escaped, 'g');
+    }
     if (pattern.test(html)) {
       pattern.lastIndex = 0;
-      html = html.replace(pattern, `<span class="kw kw-${kw.cls}">${kw.word}</span>`);
+      // 用回调保留实际匹配文本（如 "discarded" 而非 "Discard"），但 class 仍按规范的 kw.cls
+      html = html.replace(pattern, m => `<span class="kw kw-${kw.cls}">${m}</span>`);
       seen.push(kw);
     }
   }
