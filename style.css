@@ -2475,16 +2475,16 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
 }
 
 /* ─── 上一操作 · 左侧卡牌堆 ────────────────────────────────────────────── */
-/* 战斗中显示在 left-rail 底部；进入商店 / 阵亡时隐藏。卡牌随机微旋微移叠在一起，
-   最后一张在最上。点击 → 弹出 #modal-action-history。 */
+/* 放在 #main-left 顶部，与 #main-stats 内的"连击"对称位置（主卡左侧）。
+   战斗中显示；进入商店 / 阵亡时隐藏。卡随机微旋微移叠在一起，最后一张在最上。 */
 .action-pile {
   position: relative;
-  width: 108px;
-  height: 148px;
-  margin: 18px auto 0;
+  width: 96px;
+  height: 132px;
+  margin: 0 auto 6px;
+  align-self: center;            /* 在 #main-left（flex column）内水平居中 */
   cursor: pointer;
   user-select: none;
-  /* 给整堆 hover 高亮预留空间 */
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
   transition: filter 0.18s ease;
 }
@@ -2499,18 +2499,24 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
   height: 100%;
 }
 /* 堆内每张卡：absolute 居中，transform 由 JS 写入 (rotate + translate)。
-   用 .modal-card 创建，但缩小到堆内尺寸；hover / 缩放只在详情模态里启用。 */
+   缩小到 70% 标准 modal-card 尺寸，方便叠放。hover 缩放只在详情模态启用。 */
 .action-pile-cards .modal-card {
   position: absolute;
   left: 50%;
   top: 50%;
-  /* 比标准 modal-card 稍小，方便叠放 */
+  width: 92px;
+  height: 122px;
+  padding: 6px 5px;
+  font-size: 10px;
   transform-origin: center center;
   transition: transform 0.25s ease;
-  pointer-events: none;   /* 整堆为点击单元，子卡不单独响应 */
+  pointer-events: none;
   cursor: pointer;
-  /* 堆里禁用 modal-card 的 hover scale */
 }
+.action-pile-cards .modal-card .card-art   { font-size: 22px; }
+.action-pile-cards .modal-card .card-name  { font-size: 10.5px; margin-bottom: 2px; }
+.action-pile-cards .modal-card .card-desc  { font-size: 8.5px; line-height: 1.25; }
+.action-pile-cards .modal-card .card-cost  { font-size: 11px; }
 .action-pile-cards .modal-card:hover {
   transform: inherit !important;
   filter: none !important;
@@ -2518,31 +2524,106 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
 /* 角标：右下角小数字 "+N"（N = 总数 - 1，>= 2 张时显示） */
 .action-pile-count {
   position: absolute;
-  right: 0;
-  bottom: -2px;
+  right: -4px;
+  bottom: -4px;
   color: #ffd84a;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 1px;
-  padding: 1px 6px;
-  background: rgba(20, 26, 34, 0.85);
+  padding: 1px 7px;
+  background: rgba(20, 26, 34, 0.92);
   border: 1px solid rgba(255, 216, 74, 0.55);
   border-radius: 10px;
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
   pointer-events: none;
   z-index: 30;
 }
 .action-pile-count.hidden { display: none; }
 
-/* ─── 上一操作详情模态 ────────────────────────────────────────────────── */
+/* ─── 上一操作详情模态：占据大半屏的居中弹窗 + 右上角关闭 + 纵向滚动条 ─────── */
+.modal-action {
+  /* 半透明背景，让玩家感觉是覆盖在游戏上的浮窗 */
+  background: rgba(8, 10, 14, 0.78);
+  align-items: center;
+  justify-content: center;
+}
+.modal-action-panel {
+  position: relative;
+  width: min(80vw, 1080px);
+  max-height: 80vh;
+  background: linear-gradient(180deg, #1c2434 0%, #14181f 100%);
+  border: 2px solid #5eb2ff;
+  border-radius: 14px;
+  padding: 22px 28px 22px;
+  box-shadow:
+    0 0 28px rgba(94, 178, 255, 0.35),
+    0 16px 48px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+}
+.modal-action-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(40, 50, 70, 0.85);
+  border: 1px solid #4a5868;
+  color: #d6dbe2;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.modal-action-close:hover {
+  background: rgba(255, 88, 88, 0.25);
+  border-color: #ff7878;
+  color: #ff8888;
+  transform: scale(1.1);
+}
+.modal-action-title {
+  color: #5eb2ff;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-align: center;
+  margin-bottom: 16px;
+  text-shadow: 0 0 12px rgba(94, 178, 255, 0.5);
+}
+/* 滚动容器：仅纵向，禁横向；自定义滚动条样式 */
+.modal-action-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px 8px 6px 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #4a76c6 #1a2030;
+}
+.modal-action-scroll::-webkit-scrollbar { width: 10px; }
+.modal-action-scroll::-webkit-scrollbar-track {
+  background: #1a2030;
+  border-radius: 5px;
+}
+.modal-action-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #5eb2ff, #4a76c6);
+  border-radius: 5px;
+  border: 2px solid #1a2030;
+}
+.modal-action-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #7eb1ff, #5eb2ff);
+}
 .action-history-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, 110px);
-  gap: 22px 16px;
-  justify-content: center;
-  max-width: 880px;
-  max-height: 64vh;
-  overflow-y: auto;
+  /* 严格按时间从左到右、上到下：auto-fill 让窗口宽度变化时自动换行，单元等宽 */
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 28px 18px;
+  justify-content: start;
   padding: 4px 8px;
 }
 .action-card-cell {
