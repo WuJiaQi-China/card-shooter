@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=56">
+<link rel="stylesheet" href="style.css?v=58">
 </head>
 <body>
 <div id="page-root">
@@ -106,7 +106,6 @@
 
   <!-- 开始界面：首次启动 / 返回主菜单时显示。开始游戏 / 新手教程 / 设置三选一 -->
   <div id="modal-start" class="modal hidden">
-    <button id="start-lang-btn" class="cannon-lang-btn" type="button">EN</button>
     <div class="start-title-row">
       <span class="start-title-emoji">🎯</span>
       <span class="start-title" data-i18n="start_title">卡牌射击</span>
@@ -116,6 +115,7 @@
       <button id="start-play-btn" class="modal-btn modal-btn-start" data-i18n="start_play">▶ 开始游戏</button>
       <button id="start-tutorial-btn" class="modal-btn modal-btn-secondary" data-i18n="start_tutorial">🎓 新手教程</button>
       <button id="start-settings-btn" class="modal-btn modal-btn-secondary" data-i18n="start_settings">⚙ 设置</button>
+      <button id="start-lang-toggle-btn" class="modal-btn modal-btn-secondary modal-btn-lang" type="button">🌐 中文 / English</button>
     </div>
   </div>
 
@@ -227,6 +227,6 @@
 
 </div><!-- /#page-root -->
 
-<script src="game.js?v=106"></script>
+<script src="game.js?v=107"></script>
 </body>
 </html>

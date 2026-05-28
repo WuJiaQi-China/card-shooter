@@ -47,7 +47,16 @@ function _darkenColor(c, t) {
 // ─── 多语言（i18n）─────────────────────────────────────────────────
 // 单一 LANG.current 控制全局语言；切换时 emit 'langChanged' → UI 重渲。
 const LANG = { current: 'zh' };
-try { LANG.current = localStorage.getItem('cs_lang') || 'zh'; } catch (e) {}
+try {
+  const _saved = localStorage.getItem('cs_lang');
+  if (_saved === 'zh' || _saved === 'en') {
+    LANG.current = _saved;
+  } else {
+    // 首次访问：读浏览器默认语言决定中 / 英
+    const _nav = (navigator.language || 'zh').toLowerCase();
+    LANG.current = _nav.startsWith('zh') ? 'zh' : 'en';
+  }
+} catch (e) {}
 function setLang(code) {
   if (code !== 'zh' && code !== 'en') code = 'zh';
   if (LANG.current === code) return;
@@ -11912,10 +11921,13 @@ function setupStartScreen(world, tutorial) {
   const $play = document.getElementById('start-play-btn');
   const $tut = document.getElementById('start-tutorial-btn');
   const $settings = document.getElementById('start-settings-btn');
-  const $lang = document.getElementById('start-lang-btn');
+  const $lang = document.getElementById('start-lang-toggle-btn');
   if (!$modal || !$play) return { show: () => {}, hide: () => {} };
 
-  function refreshLang() { if ($lang) $lang.textContent = t('lang_btn'); }
+  // 语言按钮：显示双语标签，点击切换；通过 langChanged 同步标签
+  function refreshLang() {
+    if ($lang) $lang.textContent = LANG.current === 'zh' ? '🌐 English / 中文' : '🌐 中文 / English';
+  }
   Events.on('langChanged', refreshLang);
   if ($lang) {
     $lang.addEventListener('click', e => {
@@ -11928,6 +11940,11 @@ function setupStartScreen(world, tutorial) {
   function show() {
     refreshLang();
     $modal.classList.remove('hidden');
+    // 加 body 类 → CSS 隐藏游戏 HUD（金币 / 齿轮 / 侧栏 / 关卡进度条）；设置面板改为居中
+    document.body.classList.add('start-screen-active');
+    // 关闭可能残留的设置面板（防止上次没关）
+    document.getElementById('settings-panel')?.classList.add('hidden');
+    document.getElementById('settings-btn')?.classList.remove('active');
     // 屏蔽其他 modal，确保只看到开始界面
     document.getElementById('modal-cannon')?.classList.add('hidden');
     document.getElementById('modal-loot')?.classList.add('hidden');
@@ -11935,7 +11952,13 @@ function setupStartScreen(world, tutorial) {
     document.getElementById('modal-tutorial-end')?.classList.add('hidden');
     document.getElementById('tutorial-overlay')?.classList.add('hidden');
   }
-  function hide() { $modal.classList.add('hidden'); }
+  function hide() {
+    $modal.classList.add('hidden');
+    document.body.classList.remove('start-screen-active');
+    // 离开开始界面：顺手关闭设置面板，避免它停留在居中位置
+    document.getElementById('settings-panel')?.classList.add('hidden');
+    document.getElementById('settings-btn')?.classList.remove('active');
+  }
 
   $play.addEventListener('click', () => {
     playSfx('uiClick', 0);

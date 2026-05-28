@@ -2209,6 +2209,46 @@ kbd {
   font-size: 15px;
   letter-spacing: 3px;
 }
+/* 语言切换按钮：风格弱化，区分主操作 */
+.modal-btn-lang {
+  background: #2a3340 !important;
+  color: #aef0fb;
+  border: 1px solid #4a5868;
+  margin-top: 6px;
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+.modal-btn-lang:hover {
+  background: #3a4452 !important;
+  border-color: #aed0ff;
+}
+
+/* 开始界面激活时，隐藏游戏 HUD（金币 / 设置齿轮 / 左右侧栏 / 关卡进度条） */
+body.start-screen-active #side-right-top,
+body.start-screen-active #left-rail,
+body.start-screen-active #right-rail,
+body.start-screen-active #xp-bar-row {
+  display: none !important;
+}
+/* 开始界面下，设置面板居中弹出（覆盖默认右上角定位）。
+   注意：默认 .settings-panel 有 animation: settings-pop-in（设置 translateY(0)），会覆盖普通 transform。
+   这里用专属居中动画，保留 translate(-50%, -50%) 才能真正居中。*/
+body.start-screen-active #settings-panel:not(.hidden) {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  min-width: 340px;
+  z-index: 40;
+  animation: settings-pop-in-center 0.16s ease forwards;
+}
+@keyframes settings-pop-in-center {
+  0%   { opacity: 0; transform: translate(-50%, calc(-50% - 6px)); }
+  100% { opacity: 1; transform: translate(-50%, -50%); }
+}
+body.start-screen-active #settings-panel:not(.hidden) .settings-header {
+  margin-bottom: 4px;
+}
 
 /* ─── 教程引导层 (tutorial-overlay) ───────────────────────────────────── */
 .tutorial-overlay {
