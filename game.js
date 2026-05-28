@@ -888,6 +888,8 @@ const I18N = {
     loot_hint_pick: '点击候选卡 → 再点背包槽完成替换（不选也可直接继续）',
     loot_hint_done: '已替换。可继续调整背包或点击继续游戏',
     loot_hint_selected: '已选「{name}」 → 点击下方任一卡完成替换（可再点候选改主意）',
+    loot_swap_hint_line1: '点击一张已有的卡牌以交换',
+    loot_swap_hint_line2: '⚠ 注意：被交换的卡牌会永久消失！',
     continue: '继续游戏',
     wave_preview: '下波预告',
     score_run: '本局：', score_best: '最高：', stat_kills: '击杀：', stat_level: '等级：', stat_shop: '商店：',
@@ -1034,6 +1036,8 @@ const I18N = {
     loot_hint_pick: 'Click a candidate → then click a bag slot to replace (or just continue)',
     loot_hint_done: 'Replaced. Keep editing your bag or hit Continue.',
     loot_hint_selected: 'Selected "{name}" → click any bag slot to replace (click again to undo)',
+    loot_swap_hint_line1: 'Click an existing card to swap it out',
+    loot_swap_hint_line2: '⚠ Warning: the swapped-out card is gone forever!',
     continue: 'Continue',
     wave_preview: 'Next Wave',
     score_run: 'Run:', score_best: 'Best:', stat_kills: 'Kills:', stat_level: 'Level:', stat_shop: 'Shop:',
@@ -12753,9 +12757,7 @@ function setupLootPanel(world) {
     if (isStartupPick()) {
       const tierName = tierLabel(world._startupCurrent.tier);
       $hint.textContent = t('startup_pick_hint', { tier: tierName });
-      return;
-    }
-    if (candidatesLeft() === 0) {
+    } else if (candidatesLeft() === 0) {
       $hint.textContent = t('loot_hint_done');
     } else if (selectedIdx >= 0) {
       const c = selectedCard();
@@ -12768,6 +12770,14 @@ function setupLootPanel(world) {
     } else {
       $hint.textContent = t('loot_hint_pick');
     }
+    // 选中候选（startup pick 也算）→ 显示"交换警告"背景大字 + 触发 bag 卡红虚线
+    // 已选可合成的候选不算（直接合成不需要点 bag）
+    const selected = selectedCard();
+    const isMerge = selected && findMergeTarget(world.deck.bag, selected) >= 0 && nextTier(selected.tier);
+    const inSwapMode = selectedIdx >= 0 && !isMerge;
+    document.body.classList.toggle('shop-selection-mode', inSwapMode);
+    const $swapHint = document.getElementById('loot-selection-hint');
+    if ($swapHint) $swapHint.classList.toggle('hidden', !inSwapMode);
   }
 
   function renderCandidates() {
@@ -13060,6 +13070,9 @@ function setupLootPanel(world) {
   }
 
   $continue.addEventListener('click', () => {
+    // 关闭面板 → 清除选卡视觉态（红虚线 / 交换警告）
+    document.body.classList.remove('shop-selection-mode');
+    document.getElementById('loot-selection-hint')?.classList.add('hidden');
     // 锁定的候选要跨"继续游戏 → 下次进入商店"保留：清空非锁定槽位，但保留 shopSlots 数组。
     // 完全没有锁定的话直接清空（保持旧行为，下次 showLoot 全新 roll）。
     if (world.shopSlots && world.shopSlots.some(c => c && c._shopLocked)) {

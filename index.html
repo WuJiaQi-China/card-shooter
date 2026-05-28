@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=66">
+<link rel="stylesheet" href="style.css?v=68">
 </head>
 <body>
 <div id="page-root">
@@ -200,6 +200,11 @@
       </div>
     </div>
     <div class="modal-sub" id="loot-hint" data-i18n="loot_hint_pick">点击候选卡 → 再点背包槽完成替换（或直接继续）</div>
+    <!-- 选中候选卡后的背景大字提示（absolute 定位，不挤压布局） -->
+    <div id="loot-selection-hint" class="loot-selection-hint hidden">
+      <div class="loot-selection-hint-line" data-i18n="loot_swap_hint_line1">点击一张已有的卡牌以交换</div>
+      <div class="loot-selection-hint-warn" data-i18n="loot_swap_hint_line2">⚠ 注意：被交换的卡牌会永久消失！</div>
+    </div>
     <!-- 背包：左 主卡 + 右 其它 8 张 2 行 4 列 -->
     <div class="loot-bag-area">
       <div id="loot-bag-main"></div>
@@ -235,6 +240,6 @@
 
 </div><!-- /#page-root -->
 
-<script src="game.js?v=116"></script>
+<script src="game.js?v=117"></script>
 </body>
 </html>
