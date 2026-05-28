@@ -2655,41 +2655,7 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
 .action-card-label.kind-discover { background: rgba(201, 122, 255, 0.18); border-color: rgba(201, 122, 255, 0.45); color: #c97aff; }
 .action-card-label.kind-shuffle  { background: rgba(94, 178, 255, 0.18);  border-color: rgba(94, 178, 255, 0.45);  color: #5eb2ff; }
 
-/* ─── 商店 / 起手选卡：选中候选后的交换提示 + 红色虚线 marching ants ─────── */
-/* 选中候选时大字提示：fixed 锚定视口，不挤压布局；半透明便于看清下面的背包 */
-.loot-selection-hint {
-  position: fixed;
-  top: 38%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-  pointer-events: none;
-  z-index: 25;        /* 高于 modal-loot 内的卡 / 槽位，让大字浮在背景上 */
-  width: 90vw;
-  /* 让大字不参与布局，纯背景层 */
-}
-.loot-selection-hint.hidden { display: none; }
-.loot-selection-hint-line {
-  color: rgba(255, 220, 150, 0.88);
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: 8px;
-  text-shadow:
-    0 0 18px rgba(0, 0, 0, 0.95),
-    0 0 26px rgba(255, 160, 80, 0.5),
-    0 4px 8px rgba(0, 0, 0, 0.9);
-  margin-bottom: 14px;
-}
-.loot-selection-hint-warn {
-  color: rgba(255, 110, 110, 0.95);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  text-shadow:
-    0 0 14px rgba(0, 0, 0, 0.95),
-    0 0 20px rgba(255, 70, 70, 0.55);
-}
-
+/* ─── 商店 / 起手选卡：选中候选后给 bag 槽戴上红色虚线"蚂蚁线"边框 ─────── */
 /* body.shop-selection-mode: 选中候选时给所有 bag 槽（包括主卡槽）戴上红色虚线"蚂蚁线"边框 */
 body.shop-selection-mode .bag-slot,
 body.shop-selection-mode #loot-bag-main .bag-slot {

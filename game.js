@@ -885,11 +885,9 @@ const I18N = {
     shop_level: '升级 Lv {cur}→{next}（花 {cost} 金）',
     shop_max: '商店 Lv 16 (MAX)',
     shop_btn_init: '商店 Lv 1 (0/1)',
-    loot_hint_pick: '点击候选卡 → 再点背包槽完成替换（不选也可直接继续）',
+    loot_hint_pick: '选择 1 张商店卡牌',
     loot_hint_done: '已替换。可继续调整背包或点击继续游戏',
-    loot_hint_selected: '已选「{name}」 → 点击下方任一卡完成替换（可再点候选改主意）',
-    loot_swap_hint_line1: '点击一张已有的卡牌以交换',
-    loot_swap_hint_line2: '⚠ 注意：被交换的卡牌会永久消失！',
+    loot_hint_selected: '选择 1 张背包卡以替换',
     continue: '继续游戏',
     wave_preview: '下波预告',
     score_run: '本局：', score_best: '最高：', stat_kills: '击杀：', stat_level: '等级：', stat_shop: '商店：',
@@ -1033,11 +1031,9 @@ const I18N = {
     shop_level: 'Upgrade Lv {cur}→{next} ({cost} 💰)',
     shop_max: 'Shop Lv 16 (MAX)',
     shop_btn_init: 'Shop Lv 1 (0/1)',
-    loot_hint_pick: 'Click a candidate → then click a bag slot to replace (or just continue)',
+    loot_hint_pick: 'Pick 1 shop card',
     loot_hint_done: 'Replaced. Keep editing your bag or hit Continue.',
-    loot_hint_selected: 'Selected "{name}" → click any bag slot to replace (click again to undo)',
-    loot_swap_hint_line1: 'Click an existing card to swap it out',
-    loot_swap_hint_line2: '⚠ Warning: the swapped-out card is gone forever!',
+    loot_hint_selected: 'Pick 1 bag card to swap',
     continue: 'Continue',
     wave_preview: 'Next Wave',
     score_run: 'Run:', score_best: 'Best:', stat_kills: 'Kills:', stat_level: 'Level:', stat_shop: 'Shop:',
@@ -12754,30 +12750,30 @@ function setupLootPanel(world) {
   }
 
   function updateHint() {
-    if (isStartupPick()) {
-      const tierName = tierLabel(world._startupCurrent.tier);
-      $hint.textContent = t('startup_pick_hint', { tier: tierName });
-    } else if (candidatesLeft() === 0) {
-      $hint.textContent = t('loot_hint_done');
-    } else if (selectedIdx >= 0) {
-      const c = selectedCard();
-      const merges = c && findMergeTarget(world.deck.bag, c) >= 0 && nextTier(c.tier);
-      if (merges) {
-        $hint.textContent = `「${c.name}」→ 点击购买即合成为「${c.familyName} · ${tierLabel(nextTier(c.tier))}」`;
-      } else {
-        $hint.textContent = t('loot_hint_selected', { name: c?.name || '' });
-      }
-    } else {
-      $hint.textContent = t('loot_hint_pick');
-    }
-    // 选中候选（startup pick 也算）→ 显示"交换警告"背景大字 + 触发 bag 卡红虚线
-    // 已选可合成的候选不算（直接合成不需要点 bag）
+    // 选中候选 + 非合成型 → 进入"交换模式"：文字提示 + 背包卡红虚线
     const selected = selectedCard();
     const isMerge = selected && findMergeTarget(world.deck.bag, selected) >= 0 && nextTier(selected.tier);
     const inSwapMode = selectedIdx >= 0 && !isMerge;
     document.body.classList.toggle('shop-selection-mode', inSwapMode);
-    const $swapHint = document.getElementById('loot-selection-hint');
-    if ($swapHint) $swapHint.classList.toggle('hidden', !inSwapMode);
+
+    if (inSwapMode) {
+      $hint.textContent = t('loot_hint_selected');
+      return;
+    }
+    if (selectedIdx >= 0 && isMerge) {
+      // 选中可合成候选：提示点击购买即触发合成
+      $hint.textContent = `「${selected.name}」→ 点击购买即合成为「${selected.familyName} · ${tierLabel(nextTier(selected.tier))}」`;
+      return;
+    }
+    if (isStartupPick()) {
+      $hint.textContent = t('startup_pick_hint', { tier: tierLabel(world._startupCurrent.tier) });
+      return;
+    }
+    if (candidatesLeft() === 0) {
+      $hint.textContent = t('loot_hint_done');
+      return;
+    }
+    $hint.textContent = t('loot_hint_pick');
   }
 
   function renderCandidates() {
