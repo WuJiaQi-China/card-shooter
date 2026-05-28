@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=62">
+<link rel="stylesheet" href="style.css?v=63">
 </head>
 <body>
 <div id="page-root">
@@ -79,15 +79,17 @@
 
   <canvas id="stage" width="900" height="560"></canvas>
 
+  <!-- 上一操作卡堆：absolute 定位在 canvas 左下角，与 canvas 右下角的 "× N 连击" overlay 对称 -->
+  <div id="action-pile" class="action-pile hidden">
+    <div class="action-pile-cards"></div>
+    <span class="action-pile-count hidden">+0</span>
+  </div>
+
   <div id="hand-area">
     <div id="hand-row"></div>
     <div id="hand-main-row">
-      <!-- 主卡左侧：上一操作卡堆（与右侧"连击"对称位置） + 背包按钮 -->
+      <!-- 主卡左侧：仅背包按钮 -->
       <div id="main-left">
-        <div id="action-pile" class="action-pile hidden">
-          <div class="action-pile-cards"></div>
-          <span class="action-pile-count hidden">+0</span>
-        </div>
         <button id="open-inventory-btn" class="modal-btn modal-btn-shop">🎒 背包 (10 法力)</button>
       </div>
       <div id="hand-main"></div>

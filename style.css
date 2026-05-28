@@ -2477,14 +2477,18 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
 /* ─── 上一操作 · 左侧卡牌堆 ────────────────────────────────────────────── */
 /* 放在 #main-left 顶部，与 #main-stats 内的"连击"对称位置（主卡左侧）。
    战斗中显示；进入商店 / 阵亡时隐藏。卡随机微旋微移叠在一起，最后一张在最上。 */
+/* canvas 左下角浮动：与 canvas 右下角 "× N 连击" overlay 对称
+   anchor 到 #game-root（已 position: relative）：left:10px + bottom 计算让 pile 底部贴近 canvas 底部
+   canvas 高度 560，hand-area 在它下方 → pile 底部 = hand-area top → bottom = handAreaH + 6 */
 .action-pile {
-  position: relative;
+  position: absolute;
+  left: 12px;
+  bottom: calc(var(--hand-area-h, 320px) + 8px);
   width: 96px;
   height: 132px;
-  margin: 0 auto 6px;
-  align-self: center;            /* 在 #main-left（flex column）内水平居中 */
   cursor: pointer;
   user-select: none;
+  z-index: 18;             /* canvas 之上，modal 之下 */
   filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
   transition: filter 0.18s ease;
 }
@@ -2540,34 +2544,36 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
 }
 .action-pile-count.hidden { display: none; }
 
-/* ─── 上一操作详情模态：占据大半屏的居中弹窗 + 右上角关闭 + 纵向滚动条 ─────── */
+/* ─── 上一操作详情模态：占据整个屏幕 + 右上角关闭 + 纵向滚动条 ─────── */
 .modal-action {
-  /* 半透明背景，让玩家感觉是覆盖在游戏上的浮窗 */
-  background: rgba(8, 10, 14, 0.78);
-  align-items: center;
-  justify-content: center;
+  /* 全屏覆盖，不需要外部 dim 背景 */
+  background: transparent;
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
 }
 .modal-action-panel {
   position: relative;
-  width: min(80vw, 1080px);
-  max-height: 80vh;
+  width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
   background: linear-gradient(180deg, #1c2434 0%, #14181f 100%);
-  border: 2px solid #5eb2ff;
-  border-radius: 14px;
-  padding: 22px 28px 22px;
-  box-shadow:
-    0 0 28px rgba(94, 178, 255, 0.35),
-    0 16px 48px rgba(0, 0, 0, 0.7);
+  border: none;
+  border-radius: 0;
+  padding: 32px 40px 24px;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
 }
 .modal-action-close {
   position: absolute;
-  top: 10px;
-  right: 12px;
-  width: 32px;
-  height: 32px;
+  top: 18px;
+  right: 22px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
+  font-size: 18px;
+  z-index: 5;
   background: rgba(40, 50, 70, 0.85);
   border: 1px solid #4a5868;
   color: #d6dbe2;
