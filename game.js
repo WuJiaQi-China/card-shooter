@@ -11849,29 +11849,17 @@ function setupCannonSelect(world) {
   const $opts = document.getElementById('cannon-options');
   const $title = document.getElementById('cannon-select-title');
   const $sub = document.getElementById('cannon-select-sub');
-  const $cannonLangBtn = document.getElementById('cannon-lang-btn');
   if (!$modal || !$opts) return;
   let pendingCallback = null;
 
   function refreshLabels() {
     if ($title) $title.textContent = t('cannon_select_title');
     if ($sub) $sub.textContent = t('cannon_select_sub');
-    if ($cannonLangBtn) $cannonLangBtn.textContent = t('lang_btn');
   }
   Events.on('langChanged', () => {
     refreshLabels();
     if (!$modal.classList.contains('hidden')) render();
   });
-
-  // 开局阶段语言切换：让玩家选炮台 / 起手 picks 前能切中英文（之前只能在战斗 HUD 切）
-  if ($cannonLangBtn) {
-    $cannonLangBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      playSfx('uiClick', 0);
-      setLang(LANG.current === 'zh' ? 'en' : 'zh');
-    });
-  }
 
   function render() {
     $opts.innerHTML = '';
@@ -12368,20 +12356,6 @@ function setupLootPanel(world) {
   const $reroll = document.getElementById('reroll-btn');
   const $shopLevelBtn = document.getElementById('shop-level-btn');
   const $probBar = document.getElementById('shop-prob-bar');
-  const $lootLangBtn = document.getElementById('loot-lang-btn');
-
-  // 战利品面板右上角语言切换：让玩家在 startup picks / 关卡间商店都能切语言
-  if ($lootLangBtn) {
-    const refreshLootLang = () => { $lootLangBtn.textContent = t('lang_btn'); };
-    refreshLootLang();
-    Events.on('langChanged', refreshLootLang);
-    $lootLangBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      playSfx('uiClick', 0);
-      setLang(LANG.current === 'zh' ? 'en' : 'zh');
-    });
-  }
 
   // 面板状态：候选 = world.shopSlots，selected 记录 INDEX 到 shopSlots
   let selectedIdx = -1;
