@@ -2631,7 +2631,9 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 28px 18px;
   justify-content: start;
-  padding: 4px 8px;
+  /* hover 时 .modal-card 缩放 2.05x → 高度从 170 扩到 348（中心扩 89px），宽度从 130 扩到 266（中心扩 68px）。
+     给四周留出足够内边距，让边缘行 / 列被放大时不被滚动容器或模态边框截掉。 */
+  padding: 110px 90px 110px 90px;
 }
 .action-card-cell {
   display: flex;
