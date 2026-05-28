@@ -2551,6 +2551,9 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
   padding: 0;
   align-items: stretch;
   justify-content: stretch;
+  /* 必须高于 #side-right-top（z:25）/ #settings-panel（z:30）/ tutorial（z:40）等浮层，
+     这样全屏面板真正盖住所有右上 HUD（金币 / 炮台 / 齿轮） */
+  z-index: 60;
 }
 .modal-action-panel {
   position: relative;
