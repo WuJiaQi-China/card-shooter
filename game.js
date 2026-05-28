@@ -11894,12 +11894,8 @@ function setupCannonSelect(world) {
 
   Events.on('requestCannonSelect', open);
 
-  // 首次加载时若无 cannon → 立即弹出；选完直接 startBattle（无需玩家再按 Enter）
-  // startBattle 内部会检测 _startupQueue 非空 → 进入 3 铜 + 1 银 + 背包整理 startup 流程
-  // 注意：若玩家从未看过开始界面（首次进入），先让开始界面（modal-start）接管 —— 此处不自动开。
-  let _seenStart = false;
-  try { _seenStart = !!localStorage.getItem('cs_seen_start'); } catch (e) {}
-  if (!world.cannon && _seenStart) open(() => world.battle.startBattle());
+  // 不在此处自动打开 —— 主界面（modal-start）的"开始游戏"按钮会触发 requestCannonSelect。
+  // 阵亡后重开走 world.battle.startBattle() → 内部检测无 cannon → emit requestCannonSelect → open()。
 }
 
 // ---- 开始界面（首次启动 / 重开返回主菜单时）-------------------------------
@@ -13268,9 +13264,9 @@ function main() {
   // 这里只负责显示开始界面（如果没看过）。
   const tutorial = setupTutorial(world);
   const startScreen = setupStartScreen(world, tutorial);
-  let _seenStart = false;
-  try { _seenStart = !!localStorage.getItem('cs_seen_start'); } catch (e) {}
-  if (!_seenStart) startScreen.show();
+  // 每次进入都先显示主界面（开始游戏 / 新手教程 / 设置 / 语言）。
+  // 玩家阵亡后按 Enter 重开走 cannon-select（保留旧流程），不重新走主界面。
+  startScreen.show();
 
   // 初始背包：9 张 1 费"强化"（伤害 +1）—— 干净的起手卡，玩家通过商店逐步替换为策划表卡。
   // bag[0] 是主卡 → 主卡也是 强化，每次发射主卡 hook 也算一次伤害 +1（即每次基础攻击 = 1 + 1 + 1 = 3，
