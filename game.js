@@ -993,6 +993,14 @@ const I18N = {
     tut_s7_text: '不想要某张牌时，可以 <kbd>滚轮↑</kbd> 弃左 / <kbd>滚轮↓</kbd> 弃右。<br>每次弃牌 <b>消耗 1 点法力</b>，且部分卡有"弃置"效果（弃置时触发）。<br>试试用滚轮弃一张牌。',
     tut_s8_title: '⑩ 连击',
     tut_s8_text: '连续从同一侧发射，会累计 <b>连击</b> 数（右下角显示）。<br>部分卡的效果会随连击数增强。<br>换侧或弃牌会重置连击。',
+    // 上一操作卡堆
+    action_modal_title: '上一操作 · 触发的卡牌',
+    action_modal_close: '关闭',
+    action_modal_empty: '尚无操作',
+    action_kind_use: '使用',
+    action_kind_discard: '弃置',
+    action_kind_discover: '发现',
+    action_kind_shuffle: '洗入',
     tut_s10_title: '⑪ 商店与合成',
     tut_s10_text: '击败一波怪后会进入 <b>商店</b>：<br>· 用金币购买新卡或刷新候选<br>· 升级商店可提高高稀有度卡的概率<br>· 同名同稀有度卡放入背包会 <b>自动合成升星</b><br>慢慢打造属于你的卡组吧！',
   },
@@ -1131,6 +1139,14 @@ const I18N = {
     tut_s7_text: 'If you want to skip a card, use <kbd>Wheel↑</kbd> to discard left / <kbd>Wheel↓</kbd> to discard right.<br>Each discard <b>costs 1 mana</b>, and some cards have "On Discard" effects (triggered when discarded).<br>Try discarding a card with the wheel.',
     tut_s8_title: '⑩ Combo',
     tut_s8_text: 'Firing the same side multiple times in a row builds <b>Combo</b> (bottom-right counter).<br>Some cards scale with combo count.<br>Switching sides or discarding resets the combo.',
+    // Last-action pile
+    action_modal_title: 'Last Action · Cards Triggered',
+    action_modal_close: 'Close',
+    action_modal_empty: 'No action yet',
+    action_kind_use: 'Used',
+    action_kind_discard: 'Discarded',
+    action_kind_discover: 'Discovered',
+    action_kind_shuffle: 'Shuffled in',
     tut_s10_title: '⑪ Shop & Merging',
     tut_s10_text: 'After clearing a wave, you enter the <b>Shop</b>:<br>· Spend gold to buy new cards or reroll.<br>· Upgrade the shop level to raise rare-card odds.<br>· Putting duplicate cards (same name + rarity) into your bag <b>auto-merges and upgrades</b> them.<br>Build your deck and have fun!',
   },
@@ -8116,6 +8132,7 @@ function resolveDiscover(world, idx) {
   world._discoverPending = null;
   Events.emit('discoverHide');
   if (chosen) {
+    _recordAction(world, chosen, 'discover');
     try { d.onPick(chosen); } catch (e) { console.error('triggerDiscover onPick error', e); }
   }
   // 队列中还有等待的发现 → 推下一个；否则继续发射流程
@@ -8128,6 +8145,60 @@ function resolveDiscover(world, idx) {
     return;
   }
   if (cont) queueMicrotask(cont);   // 推迟一帧让 UI 隐藏先生效
+  // 没有续接的发现 → 若有 action 挂起，尝试 flush
+  _maybeFlushAction(world);
+}
+
+// ─── 上一操作记录系统 ──────────────────────────────────────────────
+// 每次玩家"动作"（发射 / 弃牌 / 结束回合）的所有卡牌按时间顺序记录到 _currentAction，
+// 整个 action 完成后 commit 到 _lastAction → 左侧栏卡堆显示。
+function _beginAction(world) {
+  if (!world) return;
+  // 只在"真正新一轮"开头清空 currentAction：depth 0 且没有挂起的 flush（即没有正在等待 discover 收尾的 action）
+  if ((world._actionDepth || 0) === 0 && !world._actionPendingFlush) {
+    world._currentAction = [];
+  }
+  world._actionDepth = (world._actionDepth || 0) + 1;
+}
+function _endAction(world) {
+  if (!world || !world._actionDepth) return;
+  world._actionDepth--;
+  if (world._actionDepth === 0) {
+    world._actionPendingFlush = true;
+    _maybeFlushAction(world);
+  }
+}
+function _maybeFlushAction(world) {
+  if (!world || !world._actionPendingFlush) return;
+  // 发现挂起时 wait —— 等 resolveDiscover 后再 flush
+  if (world._discoverPending) return;
+  if (world._discoverQueue && world._discoverQueue.length > 0) return;
+  if ((world._actionDepth || 0) > 0) return;
+  world._actionPendingFlush = false;
+  const records = world._currentAction || [];
+  if (records.length > 0) {
+    world._lastAction = records;
+    world._currentAction = [];
+    Events.emit('lastActionChanged', world._lastAction);
+  }
+}
+function _recordAction(world, card, kind) {
+  if (!world || !card) return;
+  // 只在战斗中记录（包括 discover 期间 state 仍是 Battle）
+  if (world.battle && world.battle.state !== State.Battle) return;
+  // 没在 action 内的记录也接收（防御性）：以 0 深度先开 1 个隐式 action
+  if (!world._actionDepth) {
+    _beginAction(world);
+    queueMicrotask(() => _endAction(world));
+  }
+  world._currentAction = world._currentAction || [];
+  world._currentAction.push({
+    familyId: card.familyId,
+    tier: card.tier,
+    cardRef: card,        // 弱引用：若 card 还活着则用真实数据展示
+    kind,
+    ts: performance.now(),
+  });
 }
 
 // 返回队列中剩余发现的摘要：[{title, sourceName}]
@@ -8536,6 +8607,8 @@ class CardDeck {
     this._updateFaceUp();
     Events.emit('deckChanged');
     Events.emit('shuffledIn', card);     // 洗入号令 / 奥弹之书 监听此事件
+    // 上一操作：洗入手牌的卡（奥弹 / 挖掘衍生 / 征召令 等）记为 'shuffle'
+    if (window.__game) _recordAction(window.__game, card, 'shuffle');
   }
 
   // 弃置 n 张随机手牌（任意面）。返回实际弃置的卡数组。叫魂用。
@@ -8555,6 +8628,7 @@ class CardDeck {
     }
     // 触发每张被弃卡的 onDiscard（顺序：先弹出的先触发）
     for (const card of popped) {
+      if (world) _recordAction(world, card, 'discard');
       try { card.onDiscard?.(world, world?.player); } catch (e) { console.error('discardRandomFromHand onDiscard', e); }
       if (world) handleDiscardForNecromancer(world);
       if (card._destroyAfterUse) {
@@ -8976,6 +9050,7 @@ class BattleManager {
   endPlayerTurn() {
     if (this.state !== State.Battle || this.turn !== 'player') return;
     if (this.world._discoverPending) return;   // 发现挂起 → 玩家必须先选择
+    _beginAction(this.world);
     // 自动弃置：手牌中标记了 _autoDiscardAtTurnEnd 的卡（如掘墓发现的临时骷髅牌）。
     // 调用 onDiscard 触发其效果，然后销毁（_destroyAfterUse → 破碎；否则进弃牌堆）。
     const autoDiscards = this.world.deck.hand.filter(c => c._autoDiscardAtTurnEnd);
@@ -8984,6 +9059,7 @@ class BattleManager {
       if (idx < 0) continue;
       this.world.deck.hand.splice(idx, 1);
       this.world.deck._setFace(c, false);
+      _recordAction(this.world, c, 'discard');
       try { c.onDiscard?.(this.world, this.world.player); } catch (e) { console.error('auto-discard onDiscard', e); }
       handleDiscardForNecromancer(this.world);
       if (c._destroyAfterUse) {
@@ -9033,9 +9109,11 @@ class BattleManager {
       setTimeout(() => {
         if (this.state === State.Battle) this.setState(State.Reward);
       }, 500);
+      _endAction(this.world);
       return;
     }
     this._afterPlayerTurnComplete();
+    _endAction(this.world);
   }
 
   // 玩家回合"完整结束"之后的统一处理（不洗牌 — 手牌保留；只进敌方回合）
@@ -9536,6 +9614,11 @@ class World {
     // 购买把对应槽置 null（不挤压数组，槽位空缺保留到刷新/关闭）。
     // 刷新仅重 roll 当前 null 之外的"剩余"槽位（按需求 #3：不补齐为 8 张）。
     this.shopSlots = null;
+    // 上一操作卡堆：当前 action 中累积的卡 + 上一次 committed 的卡组（左侧栏显示）
+    this._currentAction = [];
+    this._lastAction = [];
+    this._actionDepth = 0;
+    this._actionPendingFlush = false;
     // 缓释胶囊：下 N 次射击的伤害 buff 队列 [{ atk, shots }]
     this._shotBuffs = [];
     // 满级商店后无限购买的 4 项永久升级（应用到每颗友方子弹）
@@ -9573,6 +9656,12 @@ class World {
     this._lastShopRefreshCount = 0;
     this.removalCount = 0;
     this.shopSlots = null;
+    // 清空上一操作卡堆
+    this._currentAction = [];
+    this._lastAction = [];
+    this._actionDepth = 0;
+    this._actionPendingFlush = false;
+    Events.emit('lastActionChanged', []);
     this.deck?.clearStageSnapshot();   // 关卡 snapshot 清空（炉石模式）
     this._startupQueue = _makeStartupQueue();
     this._startupCurrent = null;
@@ -10454,6 +10543,9 @@ function fireFromCards(world, cards, side, opts = {}) {
   const main = world.deck.mainCard;
   const useList = [...cards, main];
 
+  // 上一操作记录：左 / 右 / 主卡都标记为 'use'
+  for (const c of useList) _recordAction(world, c, 'use');
+
   // 单卡有效消耗：用 effectiveCardCost 统一读取（含 _battleCostOverride / _costMod / 主卡 mainCostMod）。
   const effectiveCost = (c) => effectiveCardCost(c, world, c === main);
   // 计算总法力：连携时「完美协调」cost 视为 0（_comboCostFree 标记）
@@ -10729,6 +10821,7 @@ function _comboWillFire(world) {
 
 function doFire(world, side) {
   if (world._discoverPending) return;  // 发现挂起 → 必须先选择
+  _beginAction(world);
   // 连携优先 — 但只在"实际能付得起三卡"时才触发。
   // 法力不够时回落到单卡发射（不消耗 stack），避免有连携反而打不出卡的尴尬。
   if (_comboWillFire(world)) {
@@ -10744,11 +10837,12 @@ function doFire(world, side) {
       world.deck._updateFaceUp();
       Events.emit('deckChanged');
     }
+    _endAction(world);
     return;
   }
   // 单卡发射（含主卡 cost）
   const c = world.deck.takeSide(side);
-  if (!c) return;     // 手牌空 → 静默忽略（无 toast 提示）
+  if (!c) { _endAction(world); return; }     // 手牌空 → 静默忽略（无 toast 提示）
   const ok = fireFromCards(world, [c], side);
   if (!ok) {
     // 还回去
@@ -10757,11 +10851,13 @@ function doFire(world, side) {
     world.deck._updateFaceUp();
     Events.emit('deckChanged');
   }
+  _endAction(world);
 }
 
 function doFireAll(world) {
   if (world._discoverPending) return;
   if (world.deck.hand.length < 2) { toast(t('need_two'), 0.7); return; }
+  _beginAction(world);
   const left = world.deck.takeSide('left');
   const right = world.deck.takeSide('right');
   const ok = fireFromCards(world, [left, right], 'any');
@@ -10771,20 +10867,24 @@ function doFireAll(world) {
     world.deck._updateFaceUp();
     Events.emit('deckChanged');
   }
+  _endAction(world);
 }
 
 function doDiscard(world, side) {
   if (world._discoverPending) return;
+  _beginAction(world);
   const c = world.deck.takeSide(side);
-  if (!c) return;
+  if (!c) { _endAction(world); return; }
   if (!c.discard(world.player)) {
     if (side === 'left') world.deck.hand.unshift(c);
     else world.deck.hand.push(c);
     world.deck._updateFaceUp();
     Events.emit('deckChanged');
     playSfx('noMana', 200); toast(t('no_mana'), 0.7);
+    _endAction(world);
     return;
   }
+  _recordAction(world, c, 'discard');
   playSfx('discard', 60);
   // 弃置时副作用：双面间谍 / 战术撤退 / 弃牌号令 等
   c.onDiscard?.(world, world.player);
@@ -10801,6 +10901,7 @@ function doDiscard(world, side) {
   world.combo.reset();
   // 教程检测：玩家弃牌后教程可以前进到下一步
   Events.emit('cardDiscarded', { side, card: c });
+  _endAction(world);
 }
 
 // ─── 11. UI ─────────────────────────────────────────────────────────
@@ -11395,6 +11496,7 @@ function setupUI(world) {
   setupLootPanel(world);
   setupInventoryPanel(world);
   setupCannonSelect(world);
+  setupActionPile(world);
   setupKeywordTooltips();
   setupEnemyTooltip(world);
 
@@ -11484,6 +11586,117 @@ function setupUI(world) {
   }
 
   return { update, renderHand };
+}
+
+// 上一操作 · 左侧卡牌堆：战斗中显示玩家"上一动作"触发的全部卡牌（含发射 / 弃置 / 发现 / 洗入）。
+// 点击 → 弹出 #modal-action-history 详情。仅战斗中可见；进入商店 / 背包 / 阵亡画面自动隐藏。
+function setupActionPile(world) {
+  const $pile = document.getElementById('action-pile');
+  const $cardsBox = $pile?.querySelector('.action-pile-cards');
+  const $count = $pile?.querySelector('.action-pile-count');
+  const $modal = document.getElementById('modal-action-history');
+  const $grid = document.getElementById('action-history-grid');
+  const $close = document.getElementById('action-history-close-btn');
+  if (!$pile || !$cardsBox || !$modal || !$grid) return;
+
+  // 卡可能在 action 结束后被销毁（_destroyAfterUse / merge）；展示时若引用失效则用 familyId+tier 重建副本
+  function _resolveCard(record) {
+    if (record.cardRef && record.cardRef.familyId === record.familyId) return record.cardRef;
+    try { return mkCard(record.familyId, record.tier); } catch (e) { return null; }
+  }
+
+  // 用 record 的稳定哈希算出旋转 / 偏移角度，让同一张卡每次渲染位置一致（不抖）
+  function _stableJitter(rec, idx) {
+    const seed = ((rec.familyId.charCodeAt(0) || 0) * 31
+                + (rec.familyId.charCodeAt(1) || 0) * 17
+                + idx * 7
+                + (rec.ts & 0xff)) & 0xffff;
+    const rot = ((seed % 17) - 8);                  // -8 ~ +8 度
+    const dx  = (((seed >> 5) % 13) - 6);           // -6 ~ +6 px
+    const dy  = (((seed >> 9) % 9) - 4);            // -4 ~ +4 px
+    return { rot, dx, dy };
+  }
+
+  function renderPile() {
+    const inBattle = world.battle.state === State.Battle;
+    const records = world._lastAction || [];
+    const visible = inBattle && records.length > 0;
+    $pile.classList.toggle('hidden', !visible);
+    if (!visible) return;
+    $cardsBox.innerHTML = '';
+    // 用 modalCardEl 创建静态卡（含 emoji / 名称 / desc / 关键词高亮），无手牌区交互动画
+    records.forEach((rec, i) => {
+      const c = _resolveCard(rec);
+      if (!c) return;
+      const el = modalCardEl(c);
+      el.classList.add('pile-card');
+      const j = _stableJitter(rec, i);
+      el.style.transform =
+        `translate(calc(-50% + ${j.dx}px), calc(-50% + ${j.dy}px)) rotate(${j.rot}deg)`;
+      el.style.zIndex = String(i + 1);
+      $cardsBox.appendChild(el);
+    });
+    // 角标：>= 2 张才显示，N = 总数 - 1
+    if (records.length >= 2) {
+      $count.textContent = '+' + (records.length - 1);
+      $count.classList.remove('hidden');
+    } else {
+      $count.classList.add('hidden');
+    }
+    scheduleFitCardDescs();
+  }
+
+  function renderHistoryModal() {
+    $grid.innerHTML = '';
+    const records = world._lastAction || [];
+    for (const rec of records) {
+      const c = _resolveCard(rec);
+      if (!c) continue;
+      const cell = document.createElement('div');
+      cell.className = 'action-card-cell';
+      cell.appendChild(modalCardEl(c));
+      const label = document.createElement('div');
+      label.className = 'action-card-label kind-' + rec.kind;
+      label.textContent = t('action_kind_' + rec.kind);
+      cell.appendChild(label);
+      $grid.appendChild(cell);
+    }
+    scheduleFitCardDescs();
+  }
+
+  function openModal() {
+    if (!world._lastAction || world._lastAction.length === 0) return;
+    renderHistoryModal();
+    $modal.classList.remove('hidden');
+  }
+  function closeModal() { $modal.classList.add('hidden'); }
+
+  $pile.addEventListener('click', openModal);
+  $close?.addEventListener('click', closeModal);
+  // 点击模态空白处（modal 自身，不在内层 grid / 按钮）关闭
+  $modal.addEventListener('click', e => { if (e.target === $modal) closeModal(); });
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$modal.classList.contains('hidden')) closeModal();
+  });
+
+  Events.on('lastActionChanged', () => renderPile());
+  Events.on('stateChanged', (s) => {
+    // 进入商店 / 背包 / 阵亡 / Idle → 隐藏 pile + 关闭模态
+    if (s !== State.Battle) {
+      $pile.classList.add('hidden');
+      closeModal();
+    } else {
+      renderPile();
+    }
+  });
+  Events.on('langChanged', () => {
+    // i18n：模态标题 / 关闭按钮的 data-i18n 由 applyI18nDom 处理
+    // 这里仅在模态打开时刷新 label 文案
+    if (!$modal.classList.contains('hidden')) renderHistoryModal();
+  });
+
+  // 初次同步
+  renderPile();
 }
 
 // 卡牌背包整理面板：随时可打开（战斗中花 10 法力），关闭后重新洗牌

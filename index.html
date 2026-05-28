@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=59">
+<link rel="stylesheet" href="style.css?v=61">
 </head>
 <body>
 <div id="page-root">
@@ -17,7 +17,20 @@
   <div class="rail-key"><kbd data-i18n="kbd_wheel_down">滚轮↓</kbd> <span data-i18n="rail_wheel_down">弃右</span></div>
   <div class="rail-key"><kbd>Space</kbd> <span data-i18n="rail_space">结束回合</span></div>
   <div class="rail-key"><kbd>Enter</kbd> <span data-i18n="rail_enter">开战 / 重开</span></div>
+
+  <!-- 上一操作触发的卡堆：仅战斗中可见。点击 → 弹出 #modal-action-history -->
+  <div id="action-pile" class="action-pile hidden" title="">
+    <div class="action-pile-cards"></div>
+    <span class="action-pile-count hidden">+0</span>
+  </div>
 </aside>
+
+<!-- 上一操作详情模态：网格展示所有触发的卡 + kind 标签 -->
+<div id="modal-action-history" class="modal hidden">
+  <div class="modal-title" data-i18n="action_modal_title">上一操作 · 触发的卡牌</div>
+  <div class="action-history-grid" id="action-history-grid"></div>
+  <button class="modal-btn" id="action-history-close-btn" data-i18n="action_modal_close">关闭</button>
+</div>
 
 <div id="game-root">
   <!-- 兼容旧代码：$turn / $state 仍被 JS 引用，但视觉上不展示 -->
@@ -218,6 +231,6 @@
 
 </div><!-- /#page-root -->
 
-<script src="game.js?v=113"></script>
+<script src="game.js?v=116"></script>
 </body>
 </html>

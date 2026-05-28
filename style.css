@@ -2473,3 +2473,94 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
   opacity: 0.8;
   margin-bottom: 22px;
 }
+
+/* ─── 上一操作 · 左侧卡牌堆 ────────────────────────────────────────────── */
+/* 战斗中显示在 left-rail 底部；进入商店 / 阵亡时隐藏。卡牌随机微旋微移叠在一起，
+   最后一张在最上。点击 → 弹出 #modal-action-history。 */
+.action-pile {
+  position: relative;
+  width: 108px;
+  height: 148px;
+  margin: 18px auto 0;
+  cursor: pointer;
+  user-select: none;
+  /* 给整堆 hover 高亮预留空间 */
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+  transition: filter 0.18s ease;
+}
+.action-pile.hidden { display: none; }
+.action-pile:hover {
+  filter: drop-shadow(0 0 14px rgba(126, 177, 255, 0.85))
+          drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+}
+.action-pile-cards {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+/* 堆内每张卡：absolute 居中，transform 由 JS 写入 (rotate + translate)。
+   用 .modal-card 创建，但缩小到堆内尺寸；hover / 缩放只在详情模态里启用。 */
+.action-pile-cards .modal-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 比标准 modal-card 稍小，方便叠放 */
+  transform-origin: center center;
+  transition: transform 0.25s ease;
+  pointer-events: none;   /* 整堆为点击单元，子卡不单独响应 */
+  cursor: pointer;
+  /* 堆里禁用 modal-card 的 hover scale */
+}
+.action-pile-cards .modal-card:hover {
+  transform: inherit !important;
+  filter: none !important;
+}
+/* 角标：右下角小数字 "+N"（N = 总数 - 1，>= 2 张时显示） */
+.action-pile-count {
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  color: #ffd84a;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  padding: 1px 6px;
+  background: rgba(20, 26, 34, 0.85);
+  border: 1px solid rgba(255, 216, 74, 0.55);
+  border-radius: 10px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  z-index: 30;
+}
+.action-pile-count.hidden { display: none; }
+
+/* ─── 上一操作详情模态 ────────────────────────────────────────────────── */
+.action-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 110px);
+  gap: 22px 16px;
+  justify-content: center;
+  max-width: 880px;
+  max-height: 64vh;
+  overflow-y: auto;
+  padding: 4px 8px;
+}
+.action-card-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.action-card-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.action-card-label.kind-use      { background: rgba(120, 220, 120, 0.18); border-color: rgba(120, 220, 120, 0.45); color: #7adb7a; }
+.action-card-label.kind-discard  { background: rgba(255, 120, 120, 0.18); border-color: rgba(255, 120, 120, 0.45); color: #ff8888; }
+.action-card-label.kind-discover { background: rgba(201, 122, 255, 0.18); border-color: rgba(201, 122, 255, 0.45); color: #c97aff; }
+.action-card-label.kind-shuffle  { background: rgba(94, 178, 255, 0.18);  border-color: rgba(94, 178, 255, 0.45);  color: #5eb2ff; }
