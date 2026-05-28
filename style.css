@@ -2080,6 +2080,23 @@ kbd {
   100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
 }
 
+/* 宝箱掉落：向上喷射的细线光束（传奇捡宝感）。
+   起点：在 burst 中心附近（JS 设 left/top）；锚点 transform-origin: 50% 100% 让它从底部向上喷。 */
+.chest-drop-beam {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+  transform-origin: 50% 100%;
+  transform: translate(-50%, -100%) scaleY(0);
+  opacity: 0;
+}
+@keyframes chest-beam-rise {
+  0%   { transform: translate(-50%, -100%) scaleY(0); opacity: 0; }
+  18%  { transform: translate(-50%, -100%) scaleY(1); opacity: 1; }
+  60%  { transform: translate(calc(-50% + 0px), calc(-100% - var(--beam-rise, 60px) * 0.6)) scaleY(0.95); opacity: 1; }
+  100% { transform: translate(-50%, calc(-100% - var(--beam-rise, 60px))) scaleY(0.6); opacity: 0; }
+}
+
 /* 宝箱掉落：飞向背包的呼吸 orb（位置由 JS 在 requestAnimationFrame 内更新 left/top） */
 .chest-drop-orb {
   position: absolute;

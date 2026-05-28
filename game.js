@@ -10082,10 +10082,10 @@ function spawnHtmlFlash(screenX, screenY, text, color) {
 // canvas 坐标 (cx,cy) → 大光球（按 tier 颜色 & 大小）→ 停留 1s → 收缩为呼吸 orb →
 // Bezier 曲线飞向背包按钮 → 到位移除。背包按钮上的计数 badge 由 pendingPicksChanged 同步。
 const _CHEST_DROP_VISUAL = {
-  bronze:  { size: 70,  color: '#cd7f32', glow: '#ffae5a' },
-  silver:  { size: 95,  color: '#e8edf2', glow: '#ffffff' },
-  gold:    { size: 120, color: '#ffd84a', glow: '#ffae00' },
-  diamond: { size: 150, color: '#6bd9e8', glow: '#aff0ff' },
+  bronze:  { size: 35, color: '#cd7f32', glow: '#ffae5a', beams: 5,  beamH: 70  },
+  silver:  { size: 48, color: '#e8edf2', glow: '#ffffff', beams: 7,  beamH: 90  },
+  gold:    { size: 60, color: '#ffd84a', glow: '#ffae00', beams: 9,  beamH: 115 },
+  diamond: { size: 75, color: '#6bd9e8', glow: '#aff0ff', beams: 12, beamH: 140 },
 };
 function _canvasToScreenPos(canvasX, canvasY) {
   const canvas = document.getElementById('stage');
@@ -10119,6 +10119,30 @@ function _spawnChestDropFX(world, canvasX, canvasY, tier) {
   layer.appendChild(burst);
   // 在 1s 内播 burst → 0.6s 后开始转 orb（视觉上 burst 还在淡出，orb 已开始飞）
   setTimeout(() => burst.remove(), 1050);
+
+  // 1b) 传奇风格的向上喷射光束：tier 决定数量 + 高度，每条独立随机抖动 + 速度
+  for (let i = 0; i < conf.beams; i++) {
+    const beam = document.createElement('div');
+    beam.className = 'chest-drop-beam';
+    // 起点在 burst 范围内随机散开（横向 ±half 宽）
+    const jitterX = (Math.random() - 0.5) * conf.size * 0.8;
+    beam.style.left = (pos.x + jitterX) + 'px';
+    beam.style.top = pos.y + 'px';
+    const beamH = conf.beamH * (0.7 + Math.random() * 0.6);   // 0.7x–1.3x 随机
+    const beamW = 2 + Math.random() * 2.5;                     // 2–4.5px 粗细
+    beam.style.width = beamW.toFixed(1) + 'px';
+    beam.style.height = beamH.toFixed(0) + 'px';
+    beam.style.background = `linear-gradient(to top, ${conf.glow} 0%, ${conf.color} 35%, transparent 100%)`;
+    beam.style.boxShadow = `0 0 8px ${conf.glow}, 0 0 14px ${conf.color}`;
+    // 上升距离 + 时长各异（让束群有错位感）
+    const rise = beamH * (0.6 + Math.random() * 0.5);          // 上升到比身长更高的距离
+    const dur = 600 + Math.random() * 350;                     // 0.6-0.95s
+    const delay = Math.random() * 120;                          // 0-120ms 错峰
+    beam.style.setProperty('--beam-rise', rise.toFixed(0) + 'px');
+    beam.style.animation = `chest-beam-rise ${dur.toFixed(0)}ms cubic-bezier(0.16,0.85,0.3,1) ${delay.toFixed(0)}ms forwards`;
+    layer.appendChild(beam);
+    setTimeout(() => beam.remove(), dur + delay + 30);
+  }
 
   // 2) 1s 后：spawn orb 在 burst 中心，按 Bezier 飞向背包按钮
   setTimeout(() => {
