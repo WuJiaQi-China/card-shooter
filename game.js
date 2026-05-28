@@ -10676,7 +10676,14 @@ function setupInput(world, canvas) {
     const k = e.key.toLowerCase();
     // Idle / PostBattle 任意键开始（不再限定 Enter）
     if (world.battle.state === State.Idle || world.battle.state === State.PostBattle) {
-      world.battle.startBattle();
+      // 阵亡后任意键 → 返回主菜单（重置进度，让玩家从主界面重新选择）
+      if (world.battle.state === State.PostBattle) {
+        world.resetForNewGame();
+        world.battle.setState(State.Idle);
+        Events.emit('showStartScreen');
+      } else {
+        world.battle.startBattle();
+      }
       return;
     }
     if (world.battle.state !== State.Battle) return;
@@ -11920,6 +11927,8 @@ function setupStartScreen(world, tutorial) {
       setLang(LANG.current === 'zh' ? 'en' : 'zh');
     });
   }
+  // 外部触发主菜单（阵亡返回 / 教程结束等）
+  Events.on('showStartScreen', () => show());
 
   function show() {
     refreshLang();
