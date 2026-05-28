@@ -1238,9 +1238,11 @@ html, body {
   line-height: 1.2;
   margin-bottom: 4px;
   text-align: center;
-  /* 限制 2 行内显示 + overflow:hidden → _fitCardName 检测溢出后自动缩字号 */
-  max-height: 2.4em;
+  /* 强制单行显示 + overflow:hidden → _fitCardName 检测溢出后自动缩字号
+     避免长英文名（如 "Arcane Giant"）折成两行挤压描述区 */
+  white-space: nowrap;
   overflow: hidden;
+  max-width: 100%;
 }
 
 .card-desc {

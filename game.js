@@ -1262,7 +1262,7 @@ function _fitTextEl(el, minSize) {
   }
 }
 function _fitCardDesc(el) { _fitTextEl(el, 7); }
-function _fitCardName(el) { _fitTextEl(el, 8); }
+function _fitCardName(el) { _fitTextEl(el, 7); }
 function _fitAllCardDescs(container) {
   if (!container) return;
   container.querySelectorAll('.card-desc').forEach(_fitCardDesc);
