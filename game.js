@@ -8254,11 +8254,29 @@ function _startNextStartupItem(world) {
   const item = world._startupQueue.shift();
   world._startupCurrent = item;
   if (item.kind === 'pick') {
-    world.pendingShops = 1;
+    // 战斗中开背包触发的挑卡 (_pickDrainSource === 'inventory') 不该改 pendingShops，
+    // 否则挑完回战斗后下回合末会无中生有触发商店。其它源（opening / shop）保留原行为。
+    if (world._pickDrainSource !== 'inventory') {
+      world.pendingShops = 1;
+    }
     world.battle.setState(State.Reward);
   } else if (item.kind === 'inv') {
     world.battle.setState(State.Inventory);
   }
+  return true;
+}
+
+// 把累计的宝箱掉落卡（_chestPickQueue 内的 tier 列表）转入 _startupQueue 开始挑卡。
+// source: 'inventory' = 战斗中开背包触发；'shop' = 关卡末进商店前触发；'opening' = 开局宝箱战
+// （opening 由 _endChestStage 自己 push，不走这个 helper）。挑完后 continue 按 source 分发。
+function _enqueuePickDrain(world, source) {
+  if (!world._chestPickQueue || world._chestPickQueue.length === 0) return false;
+  for (const tier of world._chestPickQueue) {
+    world._startupQueue.push({ kind: 'pick', tier });
+  }
+  world._chestPickQueue = [];
+  world._pickDrainSource = source;
+  _startNextStartupItem(world);
   return true;
 }
 
@@ -12023,6 +12041,12 @@ function setupInventoryPanel(world) {
 
   function open() {
     if (world._discoverPending) return;   // 发现挂起 → 阻塞背包
+    // 有累计宝箱掉落卡 → 优先进挑卡模式（免费，不扣法力，挑完回战斗）；不实际打开背包整理界面。
+    // 若玩家想整理背包，挑完后再点一次背包按钮即可（届时 _chestPickQueue 已空）。
+    if (world._chestPickQueue && world._chestPickQueue.length > 0) {
+      _enqueuePickDrain(world, 'inventory');
+      return;
+    }
     const inBattle = world.battle.state === State.Battle;
     const cost = _effectiveOpenCost();
     if (inBattle) {
@@ -13564,7 +13588,21 @@ function setupLootPanel(world) {
         _startNextStartupItem(world);
         return;
       }
-      // 队列空了 → 启动正式战斗
+      // 队列空了 → 按"挑卡来源"分发
+      const source = world._pickDrainSource;
+      world._pickDrainSource = null;
+      if (source === 'inventory') {
+        // 战斗中开背包触发的挑卡 → 回战斗
+        world.battle.setState(State.Battle);
+        return;
+      }
+      if (source === 'shop') {
+        // 关卡末进商店前的挑卡 → 挑完后切到普通商店视图（state 仍是 Reward）
+        world.shopSlots = null;
+        showLoot();
+        return;
+      }
+      // 默认（opening 流程：chest battle 结束后的挑卡）→ 启动正式战斗
       world.battle.setState(State.Idle);
       world.battle.startBattle();
       return;
@@ -13654,8 +13692,19 @@ function setupLootPanel(world) {
     if (world.battle.state === State.Reward) renderPermUpgrades();
   });
   Events.on('stateChanged', s => {
-    if (s === State.Reward) showLoot();
-    else $panel.classList.add('hidden');
+    if (s === State.Reward) {
+      // 进 Reward 时若还有累计宝箱掉落卡 + 不在挑卡途中 → 自动先排队挑卡（source='shop'）
+      // _enqueuePickDrain 会再次 setState(Reward)，此 handler 重入时 _startupCurrent 已设
+      // → 走 showLoot() 渲染 pick 模式。
+      if (!world._startupCurrent
+          && world._chestPickQueue && world._chestPickQueue.length > 0) {
+        _enqueuePickDrain(world, 'shop');
+        return;
+      }
+      showLoot();
+    } else {
+      $panel.classList.add('hidden');
+    }
   });
   // 语言切换：如果面板正打开，重渲所有可见内容（候选卡、背包、提示），但不重新 roll
   Events.on('langChanged', () => {
