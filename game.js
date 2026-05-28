@@ -954,13 +954,13 @@ const I18N = {
     perm_speed: '速度 +50',
     perm_bought_toast: '✨ {label} → 已买 ×{n}',
     settings_close_aria: '关闭',
-    startup_pick_hint: '新手开局 · 选 1 张「{tier}」卡（免费）',
+    startup_pick_hint: '宝箱掉落 · 选 1 张「{tier}」卡（免费）· 还剩 {n} 张',
     // 开始界面
     start_title: '卡牌射击',
     start_sub: 'Card Shooter · Web Replica',
-    start_play: '▶ 开始游戏',
-    start_tutorial: '🎓 新手教程',
-    start_settings: '⚙ 设置',
+    start_play: '开始游戏',
+    start_tutorial: '新手教程',
+    start_settings: '设置',
     // 教程
     tutorial_skip: '跳过教程',
     tutorial_next: '下一步 →',
@@ -1100,13 +1100,13 @@ const I18N = {
     perm_speed: 'Speed +50',
     perm_bought_toast: '✨ {label} → bought ×{n}',
     settings_close_aria: 'Close',
-    startup_pick_hint: 'Starter pick · Choose 1 "{tier}" card (free)',
+    startup_pick_hint: 'Chest drop · Choose 1 "{tier}" card (free) · {n} left',
     // Start screen
     start_title: 'Card Shooter',
     start_sub: 'Card Shooter · Web Replica',
-    start_play: '▶ Start Game',
-    start_tutorial: '🎓 Tutorial',
-    start_settings: '⚙ Settings',
+    start_play: 'Start Game',
+    start_tutorial: 'Tutorial',
+    start_settings: 'Settings',
     // Tutorial
     tutorial_skip: 'Skip Tutorial',
     tutorial_next: 'Next →',
@@ -2443,6 +2443,18 @@ const ENEMY_TYPES = {
   // 颜色从深黄起（tier 0），每掉一次金币往白偏移；tier ≥ 10 → 纯白
   reward:    { name: '金球', icon: '💰', maxHp: 999, attack: 0, speed: 0, radius: 36, color: '#c08000', shape: 'circle', xpReward: 0, value: 0, _isReward: true,
                intents: [{ kind: 'melee', icon: '💰', cooldown: 0, desc: '奖励目标。击中获得金币（每阶段伤害门槛 +斐波那契；颜色由深黄变白）' }] },
+
+  // 宝箱怪：静止不动 / 无攻击。击杀时按 CHEST_DROP_PROBS 滚一张卡牌的稀有度，
+  // 飞向背包计数器；玩家开背包后从累计 picks 中逐张挑选（替换背包槽位）。
+  // _isChest 让 _availableEnemies 排除它们出普通波次随机池；只靠 startup 关卡或 stage 注入。
+  chest_bronze:  { name: '铜宝箱', icon: '📦', maxHp: 3,  attack: 0, speed: 0, radius: 18, color: '#cd7f32', shape: 'rect', xpReward: 0, value: 0, _isChest: true, chestTier: 'bronze',
+                   intents: [{ kind: 'wait', icon: '📦', cooldown: 999, desc: '宝箱。击杀掉落一张卡牌（86/10/3/1 铜银金钻）' }] },
+  chest_silver:  { name: '银宝箱', icon: '📦', maxHp: 6,  attack: 0, speed: 0, radius: 20, color: '#c0c8d4', shape: 'rect', xpReward: 0, value: 0, _isChest: true, chestTier: 'silver',
+                   intents: [{ kind: 'wait', icon: '📦', cooldown: 999, desc: '宝箱。击杀掉落一张卡牌（35/40/20/5 铜银金钻）' }] },
+  chest_gold:    { name: '金宝箱', icon: '📦', maxHp: 9,  attack: 0, speed: 0, radius: 22, color: '#ffd700', shape: 'rect', xpReward: 0, value: 0, _isChest: true, chestTier: 'gold',
+                   intents: [{ kind: 'wait', icon: '📦', cooldown: 999, desc: '宝箱。击杀掉落一张卡牌（30/50/20 银金钻）' }] },
+  chest_diamond: { name: '钻宝箱', icon: '📦', maxHp: 12, attack: 0, speed: 0, radius: 24, color: '#6bd9e8', shape: 'rect', xpReward: 0, value: 0, _isChest: true, chestTier: 'diamond',
+                   intents: [{ kind: 'wait', icon: '📦', cooldown: 999, desc: '宝箱。击杀掉落一张卡牌（50/50 金钻）' }] },
 };
 
 // 敌人 / 召唤物名称 + intent 描述的中英文翻译。intents_en 按 intent 顺序排列。
@@ -2471,6 +2483,10 @@ const ENEMY_TR = {
   cannoneer: { name_en: 'Cannon Mage',  intents_en: ['Rectangular AOE in 2 turns (length 280 × width 70, 5 dmg)'] },
   piercer:   { name_en: 'Crossbower',   intents_en: ['Piercing bolt in 2 turns (3 dmg, pierces 4 targets)'] },
   reward:    { name_en: 'Gold Orb',     intents_en: ['Reward target. Hit it for gold (per-stage damage threshold + Fibonacci; color brightens from dark gold to white).'] },
+  chest_bronze:  { name_en: 'Bronze Chest',  intents_en: ['Chest. Drops a card (86/10/3/1 bronze/silver/gold/diamond) on death'] },
+  chest_silver:  { name_en: 'Silver Chest',  intents_en: ['Chest. Drops a card (35/40/20/5 bronze/silver/gold/diamond) on death'] },
+  chest_gold:    { name_en: 'Gold Chest',    intents_en: ['Chest. Drops a card (30/50/20 silver/gold/diamond) on death'] },
+  chest_diamond: { name_en: 'Diamond Chest', intents_en: ['Chest. Drops a card (50/50 gold/diamond) on death'] },
 };
 
 // 敌人按 minWave 解锁（每个 ENEMY_TYPES 上有 minWave 字段）：随累计波次提升，可 spawn 种类只增不减。
@@ -2480,6 +2496,7 @@ function _availableEnemies(waveNumber) {
   for (const k in ENEMY_TYPES) {
     const def = ENEMY_TYPES[k];
     if (def._isReward) continue;                        // 金球不入波次池
+    if (def._isChest) continue;                         // 宝箱不入随机池（由 startup / 注入决定）
     if ((def.minWave || 1) <= waveNumber) out.push(k);
   }
   return out;
@@ -4506,6 +4523,8 @@ const CANNON_DEFS = {
     icon: '⛓', color: '#a08060',
     // 炮台模型配色：底座 / 描边 / 炮管
     baseColor: '#8a5a2c', strokeColor: '#3a200a', barrelColor: '#d8a878',
+    // 选此炮台开局时自带的铜级主卡 family
+    defaultMainCard: 'slowcapsule',
     onFire(self, world, tpl) {
       self._shotCount = ((self._shotCount || 0) + 1) % 3;
       if (self._shotCount === 0) {
@@ -4517,6 +4536,7 @@ const CANNON_DEFS = {
     id: 'summon', name: '召唤炮台', desc: '每发射2次，获得+1实体化。',
     icon: '🪄', color: '#a060d0',
     baseColor: '#4a2a6a', strokeColor: '#1a0830', barrelColor: '#c89edd',
+    defaultMainCard: 'swordsman',
     onFire(self, world, tpl) {
       self._shotCount = ((self._shotCount || 0) + 1) % 2;
       if (self._shotCount === 0) {
@@ -4529,6 +4549,7 @@ const CANNON_DEFS = {
     icon: '⚡', color: '#7eb1ff',
     baseColor: '#4a6fa5', strokeColor: '#1a2840', barrelColor: '#aed0ff',
     mainCostMod: 1,
+    defaultMainCard: 'potato',
     onFire(self, world, tpl) {
       tpl.waveCount += 1;
     },
@@ -8220,13 +8241,9 @@ function _clearDiscoverState(world) {
 // ─── 新手开局 picks 队列 ────────────────────────────────────────────
 // 顺序：3 张铜卡 3 选 1 → 1 张银卡 3 选 1 → 背包整理（可调主卡） → 开战
 function _makeStartupQueue() {
-  return [
-    { kind: 'pick', tier: 'bronze' },
-    { kind: 'pick', tier: 'bronze' },
-    { kind: 'pick', tier: 'bronze' },
-    { kind: 'pick', tier: 'silver' },
-    { kind: 'inv' },
-  ];
+  // v9：开局改为宝箱战 → 不再硬编码 3 铜 1 银。
+  // 队列由宝箱怪击杀逐张 push（tier 由 CHEST_DROP_PROBS 滚出）。
+  return [];
 }
 // 推进到下一个 startup item；返回 true = 已开始处理新 item，false = 队列空
 function _startNextStartupItem(world) {
@@ -8276,6 +8293,26 @@ function _shopFamilies() {
 // 按 RARITY_PROB[shopLv] 加权随机选一个 tier
 function _rollTier(shopLv) {
   const p = RARITY_PROB[clamp(shopLv, 1, 16)];
+  const r = Math.random();
+  let acc = 0;
+  for (const k of TIER_KEYS) {
+    acc += p[k] || 0;
+    if (r < acc) return k;
+  }
+  return TIER_KEYS[0];
+}
+
+// ─── 宝箱怪掉落概率 ────────────────────────────────────────────────────
+// 每种稀有度宝箱被击杀时掉落的卡牌稀有度概率。
+// 钻 = 50/50 金钻；金 = 30 银 50 金 20 钻；银 = 35/40/20/5；铜 = 86/10/3/1。
+const CHEST_DROP_PROBS = {
+  bronze:  { bronze: 0.86, silver: 0.10, gold: 0.03, diamond: 0.01 },
+  silver:  { bronze: 0.35, silver: 0.40, gold: 0.20, diamond: 0.05 },
+  gold:    { bronze: 0.00, silver: 0.30, gold: 0.50, diamond: 0.20 },
+  diamond: { bronze: 0.00, silver: 0.00, gold: 0.50, diamond: 0.50 },
+};
+function _rollChestDropTier(chestTier) {
+  const p = CHEST_DROP_PROBS[chestTier] || CHEST_DROP_PROBS.bronze;
   const r = Math.random();
   let acc = 0;
   for (const k of TIER_KEYS) {
@@ -9021,7 +9058,28 @@ class BattleManager {
     this._rewardHits = 0;
     this._rewardTurnsRemaining = 0;
     this._stageEndPending = false;
+    // 开局宝箱战：跳过常规波次系统，直接 spawn 6 个宝箱（3 铜+2 银+1 金）
+    if (this.world._openingChestPhase) {
+      this._inChestStage = true;
+      this.nextWaveTypes = null;
+      this.setTurn('player');
+      this.enemyTurnTimer = 0;
+      this.setState(State.PreBattle);
+      setTimeout(() => {
+        this.setState(State.Battle);
+        this._spawnOpeningChests();
+        // waveNumber 不增；保持 0 = "无难度参考"
+        // waveInStage 设为 1 让 stageChanged UI 不报零
+        this.waveInStage = 1;
+        this.stageTurn = 1;
+        Events.emit('stageChanged');
+      }, 800);
+      return;
+    }
+    this._inChestStage = false;
     this._planNextWave();
+    // 本关宝箱注入计划（stage 1 也可能出宝箱：shopLevel=1 → 31.6%）
+    this._rollStageChestPlan();
     this.setTurn('player');
     this.enemyTurnTimer = 0;
     this.setState(State.PreBattle);
@@ -9035,6 +9093,29 @@ class BattleManager {
       Events.emit('stageChanged');
       this._planNextWave();
     }, 800);
+  }
+
+  // 开局宝箱战 spawn：3 铜+2 银+1 金，散布在战场中部一带
+  _spawnOpeningChests() {
+    const w = this.world;
+    const layout = [
+      { type: 'chest_bronze', x: w.w * 0.20, y: w.h * 0.30 },
+      { type: 'chest_bronze', x: w.w * 0.50, y: w.h * 0.22 },
+      { type: 'chest_bronze', x: w.w * 0.80, y: w.h * 0.30 },
+      { type: 'chest_silver', x: w.w * 0.28, y: w.h * 0.55 },
+      { type: 'chest_silver', x: w.w * 0.72, y: w.h * 0.55 },
+      { type: 'chest_gold',   x: w.w * 0.50, y: w.h * 0.45 },
+    ];
+    for (const s of layout) {
+      const e = new Enemy(s.x, s.y, s.type, w);
+      e.speed = 0;
+      // 梯形内 clamp
+      const tb = trapBounds(w, e.y);
+      e.x = clamp(e.x, tb.leftX + e.radius + 8, tb.rightX - e.radius - 8);
+      e.y = clamp(e.y, 50, w.h - 90);
+      w.enemies.push(e);
+    }
+    toast(LANG.current === 'en' ? '★ Chest Battle — kill all chests for cards ★' : '★ 宝箱战 — 击杀宝箱获得卡牌 ★', 2.0);
   }
 
   // 当前关卡内"何时刷波"的硬编码时间表（玩家可见的回合号 1..13）
@@ -9329,6 +9410,13 @@ class BattleManager {
     const w = this.world;
     // 教程模式：完全跳过波次系统（由教程脚本控制 spawn）
     if (w._tutorialMode) return;
+    // 开局宝箱战：跳过常规波次刷新 + 无回合上限。
+    // 死亡检测由 enemyDied 监听器处理（_maybeEndChestStage）。
+    if (this._inChestStage) {
+      // stageTurn 仍然推进让 UI 显示玩家进度，但不刷波 / 不进奖励回合
+      this.stageTurn++;
+      return;
+    }
     // 奖励回合期：金球已 spawn，倒计时存在 _stageRewardTurns 个玩家回合
     // 每个敌方回合 tick 一次，归零时结束关卡（清掉残留金球，进入商店）
     if (this.rewardTurn) {
@@ -9374,6 +9462,26 @@ class BattleManager {
       }
     }
     // 中间空场（非 stage 末尾、非时间表）：什么也不做。等下一个时间表点刷新。
+  }
+
+  // 宝箱战结束：清 chest 阶段标志，把 _startupQueue 排入背包整理 → 启动逐张挑卡
+  // 队列全部空时（最后一张 pick 完）shop modal 的 continue 会 setState(Idle)+startBattle()
+  // 此时 _openingChestPhase 已 false → 走常规第一关流程
+  _endChestStage() {
+    const w = this.world;
+    if (!this._inChestStage) return;
+    this._inChestStage = false;
+    w._openingChestPhase = false;
+    // 把所有累计 pick 排入新手 queue（按 push 顺序：先死的先挑）；末尾加个 inv 让玩家整理后再开战
+    if (w._chestPickQueue && w._chestPickQueue.length > 0) {
+      for (const tier of w._chestPickQueue) {
+        w._startupQueue.push({ kind: 'pick', tier });
+      }
+      w._chestPickQueue = [];
+    }
+    w._startupQueue.push({ kind: 'inv' });
+    // 触发挑卡流程
+    _startNextStartupItem(w);
   }
 
   // 关卡结束：触发商店（pendingShops++ + resumeAfterLoot），下一个玩家回合 end 时开店。
@@ -9433,6 +9541,8 @@ class BattleManager {
     // 关卡内"洗入手牌"等临时卡也清空（这些 hook 在 deck 上由未来的卡牌系统处理 —
     // 当前 resetForBattle 已经把 hand/discard 重洗、临时卡若标记 _stageScoped 也丢弃）
     w.deck.resetForBattle();
+    // 滚本关宝箱注入计划（混入随机非奖励波）
+    this._rollStageChestPlan();
     // 立即 spawn 新关第 1 波（与 startBattle 行为一致）
     this._spawnPlannedWave();
     this.waveNumber++;
@@ -9440,6 +9550,29 @@ class BattleManager {
     this.stageTurn = 1;
     Events.emit('stageChanged');
     this._planNextWave();
+  }
+
+  // 关卡开始时滚一次：sqrt(shopLevel*10)*10/100 决定本关出几个宝箱。
+  // guaranteed = floor(p)；剩余概率 = p - floor(p) 滚一次决定是否 +1。
+  // 每个宝箱独立分配到一个随机非奖励波；tier 走 RARITY_PROB[shopLevel]。
+  _rollStageChestPlan() {
+    this._stageChestPlan = {};
+    const w = this.world;
+    const lv = clamp(w.shopLevel || 1, 1, 16);
+    const p = Math.sqrt(lv * 10) * 10 / 100;
+    const guaranteed = Math.floor(p);
+    const extra = (Math.random() < (p - guaranteed)) ? 1 : 0;
+    const total = guaranteed + extra;
+    if (total <= 0) return;
+    const waveCount = this._stageWaveCount();
+    // 候选波：1..waveCount（reward 不算波次，所以全部都可注入）
+    for (let i = 0; i < total; i++) {
+      const wi = 1 + Math.floor(Math.random() * waveCount);
+      const tier = _rollTier(lv);
+      const chestType = 'chest_' + tier;
+      if (!this._stageChestPlan[wi]) this._stageChestPlan[wi] = [];
+      this._stageChestPlan[wi].push(chestType);
+    }
   }
 
   _spawnPlannedWave() {
@@ -9470,6 +9603,17 @@ class BattleManager {
         e.waveGoldDrop = perGold;
         e.waveXpDrop = perXp;
       }
+    }
+    // 注入本关计划好的宝箱（如有）。所有调用点都是 spawn 前 waveInStage++，
+    // 因此"即将刷新的波号" = waveInStage + 1（1-based）。
+    const currentWaveIndex = this.waveInStage + 1;
+    const plannedChests = this._stageChestPlan && this._stageChestPlan[currentWaveIndex];
+    if (plannedChests && plannedChests.length > 0) {
+      for (const chestType of plannedChests) {
+        const e = this._spawnEnemy(chestType);
+        if (e) { e.waveGoldDrop = 0; e.waveXpDrop = 0; }
+      }
+      delete this._stageChestPlan[currentWaveIndex];
     }
     this.nextWaveTypes = null;
   }
@@ -9600,9 +9744,14 @@ class World {
     this._lastShopRefreshCount = 0;     // 上一家店打烊时的 refreshCount（用于跨店折扣）
     // 删除卡牌花费：初始 10，每次翻倍（10/20/40/...）；阵亡重开清零
     this.removalCount = 0;
-    // 开局新手 picks 队列：3 张铜卡 3 选 1 + 1 张银卡 3 选 1 + 背包整理
+    // 开局新手 picks 队列：宝箱战开始时为空，宝箱怪击杀时按掉落概率 push picks
     this._startupQueue = _makeStartupQueue();
     this._startupCurrent = null;
+    // 开局宝箱战阶段：startBattle 检测此 flag → spawn 6 个宝箱（3 铜 + 2 银 + 1 金）
+    // 全清后 → 走 _startupQueue 流程让玩家挑卡。死亡后重开会重置回 true。
+    this._openingChestPhase = true;
+    // 累计已掉落但还未开启的卡数（背包按钮 badge 显示）
+    this._pendingPickCount = 0;
     // 计分系统：杀敌、升级、连击触发等都给分；本局结束保存最高分
     this.score = 0;
     let savedHigh = 0;
@@ -9665,6 +9814,10 @@ class World {
     this.deck?.clearStageSnapshot();   // 关卡 snapshot 清空（炉石模式）
     this._startupQueue = _makeStartupQueue();
     this._startupCurrent = null;
+    // 阵亡重开 → 再次进入开局宝箱战
+    this._openingChestPhase = true;
+    this._pendingPickCount = 0;
+    Events.emit('pendingPicksChanged', 0);
     this.permUpgrades = { damage: 0, pierce: 0, bound: 0, speed: 0 };
     this.removedFamilyIds = new Set();
     this._shotBuffs = [];
@@ -9923,6 +10076,100 @@ function spawnHtmlFlash(screenX, screenY, text, color) {
   el.style.top = screenY + 'px';
   ensureFxLayer().appendChild(el);
   setTimeout(() => el.remove(), 1100);
+}
+
+// ─── 宝箱掉落 FX：传奇风格 ──────────────────────────────────────────────
+// canvas 坐标 (cx,cy) → 大光球（按 tier 颜色 & 大小）→ 停留 1s → 收缩为呼吸 orb →
+// Bezier 曲线飞向背包按钮 → 到位移除。背包按钮上的计数 badge 由 pendingPicksChanged 同步。
+const _CHEST_DROP_VISUAL = {
+  bronze:  { size: 70,  color: '#cd7f32', glow: '#ffae5a' },
+  silver:  { size: 95,  color: '#e8edf2', glow: '#ffffff' },
+  gold:    { size: 120, color: '#ffd84a', glow: '#ffae00' },
+  diamond: { size: 150, color: '#6bd9e8', glow: '#aff0ff' },
+};
+function _canvasToScreenPos(canvasX, canvasY) {
+  const canvas = document.getElementById('stage');
+  if (!canvas) return { x: canvasX, y: canvasY };
+  const cr = canvas.getBoundingClientRect();
+  return {
+    x: cr.left + (canvasX / canvas.width) * cr.width,
+    y: cr.top + (canvasY / canvas.height) * cr.height,
+  };
+}
+function _inventoryBtnCenter() {
+  const btn = document.getElementById('open-inventory-btn');
+  if (!btn) return { x: window.innerWidth - 60, y: 50 };
+  const r = btn.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+function _spawnChestDropFX(world, canvasX, canvasY, tier) {
+  const conf = _CHEST_DROP_VISUAL[tier] || _CHEST_DROP_VISUAL.bronze;
+  const pos = _canvasToScreenPos(canvasX, canvasY);
+  const layer = ensureFxLayer();
+
+  // 1) 大光球：径向渐变 + 缩放扩张 + 呼吸；1s 后销毁
+  const burst = document.createElement('div');
+  burst.className = 'chest-drop-burst';
+  burst.style.left = pos.x + 'px';
+  burst.style.top = pos.y + 'px';
+  burst.style.width = conf.size + 'px';
+  burst.style.height = conf.size + 'px';
+  burst.style.background = `radial-gradient(circle, ${conf.glow} 0%, ${conf.color} 45%, transparent 75%)`;
+  burst.style.boxShadow = `0 0 ${(conf.size * 0.6) | 0}px ${conf.glow}, 0 0 ${(conf.size * 1.0) | 0}px ${conf.color}`;
+  layer.appendChild(burst);
+  // 在 1s 内播 burst → 0.6s 后开始转 orb（视觉上 burst 还在淡出，orb 已开始飞）
+  setTimeout(() => burst.remove(), 1050);
+
+  // 2) 1s 后：spawn orb 在 burst 中心，按 Bezier 飞向背包按钮
+  setTimeout(() => {
+    const orb = document.createElement('div');
+    orb.className = 'chest-drop-orb';
+    orb.style.left = pos.x + 'px';
+    orb.style.top = pos.y + 'px';
+    const orbSize = 22 + (tier === 'diamond' ? 6 : tier === 'gold' ? 4 : tier === 'silver' ? 2 : 0);
+    orb.style.width = orbSize + 'px';
+    orb.style.height = orbSize + 'px';
+    orb.style.background = `radial-gradient(circle, ${conf.glow} 0%, ${conf.color} 60%, transparent 95%)`;
+    orb.style.boxShadow = `0 0 12px ${conf.glow}, 0 0 24px ${conf.color}`;
+    layer.appendChild(orb);
+
+    // Bezier 路径：起点 → 控制点（垂直随机偏移 + 横向随机偏移）→ 终点（背包按钮）
+    const target = _inventoryBtnCenter();
+    const dx = target.x - pos.x, dy = target.y - pos.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    // 控制点：路径中点上方 + 横向随机偏（让曲线弧形不重样）
+    const midX = (pos.x + target.x) / 2;
+    const midY = (pos.y + target.y) / 2;
+    const perpX = -dy / dist;
+    const perpY = dx / dist;
+    const curveOffset = (Math.random() < 0.5 ? -1 : 1) * (dist * 0.25 + Math.random() * 80);
+    const ctrlX = midX + perpX * curveOffset;
+    const ctrlY = midY + perpY * curveOffset - Math.abs(curveOffset) * 0.15;
+    const dur = 900 + Math.random() * 200;   // 0.9-1.1s 飞行
+    const t0 = performance.now();
+    function tick() {
+      if (!orb.isConnected) return;
+      const now = performance.now();
+      const t = Math.min(1, (now - t0) / dur);
+      // 二次 Bezier
+      const u = 1 - t;
+      const x = u * u * pos.x + 2 * u * t * ctrlX + t * t * target.x;
+      const y = u * u * pos.y + 2 * u * t * ctrlY + t * t * target.y;
+      orb.style.left = x + 'px';
+      orb.style.top = y + 'px';
+      if (t >= 1) {
+        // 到达背包按钮：闪一下 + 触发 badge 动效（badge 由 pendingPicksChanged 已经早就更新过了）
+        orb.style.transition = 'transform 0.18s ease-out, opacity 0.18s ease-out';
+        orb.style.transform = 'translate(-50%, -50%) scale(0.3)';
+        orb.style.opacity = '0';
+        Events.emit('chestPickArrived', tier);
+        setTimeout(() => orb.remove(), 220);
+        return;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }, 1000);
 }
 
 // 卡离场（use / discard / buff）粒子爆裂：在卡槽中心 spawn N 个 div，向四周飞散
@@ -11715,10 +11962,31 @@ function setupInventoryPanel(world) {
 
   function _refreshButton() {
     const cost = _effectiveOpenCost();
+    // 重设文字会清掉子节点；先把 badge 摘下来再重附（保留 badge 状态）
+    const badge = $btn.querySelector('.inv-picks-badge');
     $btn.textContent = t('open_bag', { n: cost });
+    if (badge) $btn.appendChild(badge);
     $btn.classList.toggle('discounted', (world.inventoryDiscount || 0) > 0);
   }
   Events.on('langChanged', _refreshButton);
+
+  // 待挑卡 badge：宝箱掉落累计时显示数字，归零时隐藏
+  const $badge = document.getElementById('inv-picks-badge');
+  function _refreshBadge() {
+    if (!$badge) return;
+    const n = world._pendingPickCount || 0;
+    $badge.textContent = String(n);
+    $badge.classList.toggle('hidden', n <= 0);
+  }
+  Events.on('pendingPicksChanged', _refreshBadge);
+  // orb 到达背包：bounce 动画
+  Events.on('chestPickArrived', () => {
+    if (!$badge || $badge.classList.contains('hidden')) return;
+    $badge.classList.remove('punch');
+    void $badge.offsetWidth;
+    $badge.classList.add('punch');
+  });
+  _refreshBadge();
 
   // 折扣变化时：刷新按钮文字 + 闪一下动画（弹一下、蓝光、变蓝）
   Events.on('inventoryDiscountChanged', () => {
@@ -12108,6 +12376,12 @@ function setupCannonSelect(world) {
       `;
       el.addEventListener('click', () => {
         world.cannon = c;
+        // 起手主卡：每个炮台带一张专属铜级主卡（缓释胶囊 / 剑士 / 土豆）
+        const mainFid = c.def.defaultMainCard;
+        if (mainFid && CARD_DATA[mainFid]?.tiers?.bronze) {
+          world.deck.replaceAt(0, mkCard(mainFid, 'bronze'));
+          world.deck.resetForBattle();
+        }
         Events.emit('cannonChanged', c);
         $modal.classList.add('hidden');
         const cb = pendingCallback;
@@ -12133,17 +12407,20 @@ function setupCannonSelect(world) {
 
 // ---- 开始界面（首次启动 / 重开返回主菜单时）-------------------------------
 // 三个按钮：开始游戏 / 新手教程 / 设置。开始游戏走 cannon-select；教程进入引导流程。
+// 背景：怪兽 / 卡牌 emoji 不断从顶部下落 + 自转。
+// 点击"开始游戏" → 子弹从随机角度飞向按钮 → 按钮被击飞 → 进入下一步。
 function setupStartScreen(world, tutorial) {
   const $modal = document.getElementById('modal-start');
   const $play = document.getElementById('start-play-btn');
   const $tut = document.getElementById('start-tutorial-btn');
   const $settings = document.getElementById('start-settings-btn');
   const $lang = document.getElementById('start-lang-toggle-btn');
+  const $bgFx = document.getElementById('start-bg-fx');
   if (!$modal || !$play) return { show: () => {}, hide: () => {} };
 
-  // 语言按钮：显示双语标签，点击切换；通过 langChanged 同步标签
+  // 语言按钮：固定显示"🌐 语言 / Language"，点击切换；
   function refreshLang() {
-    if ($lang) $lang.textContent = LANG.current === 'zh' ? '🌐 English / 中文' : '🌐 中文 / English';
+    if ($lang) $lang.textContent = LANG.current === 'zh' ? '语言' : 'Language';
   }
   Events.on('langChanged', refreshLang);
   if ($lang) {
@@ -12155,6 +12432,91 @@ function setupStartScreen(world, tutorial) {
   }
   // 外部触发主菜单（阵亡返回 / 教程结束等）
   Events.on('showStartScreen', () => show());
+
+  // ── 背景：下落 emoji 池（懒构造）──
+  let _emojiPool = null;
+  function buildEmojiPool() {
+    if (_emojiPool) return _emojiPool;
+    const pool = [];
+    // 卡牌 family emoji（来自 CARD_DATA）
+    try {
+      for (const fid in CARD_DATA) {
+        const e = CARD_DATA[fid] && CARD_DATA[fid].emoji;
+        if (e) pool.push(e);
+      }
+    } catch (err) {}
+    // 敌人 icon（来自 ENEMY_TYPES，排除奖励金球）
+    try {
+      for (const eid in ENEMY_TYPES) {
+        const def = ENEMY_TYPES[eid];
+        if (!def || def._isReward) continue;
+        if (def.icon) pool.push(def.icon);
+      }
+    } catch (err) {}
+    // fallback：怕 CARD_DATA / ENEMY_TYPES 不可用时空池
+    if (pool.length === 0) pool.push('🎯', '💀', '🃏', '⚔', '🛡', '🔥', '👹');
+    _emojiPool = pool;
+    return pool;
+  }
+
+  let _spawnTimer = 0;
+  const MAX_EMOJI = 40;           // 硬上限：防失控（页面隐藏时 animationend 不触发）
+  const SPAWN_INTERVAL_MS = 380;  // ≈ 2.6/秒；配合 8–14s 落速 → 稳态 ~25
+  function spawnOneEmoji() {
+    if (!$bgFx || $modal.classList.contains('hidden')) return;
+    // 硬上限：超出就先 trim 掉最老的（动画 end 未触发的兜底）
+    while ($bgFx.children.length >= MAX_EMOJI) {
+      $bgFx.firstChild?.remove();
+    }
+    const pool = buildEmojiPool();
+    const ch = pool[(Math.random() * pool.length) | 0];
+    const el = document.createElement('span');
+    el.className = 'fx-falling-emoji';
+    el.textContent = ch;
+    const size = 22 + Math.random() * 30;            // 22–52px
+    const leftPct = Math.random() * 100;             // 0–100%
+    const dur = 8 + Math.random() * 6;               // 8–14s 落完
+    const spinTotal = (Math.random() * 900 + 360);   // 360–1260deg
+    const spinDir = Math.random() < 0.5 ? -1 : 1;
+    const drift = (Math.random() * 120 - 60);        // 横向 ±60px 漂移
+    const opacity = 0.3 + Math.random() * 0.4;       // 0.3–0.7
+    el.style.left = leftPct.toFixed(2) + '%';
+    el.style.fontSize = size.toFixed(1) + 'px';
+    el.style.animationDuration = dur.toFixed(2) + 's';
+    el.style.setProperty('--fx-spin', (spinTotal * spinDir).toFixed(1) + 'deg');
+    el.style.setProperty('--fx-drift', drift.toFixed(1) + 'px');
+    el.style.setProperty('--fx-opacity', opacity.toFixed(2));
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+    $bgFx.appendChild(el);
+  }
+  // 用 setInterval 调度而非 rAF：避免 modal 隐藏后还在 tick
+  function startSpawner() {
+    stopSpawner();
+    // 先撒一小批，错开 animationDelay 让初始铺满屏，避免顶部"井喷"
+    for (let i = 0; i < 12; i++) {
+      spawnOneEmoji();
+      const last = $bgFx.lastChild;
+      if (last) {
+        const dur = parseFloat(last.style.animationDuration) || 10;
+        last.style.animationDelay = (-Math.random() * dur).toFixed(2) + 's';
+      }
+    }
+    _spawnTimer = setInterval(spawnOneEmoji, SPAWN_INTERVAL_MS);
+  }
+  function stopSpawner() {
+    if (_spawnTimer) { clearInterval(_spawnTimer); _spawnTimer = 0; }
+    if ($bgFx) $bgFx.innerHTML = '';
+  }
+  // 页面隐藏时直接停 → 防止后台累积；显示时若 modal 还开着则重启
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (_spawnTimer) { clearInterval(_spawnTimer); _spawnTimer = 0; }
+    } else if (!$modal.classList.contains('hidden')) {
+      // 清掉所有可能滞留的 emoji 再重新铺
+      if ($bgFx) $bgFx.innerHTML = '';
+      startSpawner();
+    }
+  });
 
   function show() {
     refreshLang();
@@ -12170,6 +12532,10 @@ function setupStartScreen(world, tutorial) {
     document.getElementById('modal-inventory')?.classList.add('hidden');
     document.getElementById('modal-tutorial-end')?.classList.add('hidden');
     document.getElementById('tutorial-overlay')?.classList.add('hidden');
+    // 复位按钮（如果上一次被击飞 + 隐藏）
+    $play.classList.remove('start-shot-away');
+    $play.style.visibility = 'visible';
+    startSpawner();
   }
   function hide() {
     $modal.classList.add('hidden');
@@ -12177,15 +12543,89 @@ function setupStartScreen(world, tutorial) {
     // 离开开始界面：顺手关闭设置面板，避免它停留在居中位置
     document.getElementById('settings-panel')?.classList.add('hidden');
     document.getElementById('settings-btn')?.classList.remove('active');
+    stopSpawner();
   }
 
+  // ── 子弹击飞按钮 ──
+  // 从随机屏幕边缘外飞向按钮中心；命中后按钮加 .start-shot-away（沿入射方向被弹开）。
+  function shootButtonAndProceed(btn, onDone) {
+    const rect = btn.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    // 随机起点：从屏幕外四边随机选一点
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const side = (Math.random() * 4) | 0;       // 0=top,1=right,2=bottom,3=left
+    let sx, sy;
+    if (side === 0)      { sx = Math.random() * vw; sy = -60; }
+    else if (side === 1) { sx = vw + 60;            sy = Math.random() * vh; }
+    else if (side === 2) { sx = Math.random() * vw; sy = vh + 60; }
+    else                 { sx = -60;                sy = Math.random() * vh; }
+
+    const bullet = document.createElement('div');
+    bullet.className = 'start-flying-bullet';
+    bullet.textContent = '🔸';
+    bullet.style.left = sx + 'px';
+    bullet.style.top = sy + 'px';
+    // 朝按钮中心的角度（用于子弹的旋转方向 + 击飞延伸向量）
+    const dx = cx - sx, dy = cy - sy;
+    const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+    bullet.style.setProperty('--rot', angleDeg.toFixed(1) + 'deg');
+    document.body.appendChild(bullet);
+    // 触发位移过渡（下一帧）
+    requestAnimationFrame(() => {
+      bullet.style.setProperty('--tx', dx.toFixed(1) + 'px');
+      bullet.style.setProperty('--ty', dy.toFixed(1) + 'px');
+      bullet.classList.add('firing');
+    });
+
+    // 命中：子弹移除，按钮被击飞（沿原入射方向继续 + 自转 + 淡出）
+    const onArrive = () => {
+      bullet.removeEventListener('transitionend', onArrive);
+      bullet.remove();
+      // 爆点
+      const burst = document.createElement('div');
+      burst.className = 'start-impact-burst';
+      burst.textContent = '💥';
+      burst.style.left = cx + 'px';
+      burst.style.top  = cy + 'px';
+      document.body.appendChild(burst);
+      burst.addEventListener('animationend', () => burst.remove(), { once: true });
+      // 击飞向量：沿原入射方向延伸 + 上扬一点（视觉更"被打飞"）
+      const len = Math.hypot(dx, dy) || 1;
+      const flyDist = 720;
+      const flyX = (dx / len) * flyDist;
+      const flyY = (dy / len) * flyDist - 180;       // 略上扬
+      const flyRot = (Math.random() < 0.5 ? -1 : 1) * (540 + Math.random() * 540);
+      btn.style.setProperty('--fly-x', flyX.toFixed(0) + 'px');
+      btn.style.setProperty('--fly-y', flyY.toFixed(0) + 'px');
+      btn.style.setProperty('--fly-rot', flyRot.toFixed(0) + 'deg');
+      btn.classList.add('start-shot-away');
+      let done = false;
+      const finish = () => { if (done) return; done = true; if (onDone) onDone(); };
+      btn.addEventListener('animationend', finish, { once: true });
+      // 兜底：animationend 在某些 headless / 隐藏页面下不触发
+      setTimeout(finish, 700);   // 击飞动画 600ms + 100ms 余量
+    };
+    bullet.addEventListener('transitionend', onArrive, { once: true });
+    // 兜底：万一 transitionend 没触发（被 layout 抢了），400ms 后强行收尾
+    setTimeout(() => {
+      if (bullet.isConnected) onArrive();
+    }, 400);
+  }
+
+  let _firing = false;
   $play.addEventListener('click', () => {
+    if (_firing) return;
+    _firing = true;
     playSfx('uiClick', 0);
     try { localStorage.setItem('cs_seen_start', '1'); } catch (e) {}
-    hide();
-    // 进入正常流程：若无炮台 → 弹炮台选择；否则直接开战。
-    if (!world.cannon) Events.emit('requestCannonSelect', () => world.battle.startBattle());
-    else world.battle.startBattle();
+    shootButtonAndProceed($play, () => {
+      _firing = false;
+      hide();
+      // 进入正常流程：若无炮台 → 弹炮台选择；否则直接开战。
+      if (!world.cannon) Events.emit('requestCannonSelect', () => world.battle.startBattle());
+      else world.battle.startBattle();
+    });
   });
   $tut.addEventListener('click', () => {
     playSfx('uiClick', 0);
@@ -12766,7 +13206,13 @@ function setupLootPanel(world) {
       return;
     }
     if (isStartupPick()) {
-      $hint.textContent = t('startup_pick_hint', { tier: tierLabel(world._startupCurrent.tier) });
+      // 剩余张数 = 当前正在挑的这张 + 队列里还排着的 pick 项
+      const queued = (world._startupQueue || []).filter(it => it && it.kind === 'pick').length;
+      const remaining = queued + 1;
+      $hint.textContent = t('startup_pick_hint', {
+        tier: tierLabel(world._startupCurrent.tier),
+        n: remaining,
+      });
       return;
     }
     if (candidatesLeft() === 0) {
@@ -13087,6 +13533,9 @@ function setupLootPanel(world) {
     // 新手 pick 阶段：进下一个 startup item
     if (isStartupPick()) {
       world._startupCurrent = null;
+      // 挑卡完成 → 待挑数 -1（同步 badge）
+      world._pendingPickCount = Math.max(0, (world._pendingPickCount || 0) - 1);
+      Events.emit('pendingPicksChanged', world._pendingPickCount);
       if (world._startupQueue.length > 0) {
         _startNextStartupItem(world);
         return;
@@ -13524,15 +13973,19 @@ function main() {
   // 敌人被玩家击杀 → 爆出金币球（先散落周围再飞向条） + 计分
   // 使用 _spawnPlannedWave 时分配给敌人的 waveGoldDrop；fallback 用 xpReward 兜底（旧字段沿用）
   Events.on('enemyDied', enemy => {
+    // 宝箱死亡：跳过金币掉落和计分；走专门的卡牌掉落流程（下面的 chest handler）
+    const isChest = !!(enemy.type && enemy.type._isChest);
     // 旧 xp 字段已删除，但 enemy.xpReward 仍作为"击杀分量"评估指标用于：震屏强度 + 计分。
     const killValue = enemy.xpReward || 2;
-    const rawGold = enemy.waveGoldDrop ?? Math.max(1, Math.ceil(killValue / 5));
-    // 敌人掉落 ≈ 原值 1/3（向上取整，下限 1）；奖励金球 hit 掉金币走另外的路径，不受影响。
-    const goldAmount = Math.max(1, Math.ceil(rawGold / 3));
-    const orbCount = Math.min(5, Math.max(1, goldAmount));
-    const perOrb = Math.max(1, Math.ceil(goldAmount / orbCount));
-    for (let i = 0; i < orbCount; i++) {
-      world.particles.push(new GoldOrb(world, enemy.x, enemy.y, perOrb));
+    if (!isChest) {
+      const rawGold = enemy.waveGoldDrop ?? Math.max(1, Math.ceil(killValue / 5));
+      // 敌人掉落 ≈ 原值 1/3（向上取整，下限 1）；奖励金球 hit 掉金币走另外的路径，不受影响。
+      const goldAmount = Math.max(1, Math.ceil(rawGold / 3));
+      const orbCount = Math.min(5, Math.max(1, goldAmount));
+      const perOrb = Math.max(1, Math.ceil(goldAmount / orbCount));
+      for (let i = 0; i < orbCount; i++) {
+        world.particles.push(new GoldOrb(world, enemy.x, enemy.y, perOrb));
+      }
     }
     // —— 死亡 juice：白色闪光环 + 碎片爆裂 + 中量震动 + 极短 hit-stop ——
     world.particles.push(new Particle({
@@ -13578,6 +14031,33 @@ function main() {
       spawnSkeleton(world, { x: enemy.x, y: enemy.y });
     }
   });
+
+  // 宝箱死亡：滚卡牌稀有度 → 推进 _chestPickQueue → spawn 掉落光 + 飞向背包的 orb
+  // 同时检测：若处于开局宝箱战且场上不再有宝箱 → 1.2s 后结束宝箱战进挑卡
+  Events.on('enemyDied', enemy => {
+    if (!enemy.type || !enemy.type._isChest) return;
+    const chestTier = enemy.type.chestTier || 'bronze';
+    const dropTier = _rollChestDropTier(chestTier);
+    if (!world._chestPickQueue) world._chestPickQueue = [];
+    world._chestPickQueue.push(dropTier);
+    world._pendingPickCount = (world._pendingPickCount || 0) + 1;
+    Events.emit('pendingPicksChanged', world._pendingPickCount);
+    // 掉落 FX：大光球 → 缩成呼吸 orb → Bezier 飞向背包按钮（dropTier 决定色与尺寸）
+    _spawnChestDropFX(world, enemy.x, enemy.y, dropTier);
+    // 开局宝箱战：场上全清 → 结束 chest 阶段，启动挑卡
+    if (world.battle._inChestStage) {
+      const aliveChests = world.enemies.filter(e =>
+        e.alive && e.type && e.type._isChest
+      ).length;
+      if (aliveChests === 0) {
+        // 1.2s 缓冲让 orb 飞到背包再结束
+        setTimeout(() => {
+          if (world.battle._inChestStage) world.battle._endChestStage();
+        }, 1200);
+      }
+    }
+  });
+
   // 关卡完成奖励分数
   Events.on('stageChanged', () => {
     // 仅在 stage 实际推进时加分 — stageChanged 也会在每波 spawn 后 emit，所以校验下：

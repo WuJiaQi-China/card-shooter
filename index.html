@@ -90,7 +90,7 @@
     <div id="hand-main-row">
       <!-- 主卡左侧：仅背包按钮 -->
       <div id="main-left">
-        <button id="open-inventory-btn" class="modal-btn modal-btn-shop">🎒 背包 (10 法力)</button>
+        <button id="open-inventory-btn" class="modal-btn modal-btn-shop">🎒 背包 (10 法力)<span id="inv-picks-badge" class="inv-picks-badge hidden">0</span></button>
       </div>
       <div id="hand-main"></div>
       <!-- 主卡右侧：法力 / 血量 / 护甲 / 连携 / 连击 -->
@@ -119,15 +119,12 @@
 
   <!-- 开始界面：首次启动 / 返回主菜单时显示。开始游戏 / 新手教程 / 设置三选一 -->
   <div id="modal-start" class="modal hidden">
-    <div class="start-title-row">
-      <span class="start-title-emoji">🎯</span>
-      <span class="start-title" data-i18n="start_title">卡牌射击</span>
-    </div>
+    <div id="start-bg-fx" class="start-bg-fx" aria-hidden="true"></div>
     <div class="start-btn-col">
-      <button id="start-play-btn" class="modal-btn modal-btn-start" data-i18n="start_play">▶ 开始游戏</button>
-      <button id="start-tutorial-btn" class="modal-btn modal-btn-secondary" data-i18n="start_tutorial">🎓 新手教程</button>
-      <button id="start-settings-btn" class="modal-btn modal-btn-secondary" data-i18n="start_settings">⚙ 设置</button>
-      <button id="start-lang-toggle-btn" class="modal-btn modal-btn-secondary modal-btn-lang" type="button">🌐 中文 / English</button>
+      <button id="start-play-btn" class="modal-btn modal-btn-start" data-i18n="start_play">开始游戏</button>
+      <button id="start-tutorial-btn" class="modal-btn modal-btn-secondary" data-i18n="start_tutorial">新手教程</button>
+      <button id="start-settings-btn" class="modal-btn modal-btn-secondary" data-i18n="start_settings">设置</button>
+      <button id="start-lang-toggle-btn" class="modal-btn modal-btn-secondary modal-btn-lang" type="button">语言</button>
     </div>
   </div>
 
