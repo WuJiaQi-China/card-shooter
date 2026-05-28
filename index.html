@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title data-i18n="page_title">卡牌射击 · Web 复刻</title>
-<link rel="stylesheet" href="style.css?v=50">
+<link rel="stylesheet" href="style.css?v=56">
 </head>
 <body>
 <div id="page-root">
@@ -80,11 +80,11 @@
         <button id="open-inventory-btn" class="modal-btn modal-btn-shop">🎒 背包 (10 法力)</button>
       </div>
       <div id="hand-main"></div>
-      <!-- 主卡右侧：水晶 / 血量 / 护甲 / 连携 / 连击 -->
+      <!-- 主卡右侧：法力 / 血量 / 护甲 / 连携 / 连击 -->
       <div id="main-stats">
         <div class="ms-row"><span class="ms-label" data-i18n="ms_hp">血量</span><span id="hp" class="ms-val">20 / 20</span><div class="ms-bar"><div id="hp-bar" class="ms-bar-fill hp"></div></div></div>
         <div class="ms-row"><span class="ms-label" data-i18n="ms_armor">护甲</span><span id="armor" class="armor-badge">🛡 3</span></div>
-        <div class="ms-row"><span class="ms-label" data-i18n="ms_mana">水晶</span><span id="mana" class="ms-val">12 / 12</span><div class="ms-bar"><div id="mana-bar" class="ms-bar-fill mana"></div></div></div>
+        <div class="ms-row"><span class="ms-label" data-i18n="ms_mana">法力</span><span id="mana" class="ms-val">12 / 12</span><div class="ms-bar"><div id="mana-bar" class="ms-bar-fill mana"></div></div></div>
         <div class="ms-row"><span class="ms-label" data-i18n="ms_chain">连携</span><span id="combo-stacks" class="stack-badge zero">0</span></div>
         <div class="ms-row"><span class="ms-label" data-i18n="ms_combo">连击</span><span id="combo" class="ms-combo">0</span></div>
       </div>
@@ -103,6 +103,48 @@
 
 
   <div id="toast"></div>
+
+  <!-- 开始界面：首次启动 / 返回主菜单时显示。开始游戏 / 新手教程 / 设置三选一 -->
+  <div id="modal-start" class="modal hidden">
+    <button id="start-lang-btn" class="cannon-lang-btn" type="button">EN</button>
+    <div class="start-title-row">
+      <span class="start-title-emoji">🎯</span>
+      <span class="start-title" data-i18n="start_title">卡牌射击</span>
+    </div>
+    <div class="start-sub" data-i18n="start_sub">Card Shooter · Web Replica</div>
+    <div class="start-btn-col">
+      <button id="start-play-btn" class="modal-btn modal-btn-start" data-i18n="start_play">▶ 开始游戏</button>
+      <button id="start-tutorial-btn" class="modal-btn modal-btn-secondary" data-i18n="start_tutorial">🎓 新手教程</button>
+      <button id="start-settings-btn" class="modal-btn modal-btn-secondary" data-i18n="start_settings">⚙ 设置</button>
+    </div>
+  </div>
+
+  <!-- 教程引导层：dim 背景 + 高亮目标光环 + 提示气泡 -->
+  <div id="tutorial-overlay" class="tutorial-overlay hidden">
+    <div id="tutorial-dim" class="tutorial-dim"></div>
+    <div id="tutorial-ring" class="tutorial-ring hidden"></div>
+    <div id="tutorial-hint-box" class="tutorial-hint-box">
+      <div id="tutorial-hint-title" class="tutorial-hint-title"></div>
+      <div id="tutorial-hint-text" class="tutorial-hint-text"></div>
+      <div class="tutorial-hint-foot">
+        <button id="tutorial-skip" class="tutorial-skip-btn" data-i18n="tutorial_skip">跳过教程</button>
+        <span id="tutorial-progress" class="tutorial-progress"></span>
+        <span id="tutorial-await-tip" class="tutorial-await-tip" data-i18n="tutorial_await">⏳ 完成操作以继续</span>
+        <button id="tutorial-hint-next" class="tutorial-next-btn" data-i18n="tutorial_ack">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 教程结束面板：开始游戏 / 重放教程 -->
+  <div id="modal-tutorial-end" class="modal hidden">
+    <div class="tutorial-end-emoji">🎓</div>
+    <div class="tutorial-end-title" data-i18n="tutorial_end_title">教程完成！</div>
+    <div class="tutorial-end-sub" data-i18n="tutorial_end_sub">你已掌握基础玩法 · 祝你好运！</div>
+    <div class="start-btn-col">
+      <button id="tutorial-end-start-btn" class="modal-btn modal-btn-start" data-i18n="tutorial_end_start">▶ 开始游戏</button>
+      <button id="tutorial-end-replay-btn" class="modal-btn modal-btn-secondary" data-i18n="tutorial_end_replay">🔁 重放教程</button>
+    </div>
+  </div>
 
   <!-- 起始炮台选择模态：游戏开始 / 阵亡重开时弹出，必选 -->
   <div id="modal-cannon" class="modal hidden">
@@ -185,6 +227,6 @@
 
 </div><!-- /#page-root -->
 
-<script src="game.js?v=93"></script>
+<script src="game.js?v=106"></script>
 </body>
 </html>

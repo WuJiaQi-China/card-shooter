@@ -422,7 +422,7 @@ const SfxFx = {
     _tone({ type: 'sine',     freq: 2640, sweepTo: 880, dur: 0.04, peak: 0.10, attack: 0.001, delay: 0.01 });
     _noise({ dur: 0.04, peak: 0.08, bp: true, lpf: 2200, attack: 0.001 });
   },
-  // 召唤物死亡：水晶碎裂 —— 高频 swept down + 噪音衰减
+  // 召唤物死亡：法力碎裂 —— 高频 swept down + 噪音衰减
   summonDie()   {
     _tone({ type: 'triangle', freq: 1760, sweepTo: 220, dur: 0.22, peak: 0.22, attack: 0.001 });
     _noise({ dur: 0.18, peak: 0.18, lpf: 2400, lpfTo: 300, attack: 0.001 });
@@ -865,7 +865,7 @@ const I18N = {
     hud_auto_end: '法力不足时自动结束回合',
     hud_auto_end_no_enemy: '无敌人时自动结束回合 (每点法力+1金币)',
     hud_gold: '金币',
-    ms_hp: '血量', ms_armor: '护甲', ms_mana: '水晶', ms_chain: '连携', ms_combo: '连击',
+    ms_hp: '血量', ms_armor: '护甲', ms_mana: '法力', ms_chain: '连携', ms_combo: '连击',
     open_bag: '🎒 背包 ({n} 法力)',
     inv_title: '🎒 背包整理',
     inv_sub: '右键 = 设为主卡 · 拖拽 = 交换位置',
@@ -946,6 +946,46 @@ const I18N = {
     perm_bought_toast: '✨ {label} → 已买 ×{n}',
     settings_close_aria: '关闭',
     startup_pick_hint: '新手开局 · 选 1 张「{tier}」卡（免费）',
+    // 开始界面
+    start_title: '卡牌射击',
+    start_sub: 'Card Shooter · Web Replica',
+    start_play: '▶ 开始游戏',
+    start_tutorial: '🎓 新手教程',
+    start_settings: '⚙ 设置',
+    // 教程
+    tutorial_skip: '跳过教程',
+    tutorial_next: '下一步 →',
+    tutorial_ack: '知道了',
+    tutorial_await: '⏳ 完成操作以继续',
+    tutorial_progress: '{cur}/{max}',
+    tutorial_end_title: '教程完成！',
+    tutorial_end_sub: '你已掌握基础玩法 · 祝你好运！',
+    tutorial_end_start: '▶ 开始游戏',
+    tutorial_end_replay: '🔁 重放教程',
+    tut_s1_title: '欢迎来到卡牌射击',
+    tut_s1_text: '这是一款卡牌 + 弹幕 + 回合制 roguelike。<br>本教程将用几分钟教会你核心玩法。<br>点击 <b>下一步</b> 开始。',
+    tut_s2_title: '① 发射左卡',
+    tut_s2_text: '鼠标瞄准敌人，按 <kbd>鼠标左键</kbd> 发射手牌中<b>最左侧</b>的卡。<br>每张卡都消耗法力（右下角）。',
+    tut_s3_title: '② 发射右卡',
+    tut_s3_text: '按 <kbd>鼠标右键</kbd> 发射手牌中<b>最右侧</b>的卡。<br>继续打击敌人。',
+    tut_s4_title: '③ 击杀敌人',
+    tut_s4_text: '继续发射直到把这个哥布林打死。<br>子弹打到敌人会扣 HP，杀死会掉金币。',
+    tut_s5_title: '④ 主卡',
+    tut_s5_text: '中间这张是 <b>主卡</b>。<br>每次发射时，主卡也会同时出 — 等于 "左+主" 或 "右+主" 一起发射。<br>主卡的攻击与效果会与侧卡叠加，<b>费用相加</b>。',
+    tut_s9_title: '⑤ 回合机制',
+    tut_s9_text: '当你想结束本回合时，按 <kbd>空格</kbd>。<br>敌人开始行动，下回合开始法力 <b>回满</b>，护甲也会重置。<br>提前结束时，<b>剩余法力会储存起来</b>，累计 <b>每 10 点 → 1 金币</b>。<br>试试按一下空格。',
+    tut_s6_title: '⑥ 打开背包',
+    tut_s6_text: '战斗中点 <kbd>🎒 背包</kbd> 按钮，可以打开背包整理面板。<br>消耗 10 法力。<br>试试现在打开背包。',
+    tut_s6b_title: '⑦ 设置主卡',
+    tut_s6b_text: '在背包里 <b>右键</b> 任意非主卡，可以把它设为主卡（主卡每次发射都会触发）。<br>同名同稀有度卡放入背包会 <b>自动合成升星</b>（铜→银→金→钻）。<br>试试右键任意一张卡。',
+    tut_s6c_title: '⑧ 关闭背包',
+    tut_s6c_text: '点击下方 <kbd>关闭</kbd> 按钮关闭背包（关闭时自动重新洗牌）。<br>整理完成后试试关闭背包。',
+    tut_s7_title: '⑨ 弃牌',
+    tut_s7_text: '不想要某张牌时，可以 <kbd>滚轮↑</kbd> 弃左 / <kbd>滚轮↓</kbd> 弃右。<br>每次弃牌 <b>消耗 1 点法力</b>，且部分卡有"弃置"效果（弃置时触发）。<br>试试用滚轮弃一张牌。',
+    tut_s8_title: '⑩ 连击',
+    tut_s8_text: '连续从同一侧发射，会累计 <b>连击</b> 数（右下角显示）。<br>部分卡的效果会随连击数增强。<br>换侧或弃牌会重置连击。',
+    tut_s10_title: '⑪ 商店与合成',
+    tut_s10_text: '击败一波怪后会进入 <b>商店</b>：<br>· 用金币购买新卡或刷新候选<br>· 升级商店可提高高稀有度卡的概率<br>· 同名同稀有度卡放入背包会 <b>自动合成升星</b><br>慢慢打造属于你的卡组吧！',
   },
   en: {
     page_title: 'Card Shooter · Web Replica',
@@ -1044,6 +1084,46 @@ const I18N = {
     perm_bought_toast: '✨ {label} → bought ×{n}',
     settings_close_aria: 'Close',
     startup_pick_hint: 'Starter pick · Choose 1 "{tier}" card (free)',
+    // Start screen
+    start_title: 'Card Shooter',
+    start_sub: 'Card Shooter · Web Replica',
+    start_play: '▶ Start Game',
+    start_tutorial: '🎓 Tutorial',
+    start_settings: '⚙ Settings',
+    // Tutorial
+    tutorial_skip: 'Skip Tutorial',
+    tutorial_next: 'Next →',
+    tutorial_ack: 'Got it',
+    tutorial_await: '⏳ Complete the action to continue',
+    tutorial_progress: '{cur}/{max}',
+    tutorial_end_title: 'Tutorial Complete!',
+    tutorial_end_sub: 'You\'ve learned the basics. Good luck!',
+    tutorial_end_start: '▶ Start Game',
+    tutorial_end_replay: '🔁 Replay Tutorial',
+    tut_s1_title: 'Welcome to Card Shooter',
+    tut_s1_text: 'A card + bullet-hell + turn-based roguelike.<br>This tutorial will teach you the core mechanics in a few minutes.<br>Click <b>Next</b> to begin.',
+    tut_s2_title: '① Fire Left Card',
+    tut_s2_text: 'Aim with the mouse and press <kbd>Left Mouse</kbd> to fire the <b>leftmost</b> card in your hand.<br>Each card costs mana (bottom-right).',
+    tut_s3_title: '② Fire Right Card',
+    tut_s3_text: 'Press <kbd>Right Mouse</kbd> to fire the <b>rightmost</b> card.<br>Keep firing at the enemy.',
+    tut_s4_title: '③ Kill the Enemy',
+    tut_s4_text: 'Keep firing until you kill this Goblin.<br>Bullets reduce its HP. Kills drop gold.',
+    tut_s5_title: '④ Main Card',
+    tut_s5_text: 'The card in the middle is your <b>Main Card</b>.<br>Every shot fires the Main Card alongside the side card — i.e. "Left+Main" or "Right+Main" together.<br>Their attack and effects stack, and <b>costs add up</b>.',
+    tut_s9_title: '⑤ Turn System',
+    tut_s9_text: 'When you\'re done with your turn, press <kbd>Space</kbd>.<br>Enemies act, then your next turn starts with <b>full mana</b> and armor restored.<br>Ending early <b>banks leftover mana</b>: every <b>10 mana → 1 gold</b>.<br>Try pressing Space.',
+    tut_s6_title: '⑥ Open Inventory',
+    tut_s6_text: 'During battle, click the <kbd>🎒 Bag</kbd> button to open the Inventory panel (costs 10 mana).<br>Try opening it now.',
+    tut_s6b_title: '⑦ Set Main Card',
+    tut_s6b_text: 'In the inventory, <b>right-click</b> any non-main card to set it as Main (Main Card fires on every shot).<br>Duplicate cards (same name + rarity) <b>auto-merge & upgrade</b> (Bronze→Silver→Gold→Diamond).<br>Try right-clicking any card.',
+    tut_s6c_title: '⑧ Close Inventory',
+    tut_s6c_text: 'Click the <kbd>Close</kbd> button below to close the inventory (reshuffles automatically).<br>When done organizing, close the bag.',
+    tut_s7_title: '⑨ Discard',
+    tut_s7_text: 'If you want to skip a card, use <kbd>Wheel↑</kbd> to discard left / <kbd>Wheel↓</kbd> to discard right.<br>Each discard <b>costs 1 mana</b>, and some cards have "On Discard" effects (triggered when discarded).<br>Try discarding a card with the wheel.',
+    tut_s8_title: '⑩ Combo',
+    tut_s8_text: 'Firing the same side multiple times in a row builds <b>Combo</b> (bottom-right counter).<br>Some cards scale with combo count.<br>Switching sides or discarding resets the combo.',
+    tut_s10_title: '⑪ Shop & Merging',
+    tut_s10_text: 'After clearing a wave, you enter the <b>Shop</b>:<br>· Spend gold to buy new cards or reroll.<br>· Upgrade the shop level to raise rare-card odds.<br>· Putting duplicate cards (same name + rarity) into your bag <b>auto-merges and upgrades</b> them.<br>Build your deck and have fun!',
   },
 };
 
@@ -3170,7 +3250,7 @@ class PlayerCannon {
     this.shield = 0;               // 护盾：可吸收 N 次伤害（按"次数"算，不看伤害量）
     this.armor = 3;                // 护甲：按"数值"抵挡伤害，玩家回合开始重置为 armorPerTurn
     this.armorPerTurn = 3;
-    // 回合制：水晶仅在每个玩家回合开始时回满，不自动回复
+    // 回合制：法力仅在每个玩家回合开始时回满，不自动回复
     this.fireInterval = 0.5;
     this.actionCdEnds = 0;         // 共享动作冷却结束时间戳
     this.hitFlash = 0;
@@ -8338,6 +8418,7 @@ class CardDeck {
   setAsMain(i) {
     if (i <= 0 || i >= this.bag.length) return;
     this.swap(0, i);
+    Events.emit('mainCardSet', this.bag[0]);
   }
 
   get mainCard() { return this.bag[0]; }
@@ -8547,7 +8628,7 @@ class BattleManager {
     // v8.3：敌方回合压缩到 0.3s + settle 0.2s = 0.5s 总（旧值 0.5+0.75=1.25s）
     // 配套：ENEMY_TYPES.* speed × 2.5，让单回合移动距离保持不变（不变成乌龟）
     this.enemyTurnDuration = 0.3;    // 怪物回合持续时间
-    this.autoEndOnZeroMana = true;   // 默认开启：水晶用尽自动结束回合
+    this.autoEndOnZeroMana = true;   // 默认开启：法力用尽自动结束回合
     this.autoEndOnNoEnemy = true;    // 默认开启：场上无敌人时自动结束回合，剩余法力 1:1 转金币
     this.resumeAfterLoot = false;    // Loot 面板「继续」按钮：true=恢复战斗、false=开新战斗
     // 奥弹 buff：本回合所有奥弹叠加。turn 切换时清空
@@ -8609,8 +8690,8 @@ class BattleManager {
       p.mana = p.maxMana;
       Events.emit('manaChanged', p.mana);
       // 回合开始缓冲：把 auto-end 计时器预置为负值，保证玩家至少有 ~1s 反应时间
-      // 即使开局水晶不足以发牌（如被时空法师抽光、所有牌都贵）也不会瞬间被 auto-end 跳过。
-      // 中途因发牌导致水晶不足 → else 分支已经把计时器清 0，仍走 0.25s 原速度，不影响节奏。
+      // 即使开局法力不足以发牌（如被时空法师抽光、所有牌都贵）也不会瞬间被 auto-end 跳过。
+      // 中途因发牌导致法力不足 → else 分支已经把计时器清 0，仍走 0.25s 原速度，不影响节奏。
       // v8.1：auto-end-no-enemy 缓冲 0.5s → 2.5s（避免无敌人时连续自动跳回合的视觉错乱）
       this._autoEndSettleTime = -0.75;
       this._autoEndNoEnemySettleTime = -2.0;
@@ -9050,7 +9131,8 @@ class BattleManager {
 
     // 设置：场上无敌人时自动结束回合（金球也算敌人 → 在场时阻塞，让玩家可以慢慢打掉换金币）
     // mana → gold 由 endPlayerTurn 统一处理（任何方式结束回合都生效）
-    if (this.autoEndOnNoEnemy && this.turn === 'player'
+    // 教程模式：完全禁用自动结束回合，避免反复触发回合切换 / 法力转金币干扰引导
+    if (this.autoEndOnNoEnemy && !this.world._tutorialMode && this.turn === 'player'
         && !this.world.enemies.some(e => e.alive)) {
       if (this._fieldClearForAutoEnd()) {
         this._autoEndNoEnemySettleTime = (this._autoEndNoEnemySettleTime || 0) + dt;
@@ -9068,7 +9150,8 @@ class BattleManager {
 
     // 设置：法力无法使用任何卡牌时自动结束回合
     // —— 等场上所有子弹与待发的奥弹（衍生卡链）全部结算完后才真的切回合
-    if (this.autoEndOnZeroMana && this.turn === 'player'
+    // 教程模式：禁用，由教程脚本控制回合切换
+    if (this.autoEndOnZeroMana && !this.world._tutorialMode && this.turn === 'player'
         && this.world.player.mana < this._minUsableCost()) {
       if (this._fieldClearForAutoEnd()) {
         // settle 窗口：覆盖奥弹链 setTimeout 之间的短暂空档（30/60/110ms）
@@ -9146,6 +9229,8 @@ class BattleManager {
   // 敌方回合开始：按关卡时间表决定 spawn 波 / 奖励回合 / 关卡结束
   _tickWaveSpawn() {
     const w = this.world;
+    // 教程模式：完全跳过波次系统（由教程脚本控制 spawn）
+    if (w._tutorialMode) return;
     // 奖励回合期：金球已 spawn，倒计时存在 _stageRewardTurns 个玩家回合
     // 每个敌方回合 tick 一次，归零时结束关卡（清掉残留金球，进入商店）
     if (this.rewardTurn) {
@@ -9390,7 +9475,7 @@ class World {
     this.damageFlash = 0;
     // 重击色散：单次伤害 ≥10 时拉高；main loop 衰减；通过 canvas CSS filter 做 RGB 分离
     this.chromaT = 0;
-    // 背包打开费用减免：玩家回合结束时若有剩余水晶，按数值累计到此处（上限 10）。
+    // 背包打开费用减免：玩家回合结束时若有剩余法力，按数值累计到此处（上限 10）。
     // 下次开背包时直接折算为减少的法力消耗，打开后归零。
     this.inventoryDiscount = 0;
     // 法力 → 金币累计器：每 10 法力换 1 金币，余数跨关保留（不显示给玩家）。
@@ -10540,6 +10625,15 @@ function setupInput(world, canvas) {
     world._mouseCanvasX = -9999;
     world._mouseCanvasY = -9999;
   });
+  // 发现弹窗的候选卡 / 标题 / sub 都是 pointer-events: auto，覆盖在 canvas 之上 →
+  // 鼠标移到弹窗内时 canvas 收不到 mousemove → 炮台 targetAngle 不更新。
+  // document 级兜底：始终把全局鼠标坐标换算到 canvas 坐标，更新炮台瞄准。
+  document.addEventListener('mousemove', e => {
+    const r = rect();
+    const x = (e.clientX - r.left) * (canvas.width / r.width);
+    const y = (e.clientY - r.top) * (canvas.height / r.height);
+    world.player.setTarget(x, y);
+  });
 
   // 鼠标按下：立即发射 + 标记 held（main loop 内每帧检查持续发射）
   canvas.addEventListener('mousedown', e => {
@@ -10676,6 +10770,8 @@ function doDiscard(world, side) {
     world.deck.toDiscard(c);
   }
   world.combo.reset();
+  // 教程检测：玩家弃牌后教程可以前进到下一步
+  Events.emit('cardDiscarded', { side, card: c });
 }
 
 // ─── 11. UI ─────────────────────────────────────────────────────────
@@ -11134,7 +11230,7 @@ function setupUI(world) {
     $turn.classList.toggle('turn-enemy', turn === 'enemy');
   });
 
-  // 设置：水晶用尽自动结束回合
+  // 设置：法力用尽自动结束回合
   $autoEnd.checked = world.battle.autoEndOnZeroMana;
   $autoEnd.addEventListener('change', () => {
     world.battle.autoEndOnZeroMana = $autoEnd.checked;
@@ -11408,10 +11504,12 @@ function setupInventoryPanel(world) {
     world.battle.setState(State.Inventory);
     renderBag();
     $modal.classList.remove('hidden');
+    Events.emit('inventoryOpened');
   }
 
   function close() {
     $modal.classList.add('hidden');
+    Events.emit('inventoryClosed');
     // 重新洗牌（基于当前 bag）
     world.deck.resetForBattle();
     // 新手开局背包整理结束 → 启动正式战斗
@@ -11801,7 +11899,438 @@ function setupCannonSelect(world) {
 
   // 首次加载时若无 cannon → 立即弹出；选完直接 startBattle（无需玩家再按 Enter）
   // startBattle 内部会检测 _startupQueue 非空 → 进入 3 铜 + 1 银 + 背包整理 startup 流程
-  if (!world.cannon) open(() => world.battle.startBattle());
+  // 注意：若玩家从未看过开始界面（首次进入），先让开始界面（modal-start）接管 —— 此处不自动开。
+  let _seenStart = false;
+  try { _seenStart = !!localStorage.getItem('cs_seen_start'); } catch (e) {}
+  if (!world.cannon && _seenStart) open(() => world.battle.startBattle());
+}
+
+// ---- 开始界面（首次启动 / 重开返回主菜单时）-------------------------------
+// 三个按钮：开始游戏 / 新手教程 / 设置。开始游戏走 cannon-select；教程进入引导流程。
+function setupStartScreen(world, tutorial) {
+  const $modal = document.getElementById('modal-start');
+  const $play = document.getElementById('start-play-btn');
+  const $tut = document.getElementById('start-tutorial-btn');
+  const $settings = document.getElementById('start-settings-btn');
+  const $lang = document.getElementById('start-lang-btn');
+  if (!$modal || !$play) return { show: () => {}, hide: () => {} };
+
+  function refreshLang() { if ($lang) $lang.textContent = t('lang_btn'); }
+  Events.on('langChanged', refreshLang);
+  if ($lang) {
+    $lang.addEventListener('click', e => {
+      e.preventDefault(); e.stopPropagation();
+      playSfx('uiClick', 0);
+      setLang(LANG.current === 'zh' ? 'en' : 'zh');
+    });
+  }
+
+  function show() {
+    refreshLang();
+    $modal.classList.remove('hidden');
+    // 屏蔽其他 modal，确保只看到开始界面
+    document.getElementById('modal-cannon')?.classList.add('hidden');
+    document.getElementById('modal-loot')?.classList.add('hidden');
+    document.getElementById('modal-inventory')?.classList.add('hidden');
+    document.getElementById('modal-tutorial-end')?.classList.add('hidden');
+    document.getElementById('tutorial-overlay')?.classList.add('hidden');
+  }
+  function hide() { $modal.classList.add('hidden'); }
+
+  $play.addEventListener('click', () => {
+    playSfx('uiClick', 0);
+    try { localStorage.setItem('cs_seen_start', '1'); } catch (e) {}
+    hide();
+    // 进入正常流程：若无炮台 → 弹炮台选择；否则直接开战。
+    if (!world.cannon) Events.emit('requestCannonSelect', () => world.battle.startBattle());
+    else world.battle.startBattle();
+  });
+  $tut.addEventListener('click', () => {
+    playSfx('uiClick', 0);
+    hide();
+    tutorial?.start();
+  });
+  $settings.addEventListener('click', (e) => {
+    // stopPropagation：阻止 setupUI 内"点外面关设置面板"的 document handler 立刻关回去
+    e.stopPropagation();
+    playSfx('uiClick', 0);
+    // 直接复用右上角齿轮按钮的开关逻辑，确保 open/close 状态一致
+    document.getElementById('settings-btn')?.click();
+  });
+
+  return { show, hide };
+}
+
+// ---- 新手教程引导流程 -------------------------------------------------
+// 全屏 dim 遮罩 + 高亮目标光环 + 提示气泡。每一步要么"点下一步"前进，
+// 要么监听某个 Event（如玩家发射 / 弃牌 / 回合结束）自动前进。
+// start() 会重置世界为一个干净的小战场（一只哑火哥布林 + 9 张铜级强化）。
+function setupTutorial(world) {
+  const $overlay = document.getElementById('tutorial-overlay');
+  const $dim = document.getElementById('tutorial-dim');
+  const $ring = document.getElementById('tutorial-ring');
+  const $hintBox = document.getElementById('tutorial-hint-box');
+  const $title = document.getElementById('tutorial-hint-title');
+  const $text = document.getElementById('tutorial-hint-text');
+  const $next = document.getElementById('tutorial-hint-next');
+  const $skip = document.getElementById('tutorial-skip');
+  const $prog = document.getElementById('tutorial-progress');
+  const $endModal = document.getElementById('modal-tutorial-end');
+  const $endStart = document.getElementById('tutorial-end-start-btn');
+  const $endReplay = document.getElementById('tutorial-end-replay-btn');
+  if (!$overlay) return { start: () => {}, finish: () => {} };
+
+  let stepIdx = -1;
+  let curCleanup = null;
+  let ringRaf = 0;
+  let ringResolveFn = null;
+
+  // 步骤定义。target=DOM 选择函数；box=气泡位置（top / bottom）；
+  // waitNext=true 用户点"下一步"前进；waitEvent=Events 事件名监听（condition 用于过滤）。
+  // 顺序：欢迎 → 左 / 右 / 击杀 → 主卡 → 【回合】(前移：先教按 Space 回满 mana) → 背包 → 弃牌 → 连击 → 商店
+  const steps = [
+    { key: 's1', target: null,                                                     box: 'bottom', waitNext: true },
+    { key: 's2', target: () => document.querySelectorAll('#hand-row .card')[0],     box: 'top',
+                 waitEvent: 'cardUsedSide', condition: (d) => d && d.side === 'left',
+                 onShow: () => ensureCards() },
+    { key: 's3', target: () => {
+                   const cards = document.querySelectorAll('#hand-row .card');
+                   return cards[cards.length - 1];
+                 },                                                                 box: 'top',
+                 waitEvent: 'cardUsedSide', condition: (d) => d && d.side === 'right',
+                 onShow: () => ensureCards() },
+    { key: 's4', target: () => document.getElementById('stage'),                    box: 'top',
+                 waitEvent: 'enemyDied',
+                 onShow: () => { ensureDummy(true); ensureCards(); } },
+    { key: 's5', target: () => document.getElementById('hand-main'),                box: 'top',
+                 waitNext: true },
+    // 回合（按 Space 结束当前回合，下一回合 mana 回满）— 在背包前先教，避免没法力开不了背包
+    { key: 's9', target: () => document.querySelector('.rail-key:nth-child(7)'),    box: 'top',
+                 waitEvent: 'turnChanged', condition: (t) => t === 'enemy',
+                 onShow: () => { ensureCards(); ensureDummy(); } },
+    // 整理背包 = 3 个连续 action：打开 → 右键设主卡 → 关闭。完成全部后才进入弃牌教程
+    { key: 's6', target: () => document.getElementById('open-inventory-btn'),       box: 'top',
+                 waitEvent: 'inventoryOpened',
+                 onShow: () => ensureCards() },
+    { key: 's6b', target: () => {
+                    // 高亮背包里第二张卡（index=1 = 最左侧非主卡），引导玩家右键它
+                    const bag = document.getElementById('inventory-bag');
+                    if (!bag) return null;
+                    return bag.children[1] || bag.children[0] || bag;
+                  },                                                                box: 'top',
+                  waitEvent: 'mainCardSet' },
+    { key: 's6c', target: () => document.getElementById('close-inventory-btn'),    box: 'top',
+                  waitEvent: 'inventoryClosed' },
+    { key: 's7', target: () => document.getElementById('hand-row'),                 box: 'top',
+                 waitEvent: 'cardDiscarded',
+                 onShow: () => { ensureCards(); ensureDummy(); } },
+    { key: 's8', target: () => document.getElementById('combo'),                    box: 'top',
+                 waitNext: true },
+    { key: 's10', target: () => document.getElementById('open-inventory-btn'),      box: 'top',
+                  waitNext: true },
+  ];
+
+  // 取目标元素的 client 坐标
+  function rectOf(el) {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return null;
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  }
+
+  function setRing(rect, pad) {
+    if (!rect) { $ring.classList.add('hidden'); return; }
+    const p = pad ?? 6;
+    $ring.style.left = (rect.x - p) + 'px';
+    $ring.style.top = (rect.y - p) + 'px';
+    $ring.style.width = (rect.w + p * 2) + 'px';
+    $ring.style.height = (rect.h + p * 2) + 'px';
+    $ring.classList.remove('hidden');
+  }
+
+  function trackRing(resolveFn) {
+    clearInterval(ringRaf);
+    ringResolveFn = resolveFn;
+    const tick = () => {
+      if (!ringResolveFn) return;
+      const el = ringResolveFn();
+      setRing(rectOf(el));
+    };
+    // 用 setInterval 取代 RAF：tab hidden 时也能继续追踪目标位置（如背包打开后切换光环）。
+    ringRaf = setInterval(tick, 60);
+    tick();
+  }
+  function stopRing() {
+    clearInterval(ringRaf);
+    ringResolveFn = null;
+    $ring.classList.add('hidden');
+  }
+
+  const $awaitTip = document.getElementById('tutorial-await-tip');
+
+  function applyStepI18n() {
+    const step = steps[stepIdx];
+    if (!step) return;
+    $title.innerHTML = t(`tut_${step.key}_title`);
+    $text.innerHTML = t(`tut_${step.key}_text`);
+    $prog.textContent = t('tutorial_progress', { cur: stepIdx + 1, max: steps.length });
+    _updateAckLabel();
+  }
+  // 按钮文案：expanded → "知道了"（点击 → 最小化）；
+  //          minimized + info-only → "下一步"（点击 → 进入下一步）；
+  //          minimized + action → 按钮隐藏（由 CSS .minimized .tutorial-next-btn { display:none }）
+  function _updateAckLabel() {
+    const step = steps[stepIdx];
+    if (!step) return;
+    const minimized = $hintBox.classList.contains('minimized');
+    if (minimized && step.waitNext) {
+      $next.textContent = t('tutorial_next');
+    } else {
+      $next.textContent = t('tutorial_ack');
+    }
+  }
+  function applyGlobalI18n() {
+    $skip.textContent = t('tutorial_skip');
+    if ($awaitTip) $awaitTip.textContent = t('tutorial_await');
+    if ($endStart) $endStart.textContent = t('tutorial_end_start');
+    if ($endReplay) $endReplay.textContent = t('tutorial_end_replay');
+    applyStepI18n();   // 这里也会更新 $next 文案
+  }
+  Events.on('langChanged', applyGlobalI18n);
+
+  // 两态切换：expanded（顶部 + 蒙版 + 知道了 / 下一步可见）
+  //         minimized（右侧 + 无蒙版 + 显示"⏳ 完成操作以继续"）
+  // 切换实现：先淡出（.swapping + JS 动画蒙版）→ 切类 + updateFn（位置 snap、文案同步）→ 下一帧移除 .swapping 让其淡入。
+  // 蒙版透明度直接 JS 动画（CSS opacity transition 在 canvas 重度渲染下不收敛）。
+  // 用 setTimeout 而非 RAF 驱动动画 —— 即使标签页 hidden（preview / 切到后台）也能跑完。
+  let _dimTimer = 0;
+  function _animateDim(target, duration) {
+    clearInterval(_dimTimer);
+    const start = parseFloat($dim.style.opacity || '1');
+    const t0 = performance.now();
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - t0) / duration);
+      $dim.style.opacity = String(start + (target - start) * k);
+      if (k >= 1) clearInterval(_dimTimer);
+    };
+    _dimTimer = setInterval(tick, 16);
+    tick();
+  }
+  function _swap(toMinimized, updateFn) {
+    const wasMinimized = $hintBox.classList.contains('minimized');
+    if (wasMinimized === toMinimized) {
+      updateFn?.();
+      return;
+    }
+    $hintBox.classList.add('swapping');
+    _animateDim(toMinimized ? 0 : 1, 240);
+    setTimeout(() => {
+      // 先切类（让 updateFn 内能读到新的 .minimized 状态），再跑 updateFn
+      if (toMinimized) $hintBox.classList.add('minimized');
+      else $hintBox.classList.remove('minimized');
+      updateFn?.();
+      // 用 setTimeout 替代 RAF，确保 hidden tab 内也能淡入
+      setTimeout(() => $hintBox.classList.remove('swapping'), 30);
+    }, 200);
+  }
+  function minimizeHint() {
+    _swap(true, () => { _updateAckLabel(); });
+  }
+
+  function showStep(i) {
+    if (curCleanup) { curCleanup(); curCleanup = null; }
+    stepIdx = i;
+    const step = steps[i];
+    if (!step) { finish(); return; }
+
+    // 内容 / 位置类的更新（_swap 内部在 fade-out 后调用，保证视觉同步）
+    const applyContent = () => {
+      applyStepI18n();
+      $hintBox.classList.toggle('top', step.box === 'top');
+      // info-step：minimized 时显示"下一步"按钮；action 步骤无该类（按钮隐藏，显示"⏳ 完成操作以继续"）
+      $hintBox.classList.toggle('info-step', !!step.waitNext);
+      $next.classList.remove('hidden');
+    };
+
+    // 步骤 onShow（spawn dummy / refill mana 等）— 立即执行
+    try { step.onShow?.(); } catch (e) { console.error('tutorial onShow', e); }
+
+    // 高亮（指向新目标）
+    if (step.target) trackRing(step.target);
+    else stopRing();
+
+    // 始终回到展开态。_swap 会在 fade-out 后同步 content + 位置 + 蒙版
+    _swap(false, applyContent);
+
+    // 监听前进事件（waitEvent 步骤）；waitNext 步骤等用户点"下一步"
+    if (step.waitEvent) {
+      const handler = (data) => {
+        if (step.condition && !step.condition(data)) return;
+        Events.off(step.waitEvent, handler);
+        showStep(i + 1);
+      };
+      Events.on(step.waitEvent, handler);
+      curCleanup = () => Events.off(step.waitEvent, handler);
+    }
+  }
+
+  // 教程开始前确保有炮台
+  function ensureCannon() {
+    if (!world.cannon) {
+      const firstId = Object.keys(CANNON_DEFS)[0];
+      world.cannon = new Cannon(firstId);
+      Events.emit('cannonChanged', world.cannon);
+    }
+  }
+
+  // 重建教程牌组（9 张铜级强化 = 干净的 1 费基础攻击牌）
+  function buildTutorialDeck() {
+    const cards = [];
+    for (let i = 0; i < 9; i++) cards.push(mkCard('boost1', 'bronze'));
+    world.deck.setBag(cards);
+    world.deck.resetForBattle();
+  }
+
+  // 中途若手牌空了或法力空了 → 补满，让玩家能继续操作
+  function ensureCards() {
+    if (world.deck.hand.length < 2) {
+      world.deck.resetForBattle();
+      Events.emit('deckChanged');
+    }
+    if ((world.player.mana || 0) < world.player.maxMana) {
+      world.player.mana = world.player.maxMana;
+      Events.emit('manaChanged', world.player.mana);
+    }
+  }
+
+  // 没敌人时 spawn 一只哑火哥布林（HP 6，0 攻击，不移动；默认无敌避免太早死掉）
+  // killable=true 时取消无敌（让玩家在 "击杀敌人" 步骤打死它）
+  function ensureDummy(killable) {
+    if (world.enemies.length === 0) {
+      const e = new Enemy(world.w / 2, 260, 'goblin', world);
+      e.speed = 0;
+      e.attack = 0;
+      e.intents = [{ kind: 'wait', icon: '⏳', cooldown: 999, desc: 'tutorial dummy' }];
+      e.intentCd = 999;
+      e.intentIdx = 0;
+      e._invincible = !killable;
+      world.enemies.push(e);
+    } else if (killable) {
+      // 已有 dummy → 取消无敌让它能被打死
+      for (const e of world.enemies) e._invincible = false;
+    }
+  }
+
+  function start() {
+    world._tutorialMode = true;
+    // 隐藏所有其它 modal
+    document.getElementById('modal-start')?.classList.add('hidden');
+    document.getElementById('modal-cannon')?.classList.add('hidden');
+    document.getElementById('modal-loot')?.classList.add('hidden');
+    document.getElementById('modal-inventory')?.classList.add('hidden');
+    document.getElementById('modal-tutorial-end')?.classList.add('hidden');
+
+    // 跳过 startup picks
+    world._startupQueue = [];
+    world._startupCurrent = null;
+
+    ensureCannon();
+    buildTutorialDeck();
+
+    // 重置玩家状态
+    world.player.hp = world.player.maxHp;
+    world.player.mana = world.player.maxMana;
+    world.player.armor = world.player.armorPerTurn;
+    Events.emit('hpChanged', world.player.hp);
+    Events.emit('manaChanged', world.player.mana);
+    Events.emit('armorChanged', world.player.armor);
+
+    // 清空战场
+    world.enemies.length = 0;
+    world.bullets.length = 0;
+    world.summons.length = 0;
+    world.particles.length = 0;
+    world.combo.reset();
+    world.comboStacks = 0;
+    Events.emit('comboStacksChanged', 0);
+
+    // 强制进入战斗状态（不走 startBattle 的 startup picks / 波次 spawn）
+    world.battle.setState(State.Battle);
+    world.battle.setTurn('player');
+
+    ensureDummy();
+
+    $overlay.classList.remove('hidden');
+    // 重置气泡 / 蒙版态：去掉 minimized + 蒙版全显
+    $hintBox.classList.remove('minimized', 'swapping');
+    $dim.style.opacity = '1';
+    applyGlobalI18n();
+    showStep(0);
+  }
+
+  function finish() {
+    if (curCleanup) { curCleanup(); curCleanup = null; }
+    stopRing();
+    $overlay.classList.add('hidden');
+    // 显示结束面板
+    if ($endStart) $endStart.textContent = t('tutorial_end_start');
+    if ($endReplay) $endReplay.textContent = t('tutorial_end_replay');
+    $endModal?.classList.remove('hidden');
+  }
+
+  // 教程结束后清场：退出教程模式 + 清空战场（外部决定下一步流程）
+  function cleanupBattle() {
+    world._tutorialMode = false;
+    world.enemies.length = 0;
+    world.bullets.length = 0;
+    world.summons.length = 0;
+    world.particles.length = 0;
+    world.combo.reset();
+    world.comboStacks = 0;
+    Events.emit('comboStacksChanged', 0);
+  }
+
+  $next.addEventListener('click', () => {
+    // 切换中点击忽略，避免半态被打乱
+    if ($hintBox.classList.contains('swapping')) return;
+    playSfx('uiClick', 0);
+    const step = steps[stepIdx];
+    if (!step) return;
+    const minimized = $hintBox.classList.contains('minimized');
+    if (!minimized) {
+      // expanded → 缩到右侧（所有步骤统一）
+      minimizeHint();
+    } else if (step.waitNext) {
+      // minimized + info：点击"下一步"进入下一步
+      if (curCleanup) { curCleanup(); curCleanup = null; }
+      showStep(stepIdx + 1);
+    }
+    // minimized + action：按钮被 CSS 隐藏，本不可达
+  });
+  $skip.addEventListener('click', () => {
+    playSfx('uiClick', 0);
+    if (curCleanup) { curCleanup(); curCleanup = null; }
+    finish();
+  });
+  $endStart?.addEventListener('click', () => {
+    playSfx('uiClick', 0);
+    try { localStorage.setItem('cs_seen_start', '1'); } catch (e) {}
+    cleanupBattle();
+    $endModal.classList.add('hidden');
+    // 重置世界为新游戏（卡组 / 金币 / 炮台清空），让玩家走正常流程
+    world.resetForNewGame();
+    world.battle.setState(State.Idle);
+    Events.emit('requestCannonSelect', () => world.battle.startBattle());
+  });
+  $endReplay?.addEventListener('click', () => {
+    playSfx('uiClick', 0);
+    $endModal.classList.add('hidden');
+    start();
+  });
+
+  applyGlobalI18n();
+
+  return { start, finish };
 }
 
 // ---- 战利品面板（合并 = 3 张候选 + 背包编辑 + 继续按钮）----
@@ -12736,6 +13265,15 @@ function main() {
   const ui = setupUI(world);
   setupInput(world, canvas);
   setupSfxBindings(world);
+
+  // 教程引导 + 开始界面（首次进入显示）。
+  // setupCannonSelect 内已根据 localStorage.cs_seen_start 控制是否自动弹炮台选择；
+  // 这里只负责显示开始界面（如果没看过）。
+  const tutorial = setupTutorial(world);
+  const startScreen = setupStartScreen(world, tutorial);
+  let _seenStart = false;
+  try { _seenStart = !!localStorage.getItem('cs_seen_start'); } catch (e) {}
+  if (!_seenStart) startScreen.show();
 
   // 初始背包：9 张 1 费"强化"（伤害 +1）—— 干净的起手卡，玩家通过商店逐步替换为策划表卡。
   // bag[0] 是主卡 → 主卡也是 强化，每次发射主卡 hook 也算一次伤害 +1（即每次基础攻击 = 1 + 1 + 1 = 3，

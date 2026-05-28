@@ -1816,7 +1816,7 @@ kbd {
 .modal-btn-shop { background: #d4691a; }
 .modal-btn-shop:hover { background: #ffa64a; }
 
-/* 背包按钮：有折扣（剩余水晶累计）时换冰蓝调，凸显"省法力" */
+/* 背包按钮：有折扣（剩余法力累计）时换冰蓝调，凸显"省法力" */
 .modal-btn-shop.discounted {
   background: #4a82d4;
   box-shadow: 0 0 14px rgba(126, 177, 255, 0.5);
@@ -1824,7 +1824,7 @@ kbd {
 .modal-btn-shop.discounted:hover {
   background: #6aa0ff;
 }
-/* 折扣变化瞬间的弹跳 + 蓝光闪一下（每次结束回合若有剩余水晶，按钮 bump 一下） */
+/* 折扣变化瞬间的弹跳 + 蓝光闪一下（每次结束回合若有剩余法力，按钮 bump 一下） */
 .modal-btn-shop.discount-flash {
   animation: inv-discount-flash 0.55s ease;
 }
@@ -2153,3 +2153,266 @@ kbd {
   opacity: 0.75;
 }
 .card.temporary.face-down .card-front { opacity: 0; }    /* 反面时不画正面层 */
+
+/* ─── 开始界面 (modal-start) ─────────────────────────────────────────── */
+.start-title-row {
+  display: flex;
+  gap: 22px;
+  align-items: center;
+  margin-top: -40px;
+}
+.start-title-emoji {
+  font-size: 64px;
+  filter: drop-shadow(0 0 14px rgba(255, 216, 74, 0.6));
+}
+.start-title {
+  font-size: 54px;
+  color: #ffd84a;
+  font-weight: 800;
+  letter-spacing: 10px;
+  text-shadow:
+    0 0 20px rgba(255, 216, 74, 0.55),
+    0 0 40px rgba(255, 144, 40, 0.3);
+}
+.start-sub {
+  color: #aef0fb;
+  font-size: 15px;
+  letter-spacing: 6px;
+  opacity: 0.65;
+  margin-bottom: 28px;
+}
+.start-btn-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+.modal-btn-start {
+  background: linear-gradient(180deg, #ffa64a 0%, #d4691a 100%);
+  color: #1a1a1a;
+  font-weight: 700;
+  border: 1px solid #ffd09a;
+  box-shadow: 0 0 18px rgba(212, 105, 26, 0.5), 0 6px 18px rgba(0, 0, 0, 0.4);
+  min-width: 260px;
+  padding: 14px 32px;
+  font-size: 18px;
+  letter-spacing: 4px;
+}
+.modal-btn-start:hover {
+  background: linear-gradient(180deg, #ffc474 0%, #ff8030 100%);
+  box-shadow: 0 0 26px rgba(255, 166, 74, 0.7), 0 8px 22px rgba(0, 0, 0, 0.5);
+  transform: translateY(-1px);
+}
+.start-btn-col .modal-btn-secondary {
+  min-width: 260px;
+  padding: 12px 28px;
+  font-size: 15px;
+  letter-spacing: 3px;
+}
+
+/* ─── 教程引导层 (tutorial-overlay) ───────────────────────────────────── */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+.tutorial-overlay.hidden { display: none; }
+.tutorial-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 8, 12, 0.45);
+  /* 不拦截鼠标事件 → 玩家的点击 / 滚轮能穿透到 canvas，按提示完成操作；
+     提示气泡（pointer-events: auto）只接收对自身的点击 */
+  pointer-events: none;
+}
+
+/* 黄色光环：跟随高亮目标。位置由 JS 设置 top/left/width/height（client 坐标） */
+.tutorial-ring {
+  position: absolute;
+  border: 3px solid #ffd84a;
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 41;
+  box-shadow:
+    0 0 18px rgba(255, 216, 74, 0.75),
+    0 0 40px rgba(255, 216, 74, 0.45),
+    inset 0 0 14px rgba(255, 216, 74, 0.3);
+  animation: tutorial-pulse 1.4s ease-in-out infinite;
+  transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+.tutorial-ring.hidden { display: none; }
+@keyframes tutorial-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 18px rgba(255, 216, 74, 0.75),
+      0 0 40px rgba(255, 216, 74, 0.45),
+      inset 0 0 14px rgba(255, 216, 74, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 28px rgba(255, 216, 74, 0.95),
+      0 0 56px rgba(255, 216, 74, 0.65),
+      inset 0 0 20px rgba(255, 216, 74, 0.5);
+  }
+}
+
+/* 提示气泡 */
+.tutorial-hint-box {
+  position: absolute;
+  left: 50%;
+  bottom: 60px;
+  transform: translateX(-50%);
+  width: min(640px, 80vw);
+  background: linear-gradient(180deg, #1c2434 0%, #14181f 100%);
+  border: 2px solid #5eb2ff;
+  border-radius: 12px;
+  padding: 18px 24px 14px;
+  box-shadow:
+    0 0 24px rgba(94, 178, 255, 0.4),
+    0 10px 28px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  z-index: 42;
+  /* 位置 / 尺寸的 transition 与 transform: translateX(-50%) ↔ none 不稳定（mid-transition 不收敛）。
+     位置直接 snap，仅用 opacity 做柔和过渡。*/
+  transition:
+    opacity 0.22s ease,
+    padding 0.22s ease,
+    box-shadow 0.22s ease;
+}
+.tutorial-hint-box.swapping { opacity: 0; }
+.tutorial-hint-box.top {
+  top: 80px;
+  bottom: auto;
+}
+/* minimized 态：点击"知道了"后，气泡缩到右上角，蒙版隐藏，玩家可看清并操作游戏 */
+.tutorial-hint-box.minimized {
+  left: auto;
+  right: 14px;
+  bottom: auto;
+  top: 110px;
+  transform: none;
+  width: 240px;
+  padding: 10px 14px 10px;
+  box-shadow:
+    0 0 14px rgba(94, 178, 255, 0.35),
+    0 4px 14px rgba(0, 0, 0, 0.55);
+  border-width: 1.5px;
+}
+.tutorial-hint-box.minimized .tutorial-hint-title {
+  font-size: 13.5px;
+  letter-spacing: 1.5px;
+  margin-bottom: 4px;
+}
+.tutorial-hint-box.minimized .tutorial-hint-text {
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.tutorial-hint-box.minimized .tutorial-hint-text br + br { display: none; }
+.tutorial-hint-box.minimized .tutorial-hint-foot {
+  margin-top: 8px;
+}
+.tutorial-hint-box.minimized .tutorial-next-btn { display: none; }
+.tutorial-hint-box.minimized .tutorial-progress { font-size: 11px; }
+.tutorial-hint-box.minimized .tutorial-skip-btn {
+  padding: 5px 10px;
+  font-size: 11.5px;
+}
+.tutorial-hint-box.minimized .tutorial-await-tip { display: inline-block; }
+.tutorial-await-tip { display: none; }
+/* info-step（仅文字 / 无需操作）minimized 态：显示"下一步"按钮、隐藏"等待操作"提示 */
+.tutorial-hint-box.minimized.info-step .tutorial-next-btn {
+  display: inline-block;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.tutorial-hint-box.minimized.info-step .tutorial-await-tip { display: none; }
+.tutorial-hint-title {
+  color: #5eb2ff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+  text-shadow: 0 0 10px rgba(94, 178, 255, 0.6);
+}
+.tutorial-hint-text {
+  color: #e5f1ff;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.tutorial-hint-text kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  background: #2a3340;
+  border: 1px solid #4a5868;
+  border-radius: 4px;
+  color: #ffd84a;
+  font-size: 12px;
+  font-family: inherit;
+  margin: 0 2px;
+}
+.tutorial-hint-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  gap: 10px;
+}
+.tutorial-skip-btn,
+.tutorial-next-btn {
+  padding: 8px 16px;
+  background: #2a3242;
+  color: #d6dbe2;
+  border: 1px solid #3a4452;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  letter-spacing: 1px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.tutorial-skip-btn:hover {
+  color: #ff7878;
+  border-color: #ff7878;
+}
+.tutorial-next-btn {
+  background: #4a76c6;
+  color: #fff;
+  border-color: #5eb2ff;
+}
+.tutorial-next-btn:hover {
+  background: #5eb2ff;
+}
+.tutorial-next-btn.hidden { visibility: hidden; }
+.tutorial-next-btn.waiting-hint::after {
+  content: " (等待操作)";
+  opacity: 0.5;
+}
+.tutorial-progress {
+  color: #7eb1ff;
+  font-size: 12px;
+  letter-spacing: 1px;
+  opacity: 0.8;
+}
+
+/* 教程结束面板 */
+.tutorial-end-emoji {
+  font-size: 64px;
+  filter: drop-shadow(0 0 14px rgba(255, 216, 74, 0.6));
+  margin-top: -30px;
+}
+.tutorial-end-title {
+  font-size: 34px;
+  color: #ffd84a;
+  font-weight: 800;
+  letter-spacing: 8px;
+  text-shadow:
+    0 0 18px rgba(255, 216, 74, 0.6),
+    0 0 36px rgba(255, 144, 40, 0.35);
+}
+.tutorial-end-sub {
+  color: #aef0fb;
+  font-size: 14px;
+  letter-spacing: 3px;
+  opacity: 0.8;
+  margin-bottom: 22px;
+}
