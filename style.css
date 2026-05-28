@@ -264,13 +264,13 @@ html, body {
   transform-origin: center bottom;
   transition: transform 0.18s ease;
 }
-/* will-change + 提前进入合成层：scale 放大时按目标分辨率重新栅格化，文字保持锐利 */
+/* will-change 提前进入合成层：scale 放大时按目标分辨率重新栅格化，文字保持锐利。
+   注意：不能在 baseline 设 transform 或 backface-visibility，否则会覆盖
+   .card.face-down { transform: rotateY(180deg) } / 3D 翻面结构。 */
 #hand-row .card-slot .card {
   transition: transform 0.18s ease;
   will-change: transform;
-  backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
-  transform: translateZ(0);
 }
 /* 离场 / leaving 中的卡不响应 hover 放大 */
 #hand-row .card-slot.leaving:hover .card {
@@ -286,9 +286,7 @@ html, body {
 #hand-main .card-slot .card {
   transition: transform 0.18s ease;
   will-change: transform;
-  backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
-  transform: translateZ(0);
 }
 #hand-main .card-slot:hover {
   z-index: 50;
