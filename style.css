@@ -810,18 +810,20 @@ html, body {
   100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.25); opacity: 0; }
 }
 
-/* 卡片 3D 翻转结构：.card 是翻转容器，.card-front / .card-back 用 backface-visibility 隐藏背面 */
+/* 卡片 3D 翻转结构：.card 是翻转容器，.card-front / .card-back 用 backface-visibility 隐藏背面。
+   注意：base / face-down / hover 三种 transform 都用 (translateZ + rotateY + scale) 三段结构，
+   保证 CSS 逐项插值，而不是矩阵分解（后者中间帧可能"侧立"消失）。 */
 .card {
   width: 84px;
   height: 134px;
   position: relative;
   transform-style: preserve-3d;
   transition: transform 0.42s cubic-bezier(.5, 0, .25, 1);
-  transform: rotateY(0);
+  transform: translateZ(0) rotateY(0deg) scale(1);
   transform-origin: center 60%;
 }
 
-.card.face-down { transform: rotateY(180deg); }
+.card.face-down { transform: translateZ(0) rotateY(180deg) scale(1); }
 
 .card-front,
 .card-back {
