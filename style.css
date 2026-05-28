@@ -255,15 +255,17 @@ html, body {
 }
 /* 战斗中手牌 hover 放大：仅缩放卡片本体 (.card)，不缩放 .card-total（避免"总 N" 也跟着放大）
    尺寸与商店候选卡 / 背包卡一致（2.05×），锚定底部让卡片向上展开 → 露出名字 + 描述 */
-#hand-row .card-slot:hover {
+/* 仅对"面朝上"的卡响应 hover —— 反面卡是游戏机制的一部分（玩家不应能预览），
+   故反面卡 hover 完全不放大 / 不发光。:has(> .card:not(.face-down)) 让选择器只匹配
+   slot 内当前面朝上的卡（face-down 状态切换时会自动重新评估）。 */
+#hand-row .card-slot:has(> .card:not(.face-down)):hover {
   z-index: 50;
   filter: drop-shadow(0 10px 36px rgba(126, 177, 255, 0.65));
 }
-#hand-row .card-slot:hover .card {
-  /* 显式 rotateY(0deg) → 反面卡 hover 时翻成正面（覆盖 .card.face-down 的 rotateY 180）+ 放大 */
+#hand-row .card-slot:has(> .card:not(.face-down)):hover .card {
   transform: translateZ(0) rotateY(0deg) scale(2.05);
   transform-origin: center bottom;
-  transition: transform 0.3s cubic-bezier(.5, 0, .25, 1);
+  transition: transform 0.2s ease;
 }
 /* will-change 提前进入合成层：scale 放大时按目标分辨率重新栅格化，文字保持锐利。
    注意：不能在 baseline 设 transform 或 backface-visibility，否则会覆盖
@@ -289,14 +291,14 @@ html, body {
   will-change: transform;
   -webkit-font-smoothing: antialiased;
 }
-#hand-main .card-slot:hover {
+#hand-main .card-slot:has(> .card:not(.face-down)):hover {
   z-index: 50;
   filter: drop-shadow(0 10px 36px rgba(255, 216, 74, 0.55));
 }
-#hand-main .card-slot:hover .card {
+#hand-main .card-slot:has(> .card:not(.face-down)):hover .card {
   transform: translateZ(0) rotateY(0deg) scale(2.05);
   transform-origin: center bottom;
-  transition: transform 0.3s cubic-bezier(.5, 0, .25, 1);
+  transition: transform 0.2s ease;
 }
 
 /* 关键词悬浮容器 */
@@ -810,20 +812,18 @@ html, body {
   100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.25); opacity: 0; }
 }
 
-/* 卡片 3D 翻转结构：.card 是翻转容器，.card-front / .card-back 用 backface-visibility 隐藏背面。
-   注意：base / face-down / hover 三种 transform 都用 (translateZ + rotateY + scale) 三段结构，
-   保证 CSS 逐项插值，而不是矩阵分解（后者中间帧可能"侧立"消失）。 */
+/* 卡片 3D 翻转结构：.card 是翻转容器，.card-front / .card-back 用 backface-visibility 隐藏背面 */
 .card {
   width: 84px;
   height: 134px;
   position: relative;
   transform-style: preserve-3d;
   transition: transform 0.42s cubic-bezier(.5, 0, .25, 1);
-  transform: translateZ(0) rotateY(0deg) scale(1);
+  transform: rotateY(0);
   transform-origin: center 60%;
 }
 
-.card.face-down { transform: translateZ(0) rotateY(180deg) scale(1); }
+.card.face-down { transform: rotateY(180deg); }
 
 .card-front,
 .card-back {
