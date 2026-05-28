@@ -10676,6 +10676,8 @@ function setupInput(world, canvas) {
     const k = e.key.toLowerCase();
     // Idle / PostBattle 任意键开始（不再限定 Enter）
     if (world.battle.state === State.Idle || world.battle.state === State.PostBattle) {
+      // 主菜单显示时：忽略任意键启动，避免按一下就弹炮台选择
+      if (document.body.classList.contains('start-screen-active')) return;
       // 阵亡后任意键 → 返回主菜单（重置进度，让玩家从主界面重新选择）
       if (world.battle.state === State.PostBattle) {
         world.resetForNewGame();
