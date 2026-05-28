@@ -260,9 +260,10 @@ html, body {
   filter: drop-shadow(0 10px 36px rgba(126, 177, 255, 0.65));
 }
 #hand-row .card-slot:hover .card {
-  transform: translateZ(0) scale(2.05);
+  /* 显式 rotateY(0deg) → 反面卡 hover 时翻成正面（覆盖 .card.face-down 的 rotateY 180）+ 放大 */
+  transform: translateZ(0) rotateY(0deg) scale(2.05);
   transform-origin: center bottom;
-  transition: transform 0.18s ease;
+  transition: transform 0.3s cubic-bezier(.5, 0, .25, 1);
 }
 /* will-change 提前进入合成层：scale 放大时按目标分辨率重新栅格化，文字保持锐利。
    注意：不能在 baseline 设 transform 或 backface-visibility，否则会覆盖
@@ -293,8 +294,9 @@ html, body {
   filter: drop-shadow(0 10px 36px rgba(255, 216, 74, 0.55));
 }
 #hand-main .card-slot:hover .card {
-  transform: translateZ(0) scale(2.05);
+  transform: translateZ(0) rotateY(0deg) scale(2.05);
   transform-origin: center bottom;
+  transition: transform 0.3s cubic-bezier(.5, 0, .25, 1);
 }
 
 /* 关键词悬浮容器 */
