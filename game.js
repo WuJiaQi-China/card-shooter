@@ -8933,7 +8933,7 @@ class BattleManager {
     this.summonOverTurns = [];       // 持续召唤队列：[{ remaining: 3, kind: 'soldier' }]
     // 关卡 / 波次系统（土豆兄弟式）
     this.stageNumber = 1;            // 当前第几关（玩家可见，1 起）
-    this.waveInStage = 0;            // 当前关已 spawn 的波次（0..7）
+    this.waveInStage = 0;            // 当前关已 spawn 的波次（0..4）
     this.stageTurn = 0;              // 当前关进度（玩家回合号 1..20+）
     this.waveNumber = 0;             // 跨关累积波次（决定难度曲线 + minWave 解锁）
     this.nextWaveTypes = null;       // 下一波预览（数组 of typeKey），UI 显示
@@ -9211,8 +9211,8 @@ class BattleManager {
     this.waveIndex = 0;
     this.waveTimer = 0;
     this.resumeAfterLoot = false;
-    // 关卡系统（土豆兄弟式）：每关 20 回合，固定波次时间表 [1,4,7,10,13,16,19]。
-    // stageNumber 玩家可见；waveInStage 当前关已进的波次 1..7；stageTurn 当前关进度 1..20+。
+    // 关卡系统（土豆兄弟式）：每关固定波次时间表 [1,4,7,10]（见 _stageWaveTurns）。
+    // stageNumber 玩家可见；waveInStage 当前关已进的波次 1..4；stageTurn 当前关进度。
     // waveNumber 是跨关累积，决定难度曲线 — 永远只增不减。
     this.stageNumber = 1;
     this.waveInStage = 0;
@@ -9282,11 +9282,11 @@ class BattleManager {
     toast(LANG.current === 'en' ? '★ Chest Battle — kill all chests for cards ★' : '★ 宝箱战 — 击杀宝箱获得卡牌 ★', 2.0);
   }
 
-  // 当前关卡内"何时刷波"的硬编码时间表（玩家可见的回合号 1..13）
-  // 5 波 / 13 回合；最后一波在 turn 13。清空宽限 2 回合（即 turn 14, 15 内清空也有金球）。
-  _stageWaveTurns()    { return [1, 4, 7, 10, 13]; }
-  _stageMaxTurns()     { return 13; }
-  _stageWaveCount()    { return 5; }
+  // 当前关卡内"何时刷波"的硬编码时间表（玩家可见的回合号 1..10）
+  // 4 波 / 10 回合；最后一波在 turn 10。清空宽限 2 回合（即 turn 11, 12 内清空也有金球）。
+  _stageWaveTurns()    { return [1, 4, 7, 10]; }
+  _stageMaxTurns()     { return 10; }
+  _stageWaveCount()    { return 4; }
   // 末波清空后还可获得金球的额外回合数（grace turns）。0 表示仅最后一波回合本身清空有奖励。
   _stageGraceTurns()   { return 2; }
   // 金球可被击中的回合数（金球出现后再存在 N 个玩家回合）
@@ -11512,7 +11512,7 @@ function setupUI(world) {
     // 关卡 / 波次进度（XP 条已删 — 这里展示 Stage X · Wave Y/N）
     if ($xpLv) {
       const b = world.battle;
-      const waveMax = b._stageWaveCount ? b._stageWaveCount() : 5;
+      const waveMax = b._stageWaveCount ? b._stageWaveCount() : 4;
       $xpLv.textContent = b.stageNumber || 1;
       if ($xpCur) $xpCur.textContent = b.waveInStage || 0;
       if ($xpMax) $xpMax.textContent = waveMax;
@@ -11640,9 +11640,9 @@ function setupUI(world) {
     const b = world.battle;
     const types = b.nextWaveTypes;
     // 倒计时：从 stageTurn 算下次刷波到几号；只考虑本关剩余波次。
-    const waveTurns = b._stageWaveTurns ? b._stageWaveTurns() : [1,4,7,10,13];
-    const waveCount = b._stageWaveCount ? b._stageWaveCount() : 5;
-    const maxTurns = b._stageMaxTurns ? b._stageMaxTurns() : 13;
+    const waveTurns = b._stageWaveTurns ? b._stageWaveTurns() : [1,4,7,10];
+    const waveCount = b._stageWaveCount ? b._stageWaveCount() : 4;
+    const maxTurns = b._stageMaxTurns ? b._stageMaxTurns() : 10;
     const grace = b._stageGraceTurns ? b._stageGraceTurns() : 2;
     const cur = b.stageTurn || 0;
     const nextScheduled = waveTurns.find(n => n > cur);
@@ -13932,7 +13932,7 @@ function renderXpBar(ctx, world) {
   const b = world.battle;
   const stage = b.stageNumber || 1;
   const waveCur = b.waveInStage || 0;
-  const waveMax = b._stageWaveCount ? b._stageWaveCount() : 5;
+  const waveMax = b._stageWaveCount ? b._stageWaveCount() : 4;
   ctx.save();
   // 底
   ctx.fillStyle = 'rgba(10, 13, 17, 0.85)';
