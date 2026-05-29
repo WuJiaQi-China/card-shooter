@@ -43,6 +43,25 @@ function _darkenColor(c, t) {
   const lb = Math.round(b * (1 - t));
   return `rgb(${lr}, ${lg}, ${lb})`;
 }
+// 斜切角矩形 path（八边形轮廓）：(x,y)=左上，w×h，四角各切 cut。
+// 统一封面按钮的"角棱"风格，供炮台 / 敌人 / 装饰复用。
+function _chamferRectPath(ctx, x, y, w, h, cut) {
+  const c = Math.min(cut, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + c, y);
+  ctx.lineTo(x + w - c, y);
+  ctx.lineTo(x + w, y + c);
+  ctx.lineTo(x + w, y + h - c);
+  ctx.lineTo(x + w - c, y + h);
+  ctx.lineTo(x + c, y + h);
+  ctx.lineTo(x, y + h - c);
+  ctx.lineTo(x, y + c);
+  ctx.closePath();
+}
+// 以 (cx,cy) 为中心、半宽 r 的正方形斜切八边形 path（cut = 切角大小）
+function _octagonPath(ctx, cx, cy, r, cut) {
+  _chamferRectPath(ctx, cx - r, cy - r, r * 2, r * 2, cut);
+}
 
 // ─── 多语言（i18n）─────────────────────────────────────────────────
 // 单一 LANG.current 控制全局语言；切换时 emit 'langChanged' → UI 重渲。
@@ -2981,36 +3000,76 @@ class Enemy {
     // 冻结：整体染蓝（覆盖原色，保留 hitFlash 的高亮）
     const frozen = this.freeze > 0;
     const baseColor = flash ? '#ffffff' : (frozen ? '#5fb4ff' : this.color);
-    ctx.strokeStyle = frozen ? '#1f5fa8' : 'rgba(0,0,0,0.5)';
-    ctx.lineWidth = 2;
-    // v8.5：所有敌人 body 改用径向渐变（左上亮 → 右下暗），增加立体感 + 不同敌人差异
-    // flash / frozen 状态保留纯色（高亮 / 冻结视觉优先）
+    const r = this.radius;
+    const strokeC = frozen ? '#1f5fa8' : 'rgba(8,12,18,0.85)';
+    // 统一封面"斜切金属板"材质：竖向光泽渐变 + 同色辉光 + 角棱高光/暗边 + 深色描边。
+    // 形状保留（circle/triangle/rect = 敌人类型可读性）；flash/frozen 用纯色高亮优先。
+    const bodyPath = () => {
+      if (this.shape === 'triangle') {
+        ctx.beginPath();
+        ctx.moveTo(0, -r);
+        ctx.lineTo(-r * 0.95, r * 0.7);
+        ctx.lineTo(r * 0.95, r * 0.7);
+        ctx.closePath();
+      } else if (this.shape === 'rect') {
+        _chamferRectPath(ctx, -r, -r, r * 2, r * 2, r * 0.42);
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+      }
+    };
+    // 1) 同色辉光 + 竖向光泽主体填充
     if (flash || frozen) {
       ctx.fillStyle = baseColor;
+      bodyPath(); ctx.fill();
     } else {
-      const grad = ctx.createRadialGradient(
-        -this.radius * 0.35, -this.radius * 0.35, this.radius * 0.1,
-        0, 0, this.radius
-      );
-      grad.addColorStop(0,    _lightenColor(baseColor, 0.55));
-      grad.addColorStop(0.55, baseColor);
-      grad.addColorStop(1,    _darkenColor(baseColor, 0.35));
-      ctx.fillStyle = grad;
+      ctx.save();
+      ctx.shadowColor = baseColor; ctx.shadowBlur = 13;
+      const g = ctx.createLinearGradient(0, -r, 0, r);
+      g.addColorStop(0,   _lightenColor(baseColor, 0.6));
+      g.addColorStop(0.5, baseColor);
+      g.addColorStop(1,   _darkenColor(baseColor, 0.5));
+      ctx.fillStyle = g;
+      bodyPath(); ctx.fill();
+      ctx.restore();
     }
-    if (this.shape === 'triangle') {
-      ctx.beginPath();
-      ctx.moveTo(0, -this.radius);
-      ctx.lineTo(-this.radius * 0.95, this.radius * 0.7);
-      ctx.lineTo(this.radius * 0.95, this.radius * 0.7);
-      ctx.closePath();
-      ctx.fill(); ctx.stroke();
-    } else if (this.shape === 'rect') {
-      ctx.fillRect(-this.radius, -this.radius, this.radius * 2, this.radius * 2);
-      ctx.strokeRect(-this.radius, -this.radius, this.radius * 2, this.radius * 2);
-    } else {
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-      ctx.fill(); ctx.stroke();
+    // 2) 深色描边
+    ctx.lineWidth = 2.5; ctx.strokeStyle = strokeC;
+    bodyPath(); ctx.stroke();
+    // 3) 角棱：顶部白高光 + 底部暗边（非 flash/frozen）
+    if (!flash && !frozen) {
+      ctx.lineWidth = 1.6;
+      if (this.shape === 'rect') {
+        const c = r * 0.42;
+        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+        ctx.beginPath();
+        ctx.moveTo(-r + 1.4, -r + c); ctx.lineTo(-r + c, -r + 1.4);
+        ctx.lineTo(r - c, -r + 1.4); ctx.lineTo(r - 1.4, -r + c);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.moveTo(-r + c, r - 1.4); ctx.lineTo(r - c, r - 1.4);
+        ctx.stroke();
+      } else if (this.shape === 'triangle') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.78, r * 0.5); ctx.lineTo(0, -r + 3);
+        ctx.lineTo(r * 0.78, r * 0.5);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.8, r * 0.68); ctx.lineTo(r * 0.8, r * 0.68);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.beginPath();
+        ctx.arc(0, 0, r - 1.6, Math.PI * 1.13, Math.PI * 1.87);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.arc(0, 0, r - 1.6, Math.PI * 0.13, Math.PI * 0.87);
+        ctx.stroke();
+      }
     }
     // v8.5：身体中央叠 type.icon emoji 作为差异化标识（每种敌人 icon 各异 → 视觉秒辨认）
     // 取代旧的"简易白点眼睛"。flash / frozen 状态也显示，但稍微变淡
@@ -3109,30 +3168,50 @@ class Enemy {
 function drawEnemyMini(ctx, def, cx, cy, radius) {
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.fillStyle = def.color;
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-  ctx.lineWidth = 2;
-  if (def.shape === 'triangle') {
-    ctx.beginPath();
-    ctx.moveTo(0, -radius);
-    ctx.lineTo(-radius * 0.95, radius * 0.7);
-    ctx.lineTo(radius * 0.95, radius * 0.7);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-  } else if (def.shape === 'rect') {
-    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
-    ctx.strokeRect(-radius, -radius, radius * 2, radius * 2);
+  const mc = def.color;
+  const miniPath = () => {
+    if (def.shape === 'triangle') {
+      ctx.beginPath();
+      ctx.moveTo(0, -radius);
+      ctx.lineTo(-radius * 0.95, radius * 0.7);
+      ctx.lineTo(radius * 0.95, radius * 0.7);
+      ctx.closePath();
+    } else if (def.shape === 'rect') {
+      _chamferRectPath(ctx, -radius, -radius, radius * 2, radius * 2, radius * 0.42);
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    }
+  };
+  // 同色辉光 + 竖向光泽（与战场敌人一致的斜切金属板材质）
+  ctx.save();
+  ctx.shadowColor = mc; ctx.shadowBlur = 8;
+  const mg = ctx.createLinearGradient(0, -radius, 0, radius);
+  mg.addColorStop(0,   _lightenColor(mc, 0.6));
+  mg.addColorStop(0.5, mc);
+  mg.addColorStop(1,   _darkenColor(mc, 0.5));
+  ctx.fillStyle = mg;
+  miniPath(); ctx.fill();
+  ctx.restore();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(8,12,18,0.85)';
+  miniPath(); ctx.stroke();
+  // 身体中央叠 type.icon emoji —— 与 Enemy.draw（行 ~3076）完全一致，让预告缩略图＝实际敌人
+  if (def.icon) {
+    ctx.font = `${radius * 1.5}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,0.7)';
+    ctx.shadowBlur = 4;
+    ctx.fillText(def.icon, 0, 0);
+    ctx.shadowBlur = 0;
   } else {
+    // fallback：旧风格白点眼睛（def 无 icon 时兜底）
+    ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, Math.PI * 2);
-    ctx.fill(); ctx.stroke();
+    ctx.arc(-radius * 0.32, -radius * 0.18, Math.max(1.6, radius * 0.12), 0, Math.PI * 2);
+    ctx.arc(radius * 0.32, -radius * 0.18, Math.max(1.6, radius * 0.12), 0, Math.PI * 2);
+    ctx.fill();
   }
-  // 简易眼睛
-  ctx.fillStyle = '#fff';
-  ctx.beginPath();
-  ctx.arc(-radius * 0.32, -radius * 0.18, Math.max(1.6, radius * 0.12), 0, Math.PI * 2);
-  ctx.arc(radius * 0.32, -radius * 0.18, Math.max(1.6, radius * 0.12), 0, Math.PI * 2);
-  ctx.fill();
   ctx.restore();
 }
 
@@ -3523,51 +3602,117 @@ class PlayerCannon {
   }
 
   draw(ctx) {
-    ctx.save();
     // 反冲：整个炮台沿瞄准反方向偏移 3px，60ms 内回归（按线性衰减）
     const recoilK = this.recoilDur > 0 ? (this.recoilT / this.recoilDur) : 0;
     const recoilOff = recoilK * 3;
-    ctx.translate(
-      this.x - Math.cos(this.angle) * recoilOff,
-      this.y - Math.sin(this.angle) * recoilOff,
-    );
-    // 底座 + 炮管：颜色按当前炮台变化（chain=棕 / fire=红 / power=蓝）
+    const cx = this.x - Math.cos(this.angle) * recoilOff;
+    const cy = this.y - Math.sin(this.angle) * recoilOff;
+    // 配色按当前炮台变化（chain=棕 / summon=紫 / power=蓝）
     const cannon = (window.__game && window.__game.cannon) || null;
-    const baseC = cannon ? cannon.baseColor : '#4a6fa5';
-    const strokeC = cannon ? cannon.strokeColor : '#2a4a78';
-    const barrelC = cannon ? cannon.barrelColor : '#7eb1ff';
-    ctx.fillStyle = this.hitFlash > 0 ? '#fff' : baseC;
-    ctx.strokeStyle = strokeC;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-    ctx.fill(); ctx.stroke();
-    // 炮台核心：emoji + 暗色内圆（按炮台风格点缀）
-    if (cannon) {
-      ctx.fillStyle = strokeC;
-      ctx.globalAlpha = 0.7;
-      ctx.beginPath();
-      ctx.arc(0, 0, this.radius * 0.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+    const baseC   = cannon ? cannon.baseColor   : '#4a6fa5';
+    const strokeC = cannon ? cannon.strokeColor : '#1a2840';
+    const barrelC = cannon ? cannon.barrelColor : '#aed0ff';
+    const flash = this.hitFlash > 0;
+    const r = this.radius;
+
+    // ── 底座八边形金属板（先画，炮管盖在其上）：竖向光泽渐变 + 角棱 + 发光 ──
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (!flash) { ctx.shadowColor = baseC; ctx.shadowBlur = 16; }
+    if (flash) {
+      ctx.fillStyle = '#fff';
+    } else {
+      const g = ctx.createLinearGradient(0, -r, 0, r);
+      g.addColorStop(0, _lightenColor(baseC, 0.6));
+      g.addColorStop(0.5, baseC);
+      g.addColorStop(1, _darkenColor(baseC, 0.5));
+      ctx.fillStyle = g;
     }
-    // 炮管
-    ctx.rotate(this.angle);
-    ctx.fillStyle = barrelC;
-    ctx.fillRect(0, -5, this.radius + 12, 10);
-    // 炮管描边强化
-    ctx.strokeStyle = strokeC;
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(0, -5, this.radius + 12, 10);
+    _octagonPath(ctx, 0, 0, r, r * 0.42);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 2.5; ctx.strokeStyle = strokeC; ctx.stroke();
+    const c = r * 0.42;
+    // 顶部高光棱
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-r + 1.2, -r + c); ctx.lineTo(-r + c, -r + 1.2);
+    ctx.lineTo(r - c, -r + 1.2); ctx.lineTo(r - 1.2, -r + c);
+    ctx.stroke();
+    // 底部暗棱
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-r + c, r - 1.2); ctx.lineTo(r - c, r - 1.2);
+    ctx.stroke();
+
+    // ── 内部凸起核心（小八边形，旋转枢轴）：炮管将盖在其上 ──
+    const hr = r * 0.52;
+    if (flash) {
+      ctx.fillStyle = '#fff';
+    } else {
+      const hg = ctx.createLinearGradient(0, -hr, 0, hr);
+      hg.addColorStop(0, _lightenColor(baseC, 0.4));
+      hg.addColorStop(1, _darkenColor(baseC, 0.35));
+      ctx.fillStyle = hg;
+    }
+    _octagonPath(ctx, 0, 0, hr, hr * 0.42);
+    ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = strokeC; ctx.stroke();
     ctx.restore();
-    // 护盾环
+
+    // ── 炮管（后画，盖在底座之上）：斜切角金属管 + 上高光 / 下暗线 ──
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(this.angle);
+    const bw = r + 16, bh = 12;
+    // 枢轴座（炮管根部圆形枢纽，挂在底座与炮管之间，让炮管看起来"长在"底座上）
+    if (!flash) {
+      const pr = bh * 0.92;
+      const pg = ctx.createRadialGradient(-pr * 0.3, -pr * 0.3, 1, 0, 0, pr);
+      pg.addColorStop(0, _lightenColor(baseC, 0.5));
+      pg.addColorStop(1, _darkenColor(baseC, 0.4));
+      ctx.fillStyle = pg;
+      ctx.beginPath(); ctx.arc(0, 0, pr, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 1.6; ctx.strokeStyle = strokeC; ctx.stroke();
+    }
+    if (flash) {
+      ctx.fillStyle = '#fff';
+    } else {
+      const bg = ctx.createLinearGradient(0, -bh / 2, 0, bh / 2);
+      bg.addColorStop(0, _lightenColor(barrelC, 0.55));
+      bg.addColorStop(0.45, barrelC);
+      bg.addColorStop(1, _darkenColor(barrelC, 0.45));
+      ctx.fillStyle = bg;
+    }
+    _chamferRectPath(ctx, 0, -bh / 2, bw, bh, 4);
+    ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = strokeC; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(4, -bh / 2 + 1.3); ctx.lineTo(bw - 5, -bh / 2 + 1.3); ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(4, bh / 2 - 1.3); ctx.lineTo(bw - 5, bh / 2 - 1.3); ctx.stroke();
+    // 炮口端块
+    ctx.fillStyle = flash ? '#fff' : _darkenColor(barrelC, 0.12);
+    _chamferRectPath(ctx, bw - 6, -bh / 2 - 1.5, 6, bh + 3, 2);
+    ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = strokeC; ctx.stroke();
+    // 枢轴高光点（炮管根部中心的小亮点，强化"枢纽"质感）
+    if (!flash) {
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.beginPath();
+      ctx.ellipse(-bh * 0.15, -bh * 0.22, bh * 0.34, bh * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // ── 护盾环 ──
     if (this.shield > 0) {
       ctx.save();
       ctx.translate(this.x, this.y);
-      ctx.strokeStyle = '#7eb1ff';
+      ctx.strokeStyle = '#aed0ff';
+      ctx.shadowColor = '#7eb1ff'; ctx.shadowBlur = 10;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(0, 0, this.radius + 5, 0, Math.PI * 2);
+      ctx.arc(0, 0, r + 7, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -6287,9 +6432,9 @@ function _arcaneFireworkTier(baseCount, extraChance, value) {
   };
 }
 
-// 土豆（v9 新增，替换 v8 的烫土豆）：数量+N，弹射+N。无法瞄准（每颗子弹以随机角度发射）。
-//   "无法瞄准"实现：Spawned 阶段把 ctx.bullet.angle override 为 [0, 2π) 随机值
-//   → fireOneWave 内的扇形分布被覆盖，每颗子弹独立朝随机方向飞
+// 土豆（v9 新增，替换 v8 的烫土豆）：数量+N，弹射+N。无法瞄准（朝瞄准方向 160° 锥内散射）。
+//   "无法瞄准"实现：Spawned 阶段在 ctx.bullet.angle（≈ 瞄准方向）基础上叠加 ±80° 随机抖动
+//   → 每颗子弹朝前方 160° 锥内独立散射（仍无法精确瞄准，但不再全 360° 乱飞）
 function _potatoTier(count, bound, value) {
   return {
     cost: 2, value,
@@ -6300,8 +6445,9 @@ function _potatoTier(count, bound, value) {
         ctx.bullet.bound += bound;
       }),
       new Effect(Phase.Spawned, 0, ctx => {
-        // 覆盖发射角度 — 每颗 clone 独立随机
-        ctx.bullet.angle = Math.random() * Math.PI * 2;
+        // 朝瞄准方向 ±80°（共 160°）内随机散射 —— 向前喷射，不再全 360° 乱飞
+        const spread = 160 * Math.PI / 180;
+        ctx.bullet.angle += (Math.random() - 0.5) * spread;
       }),
     ],
   };
@@ -13831,9 +13977,13 @@ function render(ctx, world) {
   // 梯形外区域：暗色（标识禁区）
   ctx.fillStyle = '#0a0d11';
   ctx.fillRect(0, 0, world.w, world.h);
-  // 梯形内区域：稍亮的战场
+  // 梯形内区域：竖向渐变战场（与容器一致的封面板材质：上亮下暗）
   const tr = world.trap;
-  ctx.fillStyle = '#1a2028';
+  const arenaGrad = ctx.createLinearGradient(0, 0, 0, world.h);
+  arenaGrad.addColorStop(0,    '#222b35');
+  arenaGrad.addColorStop(0.55, '#171d25');
+  arenaGrad.addColorStop(1,    '#10151b');
+  ctx.fillStyle = arenaGrad;
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(world.w, 0);
@@ -13851,9 +14001,18 @@ function render(ctx, world) {
   for (let y = 0; y <= world.h; y += 60) { ctx.moveTo(0, y); ctx.lineTo(world.w, y); }
   ctx.stroke();
   ctx.restore();
-  // 梯形边框（奖励回合 → 金色脉冲渐变）
+  // 梯形边框
   const isReward = world.battle.rewardTurn;
+  const trapPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(world.w, 0);
+    ctx.lineTo(tr.bottomRight, world.h);
+    ctx.lineTo(tr.bottomLeft, world.h);
+    ctx.closePath();
+  };
   if (isReward) {
+    // 奖励回合 → 金色脉冲渐变
     const t = performance.now() / 1000;
     const pulse = 0.7 + Math.sin(t * 4) * 0.3;
     const grad = ctx.createLinearGradient(0, 0, 0, world.h);
@@ -13861,20 +14020,42 @@ function render(ctx, world) {
     grad.addColorStop(0.5, '#ff9c4a');
     grad.addColorStop(1, '#ffd84a');
     ctx.strokeStyle = grad;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 8;
     ctx.shadowColor = '#ffae00';
-    ctx.shadowBlur = 18 * pulse;
+    ctx.shadowBlur = 22 * pulse;
+    trapPath();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
   } else {
-    ctx.strokeStyle = '#4a5868';
+    // 普通：封面按钮式斜切金属边 —— 暗底框 + 竖向金属渐变板 + 顶部内嵌高光（加厚加重，更醒目）
+    ctx.save();
+    ctx.lineJoin = 'round';
+    // 1) 暗色外框底（对应 CSS 的 #0e1420 border + drop shadow）
+    ctx.strokeStyle = '#0a0e16';
+    ctx.lineWidth = 12;
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 3;
+    trapPath();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    // 2) 竖向金属渐变板（上亮下暗）
+    const edgeGrad = ctx.createLinearGradient(0, 0, 0, world.h);
+    edgeGrad.addColorStop(0,   '#7d90a8');
+    edgeGrad.addColorStop(0.5, '#425064');
+    edgeGrad.addColorStop(1,   '#26303e');
+    ctx.strokeStyle = edgeGrad;
+    ctx.lineWidth = 8;
+    trapPath();
+    ctx.stroke();
+    // 3) 顶部内嵌高光（细线提亮顶沿）
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 2;
+    trapPath();
+    ctx.stroke();
+    ctx.restore();
   }
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(world.w, 0);
-  ctx.lineTo(tr.bottomRight, world.h);
-  ctx.lineTo(tr.bottomLeft, world.h);
-  ctx.closePath();
-  ctx.stroke();
   ctx.shadowBlur = 0;
 
   for (const e of world.enemies) e.draw(ctx);

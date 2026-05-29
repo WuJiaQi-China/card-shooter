@@ -31,9 +31,9 @@ html, body {
   position: fixed;
   top: 50%;
   transform: translateY(-50%);
-  background: #14191f;
-  border: 1px solid #2a3242;
-  border-radius: 6px;
+  background: linear-gradient(180deg, #1b222b 0%, #141a21 60%, #10151b 100%);
+  border: 1px solid #0e1420;
+  border-radius: 7px;
   padding: 8px 10px;
   font-size: 10.5px;
   color: #b0b8c2;
@@ -41,6 +41,10 @@ html, body {
   z-index: 5;
   max-height: 90vh;
   overflow-y: auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.07),
+    0 3px 0 rgba(0,0,0,0.4),
+    0 5px 12px rgba(0,0,0,0.45);
 }
 #left-rail  { width: 130px; right: calc(50% + 470px); }
 #right-rail { width: 170px; left:  calc(50% + 470px); }
@@ -117,14 +121,18 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: rgba(74, 130, 212, 0.12);
-  border: 1px solid #3a4452;
-  border-radius: 4px;
+  background: linear-gradient(180deg, #1d2733 0%, #161d27 100%);
+  border: 1px solid #0e1420;
+  border-radius: 5px;
   padding: 4px;
   font-size: 12px;
   font-weight: 700;
   color: #f1f4f8;
   cursor: help;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 2px 0 rgba(0,0,0,0.4),
+    0 2px 5px rgba(0,0,0,0.4);
 }
 .we-item canvas {
   display: block;
@@ -186,13 +194,18 @@ html, body {
   align-items: stretch;
   gap: 6px;
   z-index: 25;
-  background: rgba(20, 26, 34, 0.85);
-  border: 1px solid rgba(74, 88, 104, 0.55);
+  background: linear-gradient(180deg, rgba(30, 38, 48, 0.92) 0%, rgba(20, 26, 34, 0.92) 55%, rgba(14, 19, 25, 0.92) 100%);
+  border: 1px solid #0e1420;
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 12px;
   backdrop-filter: blur(3px);
   color: #f1f4f8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -2px 5px rgba(0, 0, 0, 0.35),
+    0 3px 0 rgba(0, 0, 0, 0.42),
+    0 5px 13px rgba(0, 0, 0, 0.5);
 }
 #side-right-top .srt-item {
   display: flex;
@@ -235,9 +248,15 @@ html, body {
   flex-direction: column;
   gap: 6px;
   padding: 6px 10px;
-  background: #181e26;
-  border-radius: 6px;
+  background: linear-gradient(180deg, #1b222b 0%, #141a21 60%, #10151b 100%);
+  border: 1px solid #0e1420;
+  border-radius: 8px;
   overflow: visible;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -3px 7px rgba(0, 0, 0, 0.4),
+    0 3px 0 rgba(0, 0, 0, 0.42),
+    0 5px 14px rgba(0, 0, 0, 0.5);
 }
 
 /* 所有手牌统一容器：absolute 定位每张卡，hand[0] 在最左、hand[last] 在最右
@@ -310,15 +329,18 @@ html, body {
 }
 .kw-pop {
   position: absolute;
-  background: rgba(20, 26, 34, 0.97);
-  border: 1px solid #4a5868;
+  background: linear-gradient(180deg, rgba(32, 40, 51, 0.98) 0%, rgba(18, 24, 31, 0.98) 100%);
+  border: 1px solid #0e1420;
   border-radius: 8px;
   padding: 12px 16px;
   width: 280px;
   color: #d6dbe2;
   font-size: 14px;
   line-height: 1.5;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 3px 0 rgba(0, 0, 0, 0.4),
+    0 8px 22px rgba(0, 0, 0, 0.6);
   animation: kw-pop-in 0.18s ease forwards;
 }
 @keyframes kw-pop-in {
@@ -480,14 +502,17 @@ html, body {
   position: fixed;
   top: 110px;
   left: calc(50% + 470px);
-  background: rgba(20, 26, 34, 0.97);
-  border: 1px solid #4a5868;
+  background: linear-gradient(180deg, rgba(32, 40, 51, 0.97) 0%, rgba(18, 24, 31, 0.97) 100%);
+  border: 1px solid #0e1420;
   border-radius: 8px;
   padding: 10px 14px 12px;
   min-width: 280px;
   color: #d6dbe2;
   font-size: 12px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 3px 0 rgba(0, 0, 0, 0.4),
+    0 8px 22px rgba(0, 0, 0, 0.6);
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -615,11 +640,16 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  background: #1a2028;
-  border: 1px solid #2a3242;
-  border-radius: 6px;
+  background: linear-gradient(180deg, #1f2630 0%, #181e26 60%, #12171d 100%);
+  border: 1px solid #0e1420;
+  border-radius: 7px;
   padding: 4px 10px;
   font-size: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -10px 16px rgba(0,0,0,0.25),
+    0 3px 0 rgba(0,0,0,0.45),
+    0 4px 10px rgba(0,0,0,0.45);
 }
 #main-left button {
   width: 100%;
@@ -642,11 +672,16 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  background: #1a2028;
-  border: 1px solid #2a3242;
-  border-radius: 6px;
-  padding: 4px 10px;
+  background: linear-gradient(180deg, #1f2630 0%, #181e26 60%, #12171d 100%);
+  border: 1px solid #0e1420;
+  border-radius: 7px;
+  padding: 5px 10px;
   font-size: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -10px 16px rgba(0,0,0,0.25),
+    0 3px 0 rgba(0,0,0,0.45),
+    0 4px 10px rgba(0,0,0,0.45);
 }
 .ms-row {
   display: grid;
@@ -666,17 +701,19 @@ html, body {
 }
 .ms-bar {
   grid-column: 1 / -1;
-  height: 6px;
-  background: #0a0d11;
-  border-radius: 3px;
+  height: 7px;
+  background: #06090c;
+  border-radius: 4px;
   overflow: hidden;
+  border: 1px solid #0e1420;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.6);
 }
 .ms-bar-fill {
   height: 100%;
   transition: width 0.15s ease-out;
 }
-.ms-bar-fill.hp   { background: linear-gradient(90deg, #d04848, #ef7878); }
-.ms-bar-fill.mana { background: linear-gradient(90deg, #4a82d4, #7eb1ff); }
+.ms-bar-fill.hp   { background: linear-gradient(180deg, #f4a0a0 0%, #ef7878 45%, #c0383a 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.35); }
+.ms-bar-fill.mana { background: linear-gradient(180deg, #a9ccff 0%, #7eb1ff 45%, #3a6bbf 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.35); }
 .ms-combo {
   color: #ef7878;
   font-weight: 700;
@@ -692,11 +729,16 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 2px 10px;
-  background: #14191f;
-  border-radius: 4px;
+  padding: 3px 10px;
+  background: linear-gradient(180deg, #1b222b 0%, #141a21 100%);
+  border: 1px solid #0e1420;
+  border-radius: 6px;
   font-size: 10px;
   margin-bottom: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    0 2px 0 rgba(0,0,0,0.4),
+    0 3px 8px rgba(0,0,0,0.4);
 }
 .xp-lv {
   color: #ffd84a;
@@ -707,14 +749,16 @@ html, body {
 .xp-bar-track {
   flex: 1;
   height: 10px;
-  background: #0a0d11;
+  background: #06090c;
   border-radius: 5px;
   overflow: hidden;
-  border: 1px solid #2a3242;
+  border: 1px solid #0e1420;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.6);
 }
 .xp-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #4a82d4, #7eb1ff);
+  background: linear-gradient(180deg, #a9ccff 0%, #7eb1ff 45%, #3a6bbf 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
   transition: width 0.2s ease-out;
 }
 .xp-num {
@@ -831,9 +875,11 @@ html, body {
   inset: 0;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  border-radius: 6px;
-  border: 1px solid #3a4452;
-  padding: 4px 4px 6px 4px;
+  /* 连续圆角卡框（参考炉石 / 符文之地）：不用 clip-path，让 border + box-shadow 沿圆角连续包裹，
+     不在四角被斜切打断。斜切角语言保留给按钮，卡牌用平滑圆角更贴近热门卡牌素材。 */
+  border-radius: 10px;
+  border: 2px solid #0e1420;
+  padding: 5px 5px 7px 5px;
   display: flex;
   flex-direction: column;
   font-size: 11px;
@@ -844,7 +890,7 @@ html, body {
 /* 卡面图（顶部彩色块 + emoji） —— 模拟炉石卡面图分区，便于后续替换真实图片 */
 .card-art {
   height: 42px;
-  border-radius: 4px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -853,20 +899,40 @@ html, body {
   line-height: 1;
   flex-shrink: 0;
   text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  /* 嵌入式画框窗：深描边 + 顶高光 / 底暗影，模拟凹入的卡面画窗 */
+  border: 1.5px solid rgba(0, 0, 0, 0.5);
+  box-shadow:
+    inset 0 2px 1px rgba(255, 255, 255, 0.4),
+    inset 0 -4px 6px rgba(0, 0, 0, 0.45),
+    0 1px 0 rgba(255, 255, 255, 0.08);
 }
-/* art 背景色按稀有度（铜 / 银 / 金 / 钻） */
-.card-art.rarity-bronze  { background: linear-gradient(135deg, #3c5e2e 0%, #8fc070 100%); }
-.card-art.rarity-silver  { background: linear-gradient(135deg, #5e6878 0%, #c0c8d4 100%); }
-.card-art.rarity-gold    { background: linear-gradient(135deg, #d4691a 0%, #ffc16a 100%); }
-.card-art.rarity-diamond { background: linear-gradient(135deg, #2a7a98 0%, #6bd9e8 100%); }
+/* art 背景色按稀有度（铜 / 银 / 金 / 钻）—— 竖向光泽渐变（上亮下暗，金属感） */
+.card-art.rarity-bronze  { background: linear-gradient(180deg, #b6e294 0%, #6fa84a 50%, #3c5e2e 100%); }
+.card-art.rarity-silver  { background: linear-gradient(180deg, #eef2f8 0%, #aeb8c6 50%, #5e6878 100%); }
+.card-art.rarity-gold    { background: linear-gradient(180deg, #ffe0a0 0%, #ffb44a 50%, #b8651a 100%); }
+.card-art.rarity-diamond { background: linear-gradient(180deg, #c4f6ff 0%, #6bd9e8 50%, #2a7a98 100%); }
 
 .card-front {
-  background: linear-gradient(160deg, #2a323d, #1e242c);
+  background:
+    radial-gradient(125% 80% at 50% -12%, rgba(255, 255, 255, 0.08), transparent 58%),
+    linear-gradient(180deg, #333d49 0%, #272f39 38%, #1c222a 100%);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -4px 6px rgba(0, 0, 0, 0.45),
+    0 3px 0 rgba(8, 12, 18, 0.9),
+    0 5px 9px rgba(0, 0, 0, 0.5);
 }
 
 .card-back {
-  background: repeating-linear-gradient(45deg, #2a323d 0 6px, #232a33 6px 12px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.25)),
+    repeating-linear-gradient(45deg, #2a323d 0 6px, #232a33 6px 12px);
   transform: rotateY(180deg);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -4px 6px rgba(0, 0, 0, 0.5),
+    0 3px 0 rgba(8, 12, 18, 0.9),
+    0 5px 9px rgba(0, 0, 0, 0.5);
 }
 
 .card-back::after {
@@ -1077,37 +1143,119 @@ html, body {
 .card.rarity-gold .card-name    { color: #ffcb85; }
 .card.rarity-diamond .card-name { color: #aef0fb; }
 
-/* 卡 / 模态卡 / 背包槽 边框 —— 加粗 3px，铜银金钻光强递进 */
+/* 卡 / 模态卡 / 背包槽 边框 —— 连续立体金属框（圆角无断点，参考热门卡牌素材）：
+   外层深描边让卡从画面浮起 + 金属边 + 内顶高光 / 内底暗棱构成倒角 + 抬升厚边 + 稀有度光晕。
+   全部用 border + box-shadow 沿 border-radius 连续包裹，四角不再被 clip-path 切断。 */
 .card.rarity-bronze .card-front,
 .modal-card.rarity-bronze,
 .bag-slot.rarity-bronze {
-  border: 3px solid #8fc070;
-  box-shadow: inset 0 0 0 1px rgba(40, 80, 30, 0.7), 0 0 6px rgba(143, 192, 112, 0.55);
+  border: 3px solid #6fa84a;
+  box-shadow:
+    inset 0 0 0 1px rgba(26, 44, 18, 0.85),
+    inset 0 2px 1px rgba(198, 236, 154, 0.6),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.55),
+    inset 3px 0 5px rgba(0, 0, 0, 0.2),
+    inset -3px 0 5px rgba(0, 0, 0, 0.2),
+    0 0 0 1.5px rgba(8, 12, 8, 0.92),
+    0 3px 0 #2a4420,
+    0 6px 11px rgba(0, 0, 0, 0.55),
+    0 0 12px rgba(143, 192, 112, 0.6);
 }
 .card.rarity-silver .card-front,
 .modal-card.rarity-silver,
 .bag-slot.rarity-silver {
-  border: 3px solid #d8e0ec;
-  box-shadow: inset 0 0 0 1px rgba(110, 124, 144, 0.7), 0 0 10px rgba(216, 224, 236, 0.55);
+  border: 3px solid #c2ccd8;
+  box-shadow:
+    inset 0 0 0 1px rgba(74, 84, 98, 0.85),
+    inset 0 2px 1px rgba(244, 248, 252, 0.68),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.55),
+    inset 3px 0 5px rgba(0, 0, 0, 0.2),
+    inset -3px 0 5px rgba(0, 0, 0, 0.2),
+    0 0 0 1.5px rgba(10, 13, 18, 0.92),
+    0 3px 0 #586472,
+    0 6px 11px rgba(0, 0, 0, 0.55),
+    0 0 13px rgba(216, 224, 236, 0.62);
 }
 .card.rarity-gold .card-front,
 .modal-card.rarity-gold,
 .bag-slot.rarity-gold {
-  border: 3px solid #ffc16a;
-  box-shadow: inset 0 0 0 1px rgba(140, 70, 20, 0.7), 0 0 14px rgba(255, 193, 106, 0.7);
+  border: 3px solid #ffbe5c;
+  box-shadow:
+    inset 0 0 0 1px rgba(110, 56, 16, 0.85),
+    inset 0 2px 1px rgba(255, 232, 182, 0.72),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.55),
+    inset 3px 0 5px rgba(0, 0, 0, 0.2),
+    inset -3px 0 5px rgba(0, 0, 0, 0.2),
+    0 0 0 1.5px rgba(20, 12, 4, 0.92),
+    0 3px 0 #8c4614,
+    0 6px 11px rgba(0, 0, 0, 0.55),
+    0 0 15px rgba(255, 193, 106, 0.72);
 }
 .card.rarity-diamond .card-front,
 .modal-card.rarity-diamond,
 .bag-slot.rarity-diamond {
-  border: 3px solid #8af0ff;
-  box-shadow: inset 0 0 0 1px rgba(40, 100, 130, 0.85), 0 0 22px rgba(138, 240, 255, 0.85);
+  border: 3px solid #74dcea;
+  box-shadow:
+    inset 0 0 0 1px rgba(28, 84, 108, 0.85),
+    inset 0 2px 1px rgba(206, 248, 255, 0.78),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.55),
+    inset 3px 0 5px rgba(0, 0, 0, 0.2),
+    inset -3px 0 5px rgba(0, 0, 0, 0.2),
+    0 0 0 1.5px rgba(6, 16, 20, 0.92),
+    0 3px 0 #1d6b86,
+    0 6px 11px rgba(0, 0, 0, 0.55),
+    0 0 20px rgba(138, 240, 255, 0.82);
 }
 
-/* 模态卡边框光强加倍（更突出） */
-.modal-card.rarity-bronze   { box-shadow: inset 0 0 0 1px rgba(40, 80, 30, 0.7), 0 0 8px rgba(143, 192, 112, 0.65); }
-.modal-card.rarity-silver   { box-shadow: inset 0 0 0 1px rgba(110, 124, 144, 0.7), 0 0 14px rgba(216, 224, 236, 0.6); }
-.modal-card.rarity-gold     { box-shadow: inset 0 0 0 1px rgba(140, 70, 20, 0.7), 0 0 18px rgba(255, 193, 106, 0.8); }
-.modal-card.rarity-diamond  { box-shadow: inset 0 0 0 1px rgba(40, 100, 130, 0.85), 0 0 26px rgba(138, 240, 255, 0.95); }
+/* 模态卡（更大）边框：同款连续金属框，倒角 / 厚边 / 光晕同步加强 */
+.modal-card.rarity-bronze {
+  box-shadow:
+    inset 0 0 0 1.5px rgba(26, 44, 18, 0.85),
+    inset 0 3px 1px rgba(198, 236, 154, 0.62),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.55),
+    inset 4px 0 6px rgba(0, 0, 0, 0.2),
+    inset -4px 0 6px rgba(0, 0, 0, 0.2),
+    0 0 0 2px rgba(8, 12, 8, 0.92),
+    0 4px 0 #2a4420,
+    0 8px 16px rgba(0, 0, 0, 0.55),
+    0 0 16px rgba(143, 192, 112, 0.7);
+}
+.modal-card.rarity-silver {
+  box-shadow:
+    inset 0 0 0 1.5px rgba(74, 84, 98, 0.85),
+    inset 0 3px 1px rgba(244, 248, 252, 0.7),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.55),
+    inset 4px 0 6px rgba(0, 0, 0, 0.2),
+    inset -4px 0 6px rgba(0, 0, 0, 0.2),
+    0 0 0 2px rgba(10, 13, 18, 0.92),
+    0 4px 0 #586472,
+    0 8px 16px rgba(0, 0, 0, 0.55),
+    0 0 20px rgba(216, 224, 236, 0.66);
+}
+.modal-card.rarity-gold {
+  box-shadow:
+    inset 0 0 0 1.5px rgba(110, 56, 16, 0.85),
+    inset 0 3px 1px rgba(255, 232, 182, 0.74),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.55),
+    inset 4px 0 6px rgba(0, 0, 0, 0.2),
+    inset -4px 0 6px rgba(0, 0, 0, 0.2),
+    0 0 0 2px rgba(20, 12, 4, 0.92),
+    0 4px 0 #8c4614,
+    0 8px 16px rgba(0, 0, 0, 0.55),
+    0 0 24px rgba(255, 193, 106, 0.82);
+}
+.modal-card.rarity-diamond {
+  box-shadow:
+    inset 0 0 0 1.5px rgba(28, 84, 108, 0.85),
+    inset 0 3px 1px rgba(206, 248, 255, 0.8),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.55),
+    inset 4px 0 6px rgba(0, 0, 0, 0.2),
+    inset -4px 0 6px rgba(0, 0, 0, 0.2),
+    0 0 0 2px rgba(6, 16, 20, 0.92),
+    0 4px 0 #1d6b86,
+    0 8px 16px rgba(0, 0, 0, 0.55),
+    0 0 30px rgba(138, 240, 255, 0.95);
+}
 
 /* 升级预览角标（购买可触发合成时显示） */
 .modal-card .upgrade-preview {
@@ -1308,7 +1456,7 @@ html[lang="en"]  .card-total::before { content: "Total "; opacity: 0.75; font-we
 .enemy-tooltip {
   position: fixed;
   pointer-events: none;
-  background: rgba(15, 18, 24, 0.97);
+  background: linear-gradient(180deg, rgba(34, 28, 22, 0.98) 0%, rgba(22, 19, 16, 0.98) 55%, rgba(15, 13, 11, 0.98) 100%);
   border: 1px solid #ffa64a;
   border-radius: 6px;
   padding: 8px 10px;
@@ -1317,7 +1465,11 @@ html[lang="en"]  .card-total::before { content: "Total "; opacity: 0.75; font-we
   color: #d6dbe2;
   font-size: 12px;
   line-height: 1.4;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 210, 150, 0.18),
+    0 3px 0 rgba(90, 50, 14, 0.5),
+    0 8px 22px rgba(0, 0, 0, 0.6),
+    0 0 12px rgba(255, 166, 74, 0.25);
   z-index: 50;
   transition: opacity 0.12s;
 }
@@ -1352,18 +1504,26 @@ html[lang="en"]  .card-total::before { content: "Total "; opacity: 0.75; font-we
   justify-content: center;
 }
 .shop-prob-bar .pp {
-  padding: 2px 7px;
-  border-radius: 12px;
+  padding: 3px 8px;
+  border-radius: 8px;
   font-weight: 700;
   color: #f1f4f8;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* 封面按钮式浮雕小牌：暗边 + 顶部内嵌高光 + 抬升厚边 + 投影 */
+  border: 1px solid rgba(8, 12, 18, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25),
+    0 2px 0 rgba(0, 0, 0, 0.35),
+    0 2px 5px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
-.shop-prob-bar .pp-bronze   { background: #4f8a3a; color: #f0f8e8; }
-.shop-prob-bar .pp-silver   { background: #7a8a9c; color: #1a2028; }
-.shop-prob-bar .pp-gold     { background: #d4691a; }
-.shop-prob-bar .pp-diamond  { background: #4a96b8; }
+.shop-prob-bar .pp-bronze   { background: linear-gradient(180deg, #6fae54 0%, #4f8a3a 55%, #3a6a28 100%); color: #f0f8e8; }
+.shop-prob-bar .pp-silver   { background: linear-gradient(180deg, #9aa8b8 0%, #7a8a9c 55%, #5e6e80 100%); color: #1a2028; text-shadow: 0 1px 1px rgba(255, 255, 255, 0.3); }
+.shop-prob-bar .pp-gold     { background: linear-gradient(180deg, #e88a3a 0%, #d4691a 55%, #a84e10 100%); }
+.shop-prob-bar .pp-diamond  { background: linear-gradient(180deg, #6ab4d4 0%, #4a96b8 55%, #357590 100%); }
 .shop-prob-bar .pp.dim       { opacity: 0.35; }
 .shop-prob-bar .pp-arrow { color: #6f7986; }
 
@@ -1379,48 +1539,71 @@ html[lang="en"]  .card-total::before { content: "Total "; opacity: 0.75; font-we
 
 /* 金币 HUD 角标 */
 .gold-badge {
-  background: #d4a44a;
-  color: #1a2028;
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-weight: 700;
+  background: linear-gradient(180deg, #ffd98a 0%, #d4a44a 52%, #9c7320 100%);
+  color: #2a1c00;
+  padding: 2px 9px;
+  border-radius: 9px;
+  font-weight: 800;
   min-width: 22px;
   display: inline-block;
   text-align: center;
+  border: 1.5px solid #0e1420;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -2px 3px rgba(0,0,0,0.3),
+    0 2px 0 #6e4e14,
+    0 2px 4px rgba(0,0,0,0.45),
+    0 0 8px rgba(255,193,106,0.4);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.3);
 }
 .gold-badge::before { content: "💰 "; }
 
 /* 连携 stacks HUD 角标 */
 .stack-badge {
-  background: #ffa64a;
-  color: #1a2028;
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-weight: 700;
+  background: linear-gradient(180deg, #ffd89a 0%, #ffa64a 52%, #c06a16 100%);
+  color: #2a1500;
+  padding: 2px 9px;
+  border-radius: 9px;
+  font-weight: 800;
   min-width: 22px;
   display: inline-block;
   text-align: center;
+  border: 1.5px solid #0e1420;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    inset 0 -2px 3px rgba(0,0,0,0.3),
+    0 2px 0 #7a3f0c,
+    0 2px 4px rgba(0,0,0,0.45),
+    0 0 8px rgba(255,166,74,0.4);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.25);
 }
 
 /* 护甲 HUD 角标 (每回合开始重置为 armorPerTurn) */
 .armor-badge {
-  background: #4a82d4;
-  color: #f1f4f8;
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-weight: 700;
+  background: linear-gradient(180deg, #8fbdf5 0%, #4a82d4 54%, #2d5596 100%);
+  color: #07142a;
+  padding: 2px 9px;
+  border-radius: 9px;
+  font-weight: 800;
   min-width: 36px;
   display: inline-block;
   text-align: center;
   font-size: 13px;
-  border: 1px solid #6b9bdf;
-  box-shadow: 0 0 6px rgba(74, 130, 212, 0.35);
+  border: 1.5px solid #0e1420;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.45),
+    inset 0 -2px 3px rgba(0,0,0,0.3),
+    0 2px 0 #1b3666,
+    0 2px 4px rgba(0,0,0,0.45),
+    0 0 8px rgba(94,178,255,0.45);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.25);
 }
 .armor-badge.zero {
   background: #2a323d;
   color: #6f7986;
   border-color: #2a323d;
-  box-shadow: none;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+  text-shadow: none;
 }
 .armor-badge.bump {
   animation: armor-bump 0.45s ease;
@@ -1430,7 +1613,7 @@ html[lang="en"]  .card-total::before { content: "Total "; opacity: 0.75; font-we
   35%  { transform: scale(1.35); color: #ffd84a; }
   100% { transform: scale(1); }
 }
-.stack-badge.zero { background: #2a323d; color: #6f7986; }
+.stack-badge.zero { background: #2a323d; color: #6f7986; border-color: #2a323d; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5); text-shadow: none; }
 .stack-badge.bump { animation: stack-bump 0.4s ease; }
 @keyframes stack-bump {
   0% { transform: scale(1); }
@@ -1527,8 +1710,8 @@ kbd {
   left: 50%;
   transform: translate(-50%, -50%);
   padding: 18px 32px;
-  background: rgba(20, 26, 34, 0.92);
-  border: 1px solid #3a4452;
+  background: linear-gradient(180deg, rgba(32, 40, 51, 0.94) 0%, rgba(18, 24, 31, 0.94) 100%);
+  border: 1px solid #0e1420;
   border-radius: 8px;
   color: #f1f4f8;
   font-size: 20px;
@@ -1537,6 +1720,10 @@ kbd {
   opacity: 0;
   transition: opacity 0.25s ease;
   z-index: 10;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 3px 0 rgba(0, 0, 0, 0.4),
+    0 8px 24px rgba(0, 0, 0, 0.6);
 }
 
 #toast.show { opacity: 1; }
@@ -1611,9 +1798,13 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: #14191f;
-  border: 1px solid #2a3242;
+  background: linear-gradient(180deg, #1d2733 0%, #161d27 100%);
+  border: 1px solid #0e1420;
   border-radius: 6px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 0 rgba(0, 0, 0, 0.4),
+    0 2px 5px rgba(0, 0, 0, 0.4);
   padding: 8px 10px;
   min-width: 220px;
 }
@@ -1640,7 +1831,13 @@ kbd {
   gap: 16px;
   align-items: center;
   justify-content: center;
-  background: #181e26;
+  background: linear-gradient(180deg, #1f2630 0%, #181e26 60%, #12171d 100%);
+  border: 1px solid #0e1420;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -10px 16px rgba(0, 0, 0, 0.22),
+    0 3px 0 rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(0, 0, 0, 0.4);
   padding: 16px;
   border-radius: 8px;
 }
@@ -1754,8 +1951,10 @@ kbd {
 .modal-card {
   width: 130px;
   height: 170px;
-  border-radius: 8px;
-  background: linear-gradient(160deg, #2a323d, #1e242c);
+  border-radius: 11px;
+  background:
+    radial-gradient(125% 75% at 50% -10%, rgba(255, 255, 255, 0.07), transparent 58%),
+    linear-gradient(160deg, #2a323d, #1e242c);
   border: 1px solid #3a4452;
   padding: 12px 10px;
   display: flex;
@@ -1812,38 +2011,136 @@ kbd {
   letter-spacing: 1px;
 }
 
+/* —— 通用 3D 角棱按钮（与封面开始界面同风格：斜切角 + 立体浮雕 + 渐变光泽） —— */
 .modal-btn {
+  position: relative;
   margin-top: 8px;
-  padding: 10px 28px;
-  background: #4a82d4;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
+  padding: 11px 28px;
+  color: #f0f6ff;
+  border: 2px solid #0e1420;
+  border-radius: 4px;
   font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 2px;
+  font-weight: 800;
+  letter-spacing: 3px;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s ease;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18), 0 -1px 0 rgba(0, 0, 0, 0.5);
+  transition: transform 0.07s ease, box-shadow 0.07s ease, filter 0.12s ease;
+  clip-path: polygon(
+    9px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px),
+    calc(100% - 9px) 100%, 9px 100%, 0 calc(100% - 9px), 0 9px
+  );
+  background: linear-gradient(180deg, #8fbdf5 0%, #4f86d6 34%, #2d5596 74%, #1b3666 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -4px 0 rgba(10, 22, 46, 0.55),
+    inset 3px 0 0 rgba(180, 214, 255, 0.16),
+    inset -3px 0 0 rgba(12, 28, 56, 0.32),
+    0 5px 0 #15294c,
+    0 9px 18px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(79, 134, 214, 0.28);
 }
-.modal-btn:hover { background: #5b95e8; }
+.modal-btn:hover {
+  filter: brightness(1.12) saturate(1.08);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -4px 0 rgba(10, 22, 46, 0.55),
+    0 7px 0 #15294c,
+    0 12px 22px rgba(0, 0, 0, 0.6),
+    0 0 24px rgba(120, 170, 230, 0.5);
+}
+.modal-btn:active {
+  transform: translateY(3px);
+  filter: brightness(0.96);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -2px 0 rgba(10, 22, 46, 0.45),
+    0 2px 0 #15294c,
+    0 4px 10px rgba(0, 0, 0, 0.5);
+}
 .modal-btn.hidden { display: none; }
-.modal-btn:disabled { background: #4a5868; color: #8a939e; cursor: not-allowed; }
-.modal-btn:disabled:hover { background: #4a5868; }
+.modal-btn:disabled {
+  background: linear-gradient(180deg, #5a6678 0%, #424d5d 45%, #2c343f 100%);
+  color: #8a939e;
+  border-color: #14181f;
+  cursor: not-allowed;
+  filter: none;
+  transform: none;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.4),
+    0 4px 0 #1a1f27,
+    0 6px 12px rgba(0, 0, 0, 0.45);
+}
+.modal-btn:disabled:hover { filter: none; transform: none; }
 
-.modal-btn-secondary { background: #6f4ac4; }
-.modal-btn-secondary:hover { background: #8a5ee0; }
+/* —— 次要按钮（刷新等）：紫色光泽 —— */
+.modal-btn-secondary {
+  background: linear-gradient(180deg, #c79bf0 0%, #8a5ee0 34%, #5e3aa8 74%, #3a2270 100%);
+  border-color: #1c0e38;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -4px 0 rgba(28, 14, 56, 0.55),
+    inset 3px 0 0 rgba(214, 184, 255, 0.16),
+    inset -3px 0 0 rgba(30, 16, 60, 0.32),
+    0 5px 0 #28134a,
+    0 9px 18px rgba(0, 0, 0, 0.5),
+    0 0 16px rgba(138, 94, 224, 0.3);
+}
+.modal-btn-secondary:hover {
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -4px 0 rgba(28, 14, 56, 0.55),
+    0 7px 0 #28134a,
+    0 12px 22px rgba(0, 0, 0, 0.6),
+    0 0 24px rgba(170, 120, 250, 0.55);
+}
 
-.modal-btn-shop { background: #d4691a; }
-.modal-btn-shop:hover { background: #ffa64a; }
+/* —— 商店 / 背包按钮：橙金光泽 —— */
+.modal-btn-shop {
+  background: linear-gradient(180deg, #ffd89a 0%, #ff9a3c 32%, #e2691a 72%, #b04a0e 100%);
+  color: #2a1500;
+  border-color: #4a1c00;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -4px 0 rgba(120, 50, 0, 0.5),
+    inset 3px 0 0 rgba(255, 224, 168, 0.18),
+    inset -3px 0 0 rgba(110, 44, 0, 0.32),
+    0 5px 0 #6e2400,
+    0 9px 18px rgba(0, 0, 0, 0.5),
+    0 0 18px rgba(255, 140, 50, 0.35);
+}
+.modal-btn-shop:hover {
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.65),
+    inset 0 -4px 0 rgba(120, 50, 0, 0.5),
+    0 7px 0 #6e2400,
+    0 12px 22px rgba(0, 0, 0, 0.6),
+    0 0 28px rgba(255, 170, 70, 0.6);
+}
 
 /* 背包按钮：有折扣（剩余法力累计）时换冰蓝调，凸显"省法力" */
 .modal-btn-shop.discounted {
-  background: #4a82d4;
-  box-shadow: 0 0 14px rgba(126, 177, 255, 0.5);
+  background: linear-gradient(180deg, #aed4ff 0%, #5b95e8 34%, #3163b0 74%, #1d3c72 100%);
+  color: #f0f6ff;
+  border-color: #0e1f3e;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18), 0 -1px 0 rgba(0, 0, 0, 0.5);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -4px 0 rgba(10, 22, 46, 0.5),
+    0 5px 0 #16294a,
+    0 9px 18px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(126, 177, 255, 0.55);
 }
 .modal-btn-shop.discounted:hover {
-  background: #6aa0ff;
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -4px 0 rgba(10, 22, 46, 0.5),
+    0 7px 0 #16294a,
+    0 12px 22px rgba(0, 0, 0, 0.6),
+    0 0 30px rgba(150, 195, 255, 0.7);
 }
 /* 折扣变化瞬间的弹跳 + 蓝光闪一下（每次结束回合若有剩余法力，按钮 bump 一下） */
 .modal-btn-shop.discount-flash {
@@ -1866,7 +2163,13 @@ kbd {
   grid-template-columns: repeat(4, auto);
   gap: 16px;
   padding: 16px;
-  background: #181e26;
+  background: linear-gradient(180deg, #1f2630 0%, #181e26 60%, #12171d 100%);
+  border: 1px solid #0e1420;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -10px 16px rgba(0, 0, 0, 0.22),
+    0 3px 0 rgba(0, 0, 0, 0.4),
+    0 4px 10px rgba(0, 0, 0, 0.4);
   border-radius: 8px;
   justify-content: center;
 }
@@ -1877,7 +2180,12 @@ kbd {
   grid-template-columns: repeat(10, 1fr);
   gap: 6px;
   padding: 10px;
-  background: #14191f;
+  background: linear-gradient(180deg, #1d2733 0%, #161d27 100%);
+  border: 1px solid #0e1420;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 0 rgba(0, 0, 0, 0.4),
+    0 2px 5px rgba(0, 0, 0, 0.4);
   border-radius: 6px;
   max-width: 760px;
 }
@@ -2117,8 +2425,8 @@ kbd {
 }
 .inv-picks-badge {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  top: 4px;
+  right: 6px;
   min-width: 20px;
   height: 20px;
   padding: 0 5px;
@@ -2594,6 +2902,8 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
   border-radius: 12px;
   padding: 18px 24px 14px;
   box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 3px 0 rgba(10, 22, 40, 0.6),
     0 0 24px rgba(94, 178, 255, 0.4),
     0 10px 28px rgba(0, 0, 0, 0.55);
   pointer-events: auto;
@@ -2845,8 +3155,8 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
   border-radius: 50%;
   font-size: 18px;
   z-index: 5;
-  background: rgba(40, 50, 70, 0.85);
-  border: 1px solid #4a5868;
+  background: linear-gradient(180deg, #3a4658 0%, #242d3b 100%);
+  border: 1px solid #0e1420;
   color: #d6dbe2;
   font-size: 16px;
   font-weight: 700;
@@ -2856,13 +3166,29 @@ body.start-screen-active #settings-panel:not(.hidden) .settings-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.4),
+    0 2px 0 rgba(0, 0, 0, 0.5),
+    0 3px 8px rgba(0, 0, 0, 0.5);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
 .modal-action-close:hover {
-  background: rgba(255, 88, 88, 0.25);
+  background: linear-gradient(180deg, #6a2e2e 0%, #4a1e1e 100%);
   border-color: #ff7878;
-  color: #ff8888;
+  color: #ff9090;
   transform: scale(1.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    0 2px 0 rgba(0, 0, 0, 0.5),
+    0 3px 10px rgba(0, 0, 0, 0.5),
+    0 0 12px rgba(255, 120, 120, 0.55);
+}
+.modal-action-close:active {
+  transform: scale(1.04) translateY(1px);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.5),
+    0 1px 4px rgba(0, 0, 0, 0.5);
 }
 .modal-action-title {
   color: #5eb2ff;
