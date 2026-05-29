@@ -65,15 +65,14 @@ function _octagonPath(ctx, cx, cy, r, cut) {
 
 // ─── 多语言（i18n）─────────────────────────────────────────────────
 // 单一 LANG.current 控制全局语言；切换时 emit 'langChanged' → UI 重渲。
-const LANG = { current: 'zh' };
+const LANG = { current: 'en' };
 try {
   const _saved = localStorage.getItem('cs_lang');
   if (_saved === 'zh' || _saved === 'en') {
     LANG.current = _saved;
   } else {
-    // 首次访问：读浏览器默认语言决定中 / 英
-    const _nav = (navigator.language || 'zh').toLowerCase();
-    LANG.current = _nav.startsWith('zh') ? 'zh' : 'en';
+    // 首次访问：默认英文（玩家可在开始界面 / 设置里切换为中文）
+    LANG.current = 'en';
   }
 } catch (e) {}
 function setLang(code) {
@@ -6685,10 +6684,11 @@ function _drillTier(pen, pierceCD, value) {
   };
 }
 
-// 造访剑圣：伤害+2。展露：玩家回合结束时召唤 1 个剑圣并弃置此牌（一次性触发，
-// 重洗回手牌再次展露才会再触发）。金/钻 → 觉醒剑圣（+斩杀<10% HP 周围敌人）。
-//   alwaysFaceUp 钻级：此牌在手牌中始终为正面。
-//   设计取舍：bag[0] 主卡不能被弃置（永远在卡槽 → 无意义）→ 主卡位置时本机制 no-op。
+// 造访剑圣：伤害+2。展露 = 持续光环：只要此牌处于正面（展露），每次玩家回合结束
+// （进入敌方回合）就召唤 1 个剑圣，不弃置自己。翻回反面 / 离场 → 停止。
+// 金/钻 → 觉醒剑圣（+斩杀<10% HP 周围敌人）。
+//   alwaysFaceUp 钻级：此牌在手牌中始终为正面 → 每回合都召唤。
+//   主卡（bag[0]）常驻展露 → 同样每回合召唤。
 function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
   const summonZh = awakened ? '觉醒剑圣' : '剑圣';
   const summonEn = awakened ? 'Awakened Sword Saint' : 'Sword Saint';
@@ -6705,24 +6705,14 @@ function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
     ],
     onReveal(card) {
       if (card._saintHandler) return;
+      // 展露 = 持续光环：每次玩家回合结束（turnChanged 'enemy'）召唤 1 个剑圣，不弃自己。
+      // 只要仍处于展露就一直生效（主卡 / alwaysFaceUp 钻 / 滑在边缘的银金）。
       card._saintHandler = (t) => {
-        if (!card.faceUp) return;
-        if (t !== 'enemy') return;   // 玩家回合结束 → 进入敌方回合的瞬间
+        if (t !== 'enemy') return;   // 仅玩家回合结束（进入敌方回合的瞬间）触发
+        if (!card.faceUp) return;    // 已翻反面则不召唤（onConceal 也会解绑，此处双保险）
         const w = window.__game;
         if (!w) return;
-        // 防重入（同回合内 turnChanged 不会重复触发，但 setTimeout 等异步路径有保险）
-        if (card._saintTriggered) return;
-        card._saintTriggered = true;
         spawnSwordSaint(w, { attack: awakened ? 7 : 5, awakened });
-        // 弃置此牌（仅当在手牌内 — 主卡 / 已不在手牌的情况 no-op）
-        const idx = w.deck.hand.indexOf(card);
-        if (idx >= 0) {
-          w.deck.hand.splice(idx, 1);
-          card._lastAction = 'use';
-          // toDiscard 内会调 _setFace(false) → 触发 onConceal → 解绑 _saintHandler
-          w.deck.toDiscard(card);
-        }
-        // 下次再被展露（重洗后）需要重新累计 → onConceal 里把 _saintTriggered 清掉
       };
       Events.on('turnChanged', card._saintHandler);
     },
@@ -6731,8 +6721,6 @@ function _swordSaintVisitTier(awakened, alwaysFaceUp, value) {
         Events.off('turnChanged', card._saintHandler);
         card._saintHandler = null;
       }
-      // 翻反面时清掉 triggered 标记 → 下次展露允许重新累计 + 触发
-      card._saintTriggered = false;
     },
   };
 }
@@ -9361,7 +9349,7 @@ class BattleManager {
     this._rewardHits = 0;
     this._rewardTurnsRemaining = 0;
     this._stageEndPending = false;
-    // 开局宝箱战：跳过常规波次系统，直接 spawn 6 个宝箱（3 铜+2 银+1 金）
+    // 开局宝箱战：跳过常规波次系统，直接 spawn 4 个宝箱（3 铜+1 银）
     if (this.world._openingChestPhase) {
       this._inChestStage = true;
       this.nextWaveTypes = null;
@@ -9398,16 +9386,14 @@ class BattleManager {
     }, 800);
   }
 
-  // 开局宝箱战 spawn：3 铜+2 银+1 金，散布在战场中部一带
+  // 开局宝箱战 spawn：3 铜+1 银，散布在战场中部一带
   _spawnOpeningChests() {
     const w = this.world;
     const layout = [
-      { type: 'chest_bronze', x: w.w * 0.20, y: w.h * 0.30 },
-      { type: 'chest_bronze', x: w.w * 0.50, y: w.h * 0.22 },
-      { type: 'chest_bronze', x: w.w * 0.80, y: w.h * 0.30 },
-      { type: 'chest_silver', x: w.w * 0.28, y: w.h * 0.55 },
-      { type: 'chest_silver', x: w.w * 0.72, y: w.h * 0.55 },
-      { type: 'chest_gold',   x: w.w * 0.50, y: w.h * 0.45 },
+      { type: 'chest_bronze', x: w.w * 0.25, y: w.h * 0.32 },
+      { type: 'chest_bronze', x: w.w * 0.50, y: w.h * 0.24 },
+      { type: 'chest_bronze', x: w.w * 0.75, y: w.h * 0.32 },
+      { type: 'chest_silver', x: w.w * 0.50, y: w.h * 0.52 },
     ];
     for (const s of layout) {
       const e = new Enemy(s.x, s.y, s.type, w);
@@ -12617,6 +12603,17 @@ function setupKeywordTooltips() {
   // 事件委托：监听 document mouseover。让 show 内部决定显示关键词解释 / 反面提示 / 不显示
   // 跟踪上次悬浮的 slot：避免 mouseover 在子元素间跳动时重复播音
   let _lastHoverSlot = null;
+  // hover-intent：鼠标停留 HOVER_DELAY 毫秒后才放大 + 播音效 + 弹关键词（快速划过不触发）
+  let _hoverTimer = null;
+  let _armedSlot = null;
+  const HOVER_DELAY = 300;
+
+  // 解除悬停态：清计时器 + 移除放大 class（.hover-armed）+ 清关键词 popover
+  function disarm() {
+    if (_hoverTimer) { clearTimeout(_hoverTimer); _hoverTimer = null; }
+    if (_armedSlot) { _armedSlot.classList.remove('hover-armed'); _armedSlot = null; }
+    clear();
+  }
 
   // 动态计算 transform-origin：避免悬浮放大时卡片溢出窗口边缘。
   //   读取卡的当前 rect（未放大态）+ scale 倍数 → 算出"放大后还能 fit 的 origin"。
@@ -12656,25 +12653,28 @@ function setupKeywordTooltips() {
   document.addEventListener('mouseover', e => {
     const slot = e.target.closest('.card-slot, .modal-card, .bag-slot');
     if (!slot) return;
-    if (slot !== _lastHoverSlot) {
-      _lastHoverSlot = slot;
+    if (slot === _lastHoverSlot) return;   // 仍在同一张卡（含子元素间移动）→ 不重启计时
+    disarm();                               // 切到新卡：先解除旧卡放大 / 计时 / popover
+    _lastHoverSlot = slot;
+    _hoverTimer = setTimeout(() => {
+      _hoverTimer = null;
+      _armedSlot = slot;
+      _setHoverOrigin(slot);                // 先算放大锚点
+      slot.classList.add('hover-armed');    // 再触发放大（CSS 已 gate 在 .hover-armed）
       playSfx('cardHover', 30);
-      _setHoverOrigin(slot);
-    }
-    const kws = slot.__keywords || [];
-    show(slot, kws);
+      show(slot, slot.__keywords || []);    // 弹关键词解释 / 反面提示
+    }, HOVER_DELAY);
   });
   document.addEventListener('mouseout', e => {
     const slot = e.target.closest('.card-slot, .modal-card, .bag-slot');
-    if (slot) {
-      clear();
-      // 离开 slot（去到非 slot 元素或别的 slot）→ 清空跟踪，让下次 mouseover 重新触发
-      // 注意：不能赋成 "to"（新 slot），否则下次 mouseover 检测 slot === lastHover → 静默
-      const to = e.relatedTarget && e.relatedTarget.closest
-        ? e.relatedTarget.closest('.card-slot, .modal-card, .bag-slot')
-        : null;
-      if (to !== slot) _lastHoverSlot = null;
-    }
+    if (!slot) return;
+    // 仍在同一张卡内（移到它的子元素）→ 不解除
+    const to = e.relatedTarget && e.relatedTarget.closest
+      ? e.relatedTarget.closest('.card-slot, .modal-card, .bag-slot')
+      : null;
+    if (to === slot) return;
+    disarm();              // 真正离开这张卡 → 清计时器 + 移除放大 + 清 popover
+    _lastHoverSlot = null;
   });
   // 任何卡 / 候选卡被点击 → 选择音
   // 注意：.bag-slot 不在此列 —— 背包槽的"替换"步骤会触发后续 uiClick / 替换音，避免双响
@@ -12688,8 +12688,8 @@ function setupKeywordTooltips() {
 
   // 发现弹窗 / 状态切换 时，卡 DOM 会同步消失但 mouseout 不会触发
   //   → 残留 kw-pop 不会被清除。这里监听生命周期事件来主动清场。
-  Events.on('discoverHide', () => { clear(); _lastHoverSlot = null; });
-  Events.on('stateChanged', () => { clear(); _lastHoverSlot = null; });
+  Events.on('discoverHide', () => { disarm(); _lastHoverSlot = null; });
+  Events.on('stateChanged', () => { disarm(); _lastHoverSlot = null; });
 }
 
 // ---- 起始炮台选择面板（首次进入 / 阵亡后重开）----
