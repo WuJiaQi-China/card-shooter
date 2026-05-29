@@ -1,6 +1,12 @@
 # Build artifacts
 dist/
+build/
 *.zip
+
+# itch.io publish (butler)：本地目标配置 + staging，不入库
+itch-target.txt
+butler-path.txt
+buildnumber.txt
 
 # OS junk
 .DS_Store
