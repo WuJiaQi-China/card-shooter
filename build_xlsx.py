@@ -1,5 +1,41 @@
-"""Build game_data.xlsx with 3 sheets: 卡牌 / 敌人 / 召唤物"""
+"""Build game_data.xlsx with 4 sheets: 卡牌 / 敌人 / 召唤物 / 公式.
+
+卡牌 sheet is generated from card_data_dump.json — a live snapshot of CARD_DATA
+(one row per family×tier). To refresh it after editing cards in game.js:
+  1. Open the game in the browser (preview server, port 8766).
+  2. Paste DUMP_SNIPPET (below) into the console; it returns {familyCount, rowCount, rows}.
+  3. Save that JSON as card_data_dump.json next to this script.
+  4. Run: python build_xlsx.py
+(CARD_DATA factory functions are evaluated JS, so the live game is the only reliable
+source for per-tier cost/value/desc — a static parse of game.js cannot resolve them.)
+
+敌人 / 召唤物 / 公式 sheets are still hand-maintained reference data below.
+"""
+import json
+import os
 from openpyxl import Workbook
+
+# Console snippet that produces card_data_dump.json (see module docstring).
+DUMP_SNIPPET = r"""
+(() => {
+  const mk = window.__mkCard, C = window.__cards;
+  const order = ['bronze','silver','gold','diamond'];
+  const rzh = {bronze:'铜', silver:'银', gold:'金', diamond:'钻'};
+  const rows = [];
+  for (const fid of Object.keys(C)) {
+    const f = C[fid], nm = f.name || {}, tiers = f.tiers || {};
+    for (const t of Object.keys(tiers).sort((a,b)=>order.indexOf(a)-order.indexOf(b))) {
+      const card = mk(fid, t);
+      const d = tiers[t].desc, dd = (typeof d === 'function') ? d(card) : d;
+      const zh = (dd && dd.zh) || (typeof dd==='string'?dd:''), en = (dd && dd.en) || (typeof dd==='string'?dd:'');
+      rows.push({familyId:fid, name_zh:(nm.zh||nm), name_en:(nm.en||nm), emoji:f.emoji||'',
+        excludedFromShop:!!f.excludedFromShop, tier:t, rarity_zh:rzh[t]||t,
+        cost:card.cost, value:card.value, desc_zh:zh, desc_en:en});
+    }
+  }
+  return {familyCount:Object.keys(C).length, rowCount:rows.length, rows};
+})()
+"""
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 wb = Workbook()
@@ -33,94 +69,40 @@ def style_data(sheet, n_rows, n_cols):
             cell.alignment = Alignment(vertical='center', wrap_text=True)
             cell.border = thin_border
 
-# ============== 卡牌 sheet ==============
+# ============== 卡牌 sheet（由 card_data_dump.json 动态生成，每行 = 一个 family×tier）==============
 cards_sheet = wb.active
 cards_sheet.title = '卡牌'
 
-CARDS = [
-    # (流派, 编号, 名称, 费用, 稀有度, 描述, 价值核算, 备注)
-    # —— 奥弹流派 (16 张) ——
-    ('奥弹', 1, '凝视', 1, 'epic', '使用：子弹+1 / 展露：子弹+1', '6 + 展露效果 6×3=18 → epic', ''),
-    ('奥弹', 2, '烟花', 2, 'common', '洗入 3 张奥术飞弹', '3 张奥弹 × 价值 3 = 9 + 洗入扣 21', ''),
-    ('奥弹', 3, '军备库', 3, 'epic', '洗入 3 张奥术飞弹 + 1 张随机基础牌', '3 奥弹 + 1 随机基础', ''),
-    ('奥弹', 4, '奥弹之雨', 3, 'legendary', '洗入 5 张奥术飞弹 + 全部立刻翻面（连环爆发）', '5 奥弹 × 立刻触发', ''),
-    ('奥弹', 5, '奥弹齐发', 2, 'rare', '洗入 3 张奥术飞弹并立刻翻面（瞬时触发）', '3 奥弹 + 立刻翻面', ''),
-    ('奥弹', 6, '加倍奥弹', 2, 'rare', '本回合手牌中所有奥弹伤害 ×2', '本回合 buff', ''),
-    ('奥弹', 7, '爆炸奥弹', 2, 'rare', '本回合所有奥弹命中爆炸（AOE 伤害 = 该奥弹自身伤害）', '本回合 buff', ''),
-    ('奥弹', 8, '击退奥弹', 1, 'common', '本回合所有奥弹命中击退敌人', '本回合 buff', ''),
-    ('奥弹', 9, '充能奥弹', 1, 'common', '本回合所有奥弹击杀回 1 水晶', '本回合 buff', ''),
-    ('奥弹', 10, '过载奥弹', 2, 'epic', '本回合每发奥弹后追加 1 张奥术飞弹（链式）', '本回合 buff（链式）', ''),
-    ('奥弹', 11, '奥光', 1, 'common', '展露：本回合下一发奥弹伤害 ×2', '展露', ''),
-    ('奥弹', 12, '奥能回响', 1, 'rare', '本回合每发射 1 颗奥弹，立即洗入 1 张奥术飞弹', '本回合 buff', ''),
-    ('奥弹', 13, '奥能聚焦', 2, 'rare', '展露：把手牌中所有奥弹立即翻面（连环触发）', '展露', ''),
-    ('奥弹', 14, '奥术涌动', 1, 'common', '展露：把手牌中 1 张奥弹 + 其两侧相邻卡 一并翻面', '展露', ''),
-    ('奥弹', 15, '预知', 1, 'common', '使用：随机一张手牌立即翻面（若是奥弹自动触发）', '随机翻面', ''),
-    ('奥弹', 16, '奥弹之书', 2, 'rare', '展露：每当你洗入卡时发射 1 颗奥术飞弹', '展露', ''),
-    # —— 弹射流派 (12 张) ——
-    ('弹射', 17, '粘液球', 1, 'common', '弹射+4', '弹射 4×2=8', ''),
-    ('弹射', 18, '跳跳球', 2, 'common', '弹射+6', '弹射 6×2=12', ''),
-    ('弹射', 19, '墨镜', 2, 'epic', '弹射+2 穿透+2。任一耗尽时从对方借 1', '4 + 8 + 借位机制', ''),
-    ('弹射', 20, '超弹', 3, 'legendary', '弹射+10', '弹射 10×2=20', ''),
-    ('弹射', 21, '共鸣弹', 2, 'common', '弹射 +连击数', '弹射 × combo', ''),
-    ('弹射', 22, '折射', 1, 'common', '展露：弹射+1', '展露 × 2 = 6 → 1费允许', ''),
-    ('弹射', 23, '弹射爆炸', 2, 'rare', '弹射时小爆炸（AOE 伤害 = 该子弹伤害 × 0.5）', '弹射触发', ''),
-    ('弹射', 24, '弹射爆裂', 3, 'epic', '弹射时大爆炸（AOE 伤害 = 该子弹伤害 × 2）', '弹射触发 ×2', ''),
-    ('弹射', 25, '弹射追踪', 2, 'rare', '弹射后子弹获得追踪', '弹射触发', ''),
-    ('弹射', 26, '弹射回响', 1, 'common', '弹射时玩家回 1 水晶', '弹射触发', ''),
-    ('弹射', 27, '节拍器', 1, 'common', '连击≥2：本次子弹+1', '条件子弹', ''),
-    ('弹射', 28, '连击爆发', 1, 'rare', '连击≥10：清空连击 + 立刻发射 5 颗奥术飞弹', 'combo 大招', ''),
-    # —— 召唤流派 (14 张) ——
-    ('召唤', 29, '召唤炮台', 2, 'common', '召唤 1 小炮台（每敌方回合 1 弹，HP 3）', '召唤物 价值 12', '继承玩家 buff'),
-    ('召唤', 30, '召唤士兵', 1, 'common', '召唤 1 士兵（HP 5，移动慢，挡敌人）', '召唤物 价值 8', ''),
-    ('召唤', 31, '召唤群体', 3, 'rare', '召唤 3 士兵', '3 个士兵', ''),
-    ('召唤', 32, '召唤奥弹炮台', 3, 'epic', '召唤 1 炮台（每回合发 1 颗奥术飞弹）', '高级炮台', ''),
-    ('召唤', 33, '召唤护盾兵', 2, 'common', '召唤 1 护盾兵（HP 8）', '高血肉盾', ''),
-    ('召唤', 34, '召唤狙击塔', 3, 'epic', '召唤 1 狙击塔（每 2 回合 1 颗高伤弹，HP 6）', '狙击塔', ''),
-    ('召唤', 35, '召唤无人机', 2, 'common', '召唤 1 飞行单位（每回合 1 弹，HP 3）', '飞行单位', ''),
-    ('召唤', 36, '召唤弹射炮台', 2, 'rare', '召唤 1 炮台（其子弹弹射+3）', '炮台 + 弹射', ''),
-    ('召唤', 37, '召唤增援', 2, 'rare', '接下来 3 敌方回合，每回合自动召唤 1 士兵', '持续召唤', ''),
-    ('召唤', 38, '军团统帅', 3, 'legendary', '展露：本回合召唤的所有单位 HP+100% 攻+2，无视回合衰减', '展露 buff', ''),
-    ('召唤', 39, '重整', 1, 'common', '治疗所有友方单位 +3 HP', '群体治疗', ''),
-    ('召唤', 40, '护盾术', 1, 'common', '给最近友方单位 1 护盾（吸收 1 击）', '护盾', ''),
-    ('召唤', 41, '双面间谍', 1, 'common', '使用：召唤 2 工兵 / 弃置：召唤 1 弓箭手（高伤远程）', '使用+弃置双效果', ''),
-    ('召唤', 42, '战术撤退', 1, 'rare', '弃置：同时弃 2 张随机反面手牌 → 召唤 1 重型炮台', '弃置触发', ''),
-    # —— 跨流派连携 (8 张) ——
-    ('连携', 43, '战吼', 1, 'common', '获得 1 层连携', 'stacks +1', ''),
-    ('连携', 44, '双吼', 2, 'common', '获得 2 层连携', 'stacks +2', ''),
-    ('连携', 45, '战意激昂', 3, 'legendary', '获得 4 层连携', 'stacks +4', ''),
-    ('连携', 46, '洗入号令', 2, 'rare', '展露：每当你洗入手牌，获得 1 层连携', '展露', ''),
-    ('连携', 47, '弃牌号令', 1, 'rare', '弃置：获得 2 层连携', '弃置触发', ''),
-    ('连携', 48, '完美协调', 1, 'epic', '被连携使用时，此卡消耗值视为 0', '连携配菜', ''),
-    ('连携', 49, '奥能协奏', 2, 'common', '获得 1 层连携 + 洗入 1 张奥术飞弹', '混合', ''),
-    ('连携', 50, '击杀号令', 2, 'rare', '展露：每当敌人死亡，获得 1 层连携', '展露 + 击杀触发', ''),
-    # —— 火焰流派 (7 张) ——
-    ('火焰', 51, '火焰子弹', 1, 'common', '使用：子弹命中敌人 +1 火焰', '1 火焰 × HitEnemy', ''),
-    ('火焰', 52, '烈焰射击', 2, 'common', '使用：子弹命中敌人 +2 火焰', '2 火焰 × HitEnemy', ''),
-    ('火焰', 53, '引爆', 2, 'rare', '引爆：所有敌人受 (火焰层数 × 2) 伤害并清空所有火焰', '清空 +伤害', ''),
-    ('火焰', 54, '火焰奥弹', 2, 'rare', '本回合所有奥弹命中 +2 火焰', '本回合 buff + 与奥弹结合', ''),
-    ('火焰', 55, '火焰炮台', 2, 'rare', '召唤 1 炮台（子弹命中敌人 +2 火焰）', '与召唤结合', ''),
-    ('火焰', 56, '凤凰', 3, 'legendary', '展露：每个玩家回合开始所有敌人 +1 火焰', '展露 + 全体 debuff', ''),
-    ('火焰', 57, '熔岩', 3, 'epic', '所有敌人 +3 火焰', '全体 +3', ''),
-    # —— 穿透 / 波次（按价值模型新增） ——
-    ('穿透', 58, '穿透弹', 1, 'common', '使用：穿透+2', '穿透 4×2=8', ''),
-    ('穿透', 59, '强穿透', 2, 'common', '使用：穿透+3、弹射+1', '12+2=14', ''),
-    ('穿透', 60, '究极穿透', 3, 'rare', '使用：穿透+4、弹射+1', '16+2=18', ''),
-    ('波次', 61, '多重射击', 2, 'common', '使用：波数+1、弹射+1', '12+2=14', ''),
-    ('波次', 62, '弹幕', 3, 'rare', '使用：波数+1、子弹+1', '12+6=18', ''),
-    ('波次', 63, '暴风弹幕', 3, 'epic', '使用：波数+2', '24（epic 略超模）', ''),
-    # —— 调试卡（不在 Loot 池） ——
-    ('调试', 64, '子弹波次+1', 1, 'common', '波数+1（初始 bag 9 张此卡用于平衡基线）', '12 价值', '不在 Loot 池'),
-    # —— 衍生卡 ——
-    ('衍生', 65, '奥术飞弹', 0, 'derived', '0 费。使用 / 展露 时立即发射 1 颗追踪奥弹（1 伤害），触发后销毁', '衍生卡', '由烟花/军备库/奥弹之雨/奥弹齐发等生成'),
-]
+_dump_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'card_data_dump.json')
+with open(_dump_path, encoding='utf-8') as _f:
+    _dump = json.load(_f)
 
-header_row(cards_sheet, ['流派', '编号', '名称', '费用', '稀有度', '描述', '价值核算', '备注'])
-for i, row in enumerate(CARDS, 2):
-    for col, val in enumerate(row, 1):
+_tier_order = {'bronze': 0, 'silver': 1, 'gold': 2, 'diamond': 3}
+CARD_ROWS = sorted(
+    _dump['rows'],
+    key=lambda r: (r.get('familyId', ''), _tier_order.get(r.get('tier', ''), 9)),
+)
+
+CARD_COLUMNS = ['家族ID', '名称', '英文名', 'Emoji', '稀有度', '费用', '价值', '效果(中文)', '效果(英文)', '商店排除']
+header_row(cards_sheet, CARD_COLUMNS)
+for i, r in enumerate(CARD_ROWS, 2):
+    vals = [
+        r.get('familyId', ''),
+        r.get('name_zh', ''),
+        r.get('name_en', ''),
+        r.get('emoji', ''),
+        r.get('rarity_zh', ''),
+        r.get('cost', ''),
+        r.get('value', ''),
+        r.get('desc_zh', ''),
+        r.get('desc_en', ''),
+        '是' if r.get('excludedFromShop') else '',
+    ]
+    for col, val in enumerate(vals, 1):
         cards_sheet.cell(row=i, column=col, value=val)
-style_data(cards_sheet, len(CARDS), 8)
+style_data(cards_sheet, len(CARD_ROWS), len(CARD_COLUMNS))
 # 列宽
-widths = [10, 8, 14, 8, 12, 50, 35, 20]
+widths = [16, 12, 16, 8, 8, 6, 6, 50, 50, 10]
 for col, w in enumerate(widths, 1):
     cards_sheet.column_dimensions[chr(64 + col)].width = w
 cards_sheet.row_dimensions[1].height = 24
@@ -389,4 +371,4 @@ for sh in (cards_sheet, enemies_sheet, summons_sheet):
 
 wb.save('game_data.xlsx')
 print('Saved game_data.xlsx')
-print('Cards:', len(CARDS), 'Enemies:', len(ENEMIES), 'Summons:', len(SUMMONS))
+print('Cards:', len(CARD_ROWS), '(families:', _dump['familyCount'], ') Enemies:', len(ENEMIES), 'Summons:', len(SUMMONS))

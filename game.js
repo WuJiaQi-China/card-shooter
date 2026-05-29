@@ -7240,7 +7240,111 @@ function _directedSurveyTier(descZh, descEn, costOverride, insertPos, value) {
   };
 }
 
-// ─── CARD_DATA：29 个 family × tier (按策划表 xlsx) ────────────────
+// 回马枪（v10）：展露光环"伤害+auraDmg"（face-up 时 via beforeShoot，与 凝视/折射 同模式）。
+//   回合结束时把自身从弃牌堆洗回手牌（_returnFromDiscardAtTurnEnd → endPlayerTurn 扫描弃牌堆）。
+//   金：洗回时翻为正面（_returnFlipFaceUp）。
+//   钻：每次使用卡牌额外 _returnOnUseChance 概率从弃牌堆洗回（下方 cardUsedSide 全局监听）。
+function _counterThrustTier(auraDmg, flipOnReturn, returnUseChance, value) {
+  return {
+    cost: 1, value, hasRevealFx: true,
+    _returnFromDiscardAtTurnEnd: true,
+    _returnFlipFaceUp: flipOnReturn,
+    _returnOnUseChance: returnUseChance,
+    desc: {
+      zh: `展露：伤害+${auraDmg}。回合结束时，将此牌从弃牌堆洗入你的手牌${flipOnReturn ? '，并将其翻为正面' : ''}。${returnUseChance > 0 ? `每次使用卡牌，都有${Math.round(returnUseChance * 100)}%的概率将此牌从弃牌堆洗入你的手牌。` : ''}`,
+      en: `Reveal: Damage +${auraDmg}. At end of turn, shuffle this card from the discard pile into your hand${flipOnReturn ? ' face-up' : ''}.${returnUseChance > 0 ? ` Each time you use a card, ${Math.round(returnUseChance * 100)}% chance to shuffle this from the discard pile into your hand.` : ''}`,
+    },
+    effects: () => [],
+    onReveal(card) {
+      if (card._revealHandler) return;
+      card._revealHandler = (tpl) => {
+        tpl.addHook(new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += auraDmg; }));
+      };
+      Events.on('beforeShoot', card._revealHandler);
+    },
+    onConceal(card) {
+      if (!card._revealHandler) return;
+      Events.off('beforeShoot', card._revealHandler);
+      card._revealHandler = null;
+    },
+  };
+}
+
+// 回马枪 钻：每次使用任意卡牌 → 对弃牌堆里标记 _returnOnUseChance 的卡各 roll 一次洗回手牌。
+// 全局监听一次即可：只对弃牌堆中带该标记的卡生效，跨局安全（deck 每局重建）。
+Events.on('cardUsedSide', () => {
+  const world = window.__game;
+  if (!world || !world.deck) return;
+  const pool = world.deck.discard.filter(c => c._def && c._def._returnOnUseChance > 0);
+  for (const c of pool) {
+    if (Math.random() >= c._def._returnOnUseChance) continue;
+    const di = world.deck.discard.indexOf(c);
+    if (di >= 0) world.deck.discard.splice(di, 1);
+    world.deck.shuffleIntoHand(c);
+  }
+});
+
+// 悔恨（v10）：伤害+2 (PreActive)。被弃置时，将弃牌堆中最多 2 张牌洗入手牌（钻：并翻为正面）。
+//   onDiscard 触发时此牌尚未进入弃牌堆（三条弃置路径都是先 onDiscard 再入堆）→ 不会洗回自己。
+function _regretTier(flipFaceUp, value) {
+  return {
+    cost: 1, value,
+    desc: {
+      zh: `伤害+2。被弃置时，将2张弃牌堆中的牌洗入手牌${flipFaceUp ? '，并将它们翻为正面' : ''}。`,
+      en: `Damage +2. When discarded, shuffle 2 cards from the discard pile into your hand${flipFaceUp ? ' face-up' : ''}.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.attack += 2; }),
+    ],
+    onDiscard(card, world) {
+      const pool = world.deck.discard.filter(c => c !== card);
+      let moved = 0;
+      for (let k = 0; k < 2 && pool.length > 0; k++) {
+        const pick = pool.splice(randInt(0, pool.length - 1), 1)[0];
+        const di = world.deck.discard.indexOf(pick);
+        if (di >= 0) world.deck.discard.splice(di, 1);
+        world.deck.shuffleIntoHand(pick);
+        if (flipFaceUp) { pick._foresightFaceUp = true; world.deck._setFace(pick, true); }
+        moved++;
+      }
+      if (moved > 0) { world.deck._updateFaceUp(); Events.emit('deckChanged'); }
+    },
+  };
+}
+
+// 蹦床（v10）：弹射+bounceAdd (PreActive)。弹射时（HitWall 且 bound>0 = 即将反弹）flipPct 概率把一张反面手牌翻为正面。
+//   钻（allFaceUpBonus）：若手牌已全为正面（无反面可翻）→ 改为子弹伤害+1。
+//   HitWall 钩子不写 ctx.handled → 默认反弹照常进行（triggerHooks 只看 ctx.handled，不看返回值）。
+function _trampolineTier(bounceAdd, flipPct, allFaceUpBonus, value) {
+  return {
+    cost: 2, value,
+    desc: {
+      zh: `弹射+${bounceAdd}。弹射时${Math.round(flipPct * 100)}%将一张手牌翻为正面${allFaceUpBonus ? '；如果所有手牌已经是正面，则自身伤害+1' : ''}。`,
+      en: `Bounce +${bounceAdd}. On bounce, ${Math.round(flipPct * 100)}% to flip a hand card face-up${allFaceUpBonus ? '; if all hand cards are already face-up, gain Damage +1 instead' : ''}.`,
+    },
+    effects: () => [
+      new Effect(Phase.PreActive, 0, ctx => { ctx.bullet.bound += bounceAdd; }),
+      new Effect(Phase.HitWall, 0, ctx => {
+        if (ctx.bullet.bound <= 0) return;          // 不会反弹（=销毁）→ 不触发
+        if (Math.random() >= flipPct) return;
+        const world = ctx.world;
+        if (!world || !world.deck) return;
+        const faceDown = world.deck.hand.filter(c => !c.faceUp);
+        if (faceDown.length > 0) {
+          const pick = faceDown[randInt(0, faceDown.length - 1)];
+          pick._foresightFaceUp = true;
+          world.deck._setFace(pick, true);
+          world.deck._updateFaceUp();
+          Events.emit('deckChanged');
+        } else if (allFaceUpBonus) {
+          ctx.bullet.attack += 1;
+        }
+      }),
+    ],
+  };
+}
+
+// ─── CARD_DATA：32 个 family × tier (按策划表 xlsx) ────────────────
 const CARD_DATA = {
 
   // ─── 钻 only ───
@@ -7880,6 +7984,41 @@ const CARD_DATA = {
     tiers: {
       gold:    _braveDragonLairTier(3, 23),
       diamond: _braveDragonLairTier(2, 30),
+    },
+  },
+
+  // ─── v10 新卡：回马枪 / 悔恨 / 蹦床（手牌流派）─────────────────────
+  // 回马枪：展露伤害光环 + 回合结束从弃牌堆洗回手牌（金翻正面 / 钻每次用牌 25% 额外洗回）
+  counter_thrust: {
+    emoji: '🪃',
+    name: { zh: '回马枪', en: 'Counter Thrust' },
+    tiers: {
+      bronze:  _counterThrustTier(1, false, 0,    6),
+      silver:  _counterThrustTier(2, false, 0,    8),
+      gold:    _counterThrustTier(2, true,  0,    10),
+      diamond: _counterThrustTier(2, false, 0.25, 13),
+    },
+  },
+
+  // 悔恨：伤害+2 + 被弃置时从弃牌堆洗回 2 张（钻翻正面）。仅 金 / 钻。
+  regret: {
+    emoji: '💔',
+    name: { zh: '悔恨', en: 'Regret' },
+    tiers: {
+      gold:    _regretTier(false, 10),
+      diamond: _regretTier(true,  13),
+    },
+  },
+
+  // 蹦床：弹射+N + 弹射时概率翻一张手牌为正面（钻：全正面时改为伤害+1）
+  trampoline: {
+    emoji: '🦘',
+    name: { zh: '蹦床', en: 'Trampoline' },
+    tiers: {
+      bronze:  _trampolineTier(2, 0.2, false, 13),
+      silver:  _trampolineTier(3, 0.3, false, 18),
+      gold:    _trampolineTier(4, 0.3, false, 23),
+      diamond: _trampolineTier(4, 0.5, true,  30),
     },
   },
 
@@ -9316,6 +9455,21 @@ class BattleManager {
       }
     }
     if (autoDiscards.length > 0) {
+      this.world.deck._updateFaceUp();
+      Events.emit('deckChanged');
+    }
+    // 回马枪等：回合结束时把弃牌堆中标记 _returnFromDiscardAtTurnEnd 的卡洗回手牌（金 tier 翻为正面）。
+    const returners = this.world.deck.discard.filter(c => c._def && c._def._returnFromDiscardAtTurnEnd);
+    for (const c of returners) {
+      const di = this.world.deck.discard.indexOf(c);
+      if (di >= 0) this.world.deck.discard.splice(di, 1);
+      this.world.deck.shuffleIntoHand(c);
+      if (c._def._returnFlipFaceUp) {
+        c._foresightFaceUp = true;
+        this.world.deck._setFace(c, true);
+      }
+    }
+    if (returners.length > 0) {
       this.world.deck._updateFaceUp();
       Events.emit('deckChanged');
     }
